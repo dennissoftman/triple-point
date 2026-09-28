@@ -27,6 +27,9 @@ public sealed class Simulation
     const float BrakeFactor = 2f;                   // vehicles brake this much harder than they accelerate
     const float TrackedPivotAngle = 0.52f;          // rad (30°); sharper than this, tracks turn nearly on the spot
     const float WheeledSlowAngle = 1.05f;           // rad (60°); sharper than this, wheels slow down to turn
+    const float ReverseMaxDistance = 12f;           // m; a stopped vehicle backs up to targets behind it closer than this
+    const float ReverseStartAngle = 2.09f;          // rad (120°); "behind" when starting to back up
+    const float ReverseKeepAngle = 1.75f;           // rad (100°); keeps backing up while the target is within this of its rear
 
     public SimState State { get; } = new();
 
@@ -47,18 +50,19 @@ public sealed class Simulation
     /// <summary>A unit of a type from /data, facing `heading` (radians, facing (sin h, 0, cos h)).</summary>
     public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0) =>
         AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, type.MemberDps * type.Members, type.Range,
-            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.CanCapture, heading);
+            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id);
 
     /// <summary>A unit with explicit stats; health and damage are for the whole squad, turnRate is in degrees per second.</summary>
     public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
-        bool canCapture = true, float heading = 0)
+        float reverseSpeed = 0, bool canCapture = true, float heading = 0, string type = "")
     {
         int id = _nextId++;
         State.Units.Add(new Unit
         {
             Id = id,
             Owner = owner,
+            Type = type,
             Position = position,
             PrevPosition = position,
             Heading = heading,
@@ -68,6 +72,7 @@ public sealed class Simulation
             Movement = movement,
             Acceleration = acceleration,
             TurnRate = turnRate * MathF.PI / 180,
+            ReverseSpeed = reverseSpeed,
             CanCapture = canCapture,
             MaxMembers = members,
             MemberHealth = maxHealth / members,
@@ -223,6 +228,9 @@ public sealed class Simulation
             case AttackCommand a:
                 Issue(a.Player, a.UnitId, new Order(UnitOrder.Attack, default, TargetId: a.TargetId), a.Queued);
                 break;
+            case AttackMoveCommand am:
+                Issue(am.Player, am.UnitId, new Order(UnitOrder.AttackMove, am.Target), am.Queued);
+                break;
             case AttackSegmentCommand s:
                 Issue(s.Player, s.UnitId, new Order(UnitOrder.AttackSegment, default, s.Line, s.Segment), s.Queued);
                 break;
@@ -350,6 +358,16 @@ public sealed class Simulation
                 case UnitOrder.Attack:
                     UpdateAttack(ref unit);
                     break;
+
+                case UnitOrder.AttackMove:
+                    // Head for the point, but stop to fight whatever comes into range; then carry on.
+                    if (FindTarget(unit, out int target, out var at)) Fire(ref unit, target, at);
+                    else if (Move(ref unit, unit.Current.Target))
+                    {
+                        _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
+                        Complete(ref unit);
+                    }
+                    break;
             }
             if (!unit.Driving) Coast(ref unit);
         }
@@ -369,33 +387,36 @@ public sealed class Simulation
         if (InRange(ref unit, unit.Range) && Fire(ref unit, targetId, at)) Complete(ref unit);
     }
 
-    // An idle unit fires at the weakest enemy in range: fewest hit points left, so it dies soonest,
-    // nearest first on ties. Units come before posts. Idle allies near the same enemies pick the same
-    // target, so they focus fire without the player clicking. It doesn't chase, and units with orders
-    // don't stop to shoot: move means move.
+    // An idle unit fires at the weakest enemy in range. It doesn't chase, and units with orders don't
+    // stop to shoot (move means move); attack-move is the order that does.
     void AutoFire(ref Unit unit)
     {
-        int best = -1;
+        if (FindTarget(unit, out int target, out var at)) Fire(ref unit, target, at);
+    }
+
+    // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
+    // Units come before posts. Allies near the same enemies pick the same target, so they focus fire
+    // without the player clicking.
+    bool FindTarget(in Unit unit, out int target, out Vector3 at)
+    {
+        (target, at) = (-1, Vector3.Zero);
         float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range;
-        var at = Vector3.Zero;
         foreach (var other in State.Units)
         {
             if (other.Owner == unit.Owner || other.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
             if (sq > rangeSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
-            (best, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
+            (target, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
         }
-        if (best < 0)
+        if (target >= 0) return true;
+        foreach (var post in State.Gatherers)
         {
-            foreach (var post in State.Gatherers)
-            {
-                if (post.Owner == unit.Owner || post.Health <= 0) continue;
-                float sq = GroundDistanceSq(unit.Position, post.Position);
-                if (sq > rangeSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
-                (best, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
-            }
+            if (post.Owner == unit.Owner || post.Health <= 0) continue;
+            float sq = GroundDistanceSq(unit.Position, post.Position);
+            if (sq > rangeSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
+            (target, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
         }
-        if (best >= 0) Fire(ref unit, best, at);
+        return target >= 0;
     }
 
     // Returns true if this shot destroyed the target.
@@ -450,12 +471,21 @@ public sealed class Simulation
 
     // Steers toward the target at a limited turn rate, accelerating, and braking to stop near it.
     // Tracked vehicles crawl while turning sharply, so they pivot almost on the spot; wheeled ones need
-    // speed to steer, so from a standstill they drive off in an arc.
+    // speed to steer, so from a standstill they drive off in an arc. A vehicle standing still with a
+    // close target behind it backs up to it instead of turning around.
     static bool Drive(ref Unit unit, Vector3 target)
     {
         float dx = target.X - unit.Position.X, dz = target.Z - unit.Position.Z;
         float distance = MathF.Sqrt(dx * dx + dz * dz);
-        float turn = WrapAngle(MathF.Atan2(dx, dz) - unit.Heading);
+        float turnForward = WrapAngle(MathF.Atan2(dx, dz) - unit.Heading);
+        float turnBackward = WrapAngle(turnForward - MathF.PI); // to point the rear at it
+        float speed = MathF.Abs(unit.CurrentSpeed);
+
+        // Decided from (near) standstill, and kept while the target stays roughly behind.
+        bool reverse = unit.ReverseSpeed > 0 && (unit.CurrentSpeed < -0.05f
+            ? MathF.Abs(turnBackward) < ReverseKeepAngle
+            : speed < 0.5f && MathF.Abs(turnForward) > ReverseStartAngle && distance < ReverseMaxDistance);
+        float turn = reverse ? turnBackward : turnForward;
         float sharpness = MathF.Abs(turn);
 
         // Close enough, or so close that lining up would take a loop: stop here and coast to a halt.
@@ -466,18 +496,20 @@ public sealed class Simulation
         }
 
         float rate = unit.TurnRate;
-        if (unit.Movement == Movement.Wheeled) rate *= Math.Clamp(unit.CurrentSpeed / (0.3f * unit.Speed), 0.25f, 1f);
+        if (unit.Movement == Movement.Wheeled) rate *= Math.Clamp(speed / (0.3f * unit.Speed), 0.25f, 1f);
         unit.Heading = WrapAngle(unit.Heading + Math.Clamp(turn, -rate * Dt, rate * Dt));
 
+        float top = reverse ? unit.ReverseSpeed : unit.Speed;
         float braking = unit.Acceleration * BrakeFactor;
-        float stopping = unit.CurrentSpeed * unit.CurrentSpeed / (2 * braking);
-        float want = distance - VehicleArriveRadius <= stopping ? 0 : unit.Speed;
-        if (unit.Movement == Movement.Tracked && sharpness > TrackedPivotAngle) want = MathF.Min(want, unit.Speed * 0.15f);
-        else if (unit.Movement == Movement.Wheeled && sharpness > WheeledSlowAngle) want = MathF.Min(want, unit.Speed * 0.5f);
+        float stopping = speed * speed / (2 * braking);
+        float want = distance - VehicleArriveRadius <= stopping ? 0 : top;
+        if (unit.Movement == Movement.Tracked && sharpness > TrackedPivotAngle) want = MathF.Min(want, top * 0.15f);
+        else if (unit.Movement == Movement.Wheeled && sharpness > WheeledSlowAngle) want = MathF.Min(want, top * 0.5f);
+        if (reverse) want = -want;
 
-        unit.CurrentSpeed = want > unit.CurrentSpeed
-            ? MathF.Min(want, unit.CurrentSpeed + unit.Acceleration * Dt)
-            : MathF.Max(want, unit.CurrentSpeed - braking * Dt);
+        // Speed up toward `want`; brake, harder, when slowing down or changing direction.
+        bool speedingUp = want * unit.CurrentSpeed >= 0 && MathF.Abs(want) > speed;
+        unit.CurrentSpeed = MoveToward(unit.CurrentSpeed, want, (speedingUp ? unit.Acceleration : braking) * Dt);
         unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
         return false;
     }
@@ -485,10 +517,13 @@ public sealed class Simulation
     // A vehicle that isn't driving this tick rolls on and brakes to a stop.
     static void Coast(ref Unit unit)
     {
-        if (unit.Movement == Movement.Foot || unit.CurrentSpeed <= 0) return;
-        unit.CurrentSpeed = MathF.Max(0, unit.CurrentSpeed - unit.Acceleration * BrakeFactor * Dt);
+        if (unit.Movement == Movement.Foot || unit.CurrentSpeed == 0) return;
+        unit.CurrentSpeed = MoveToward(unit.CurrentSpeed, 0, unit.Acceleration * BrakeFactor * Dt);
         unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
     }
+
+    static float MoveToward(float from, float to, float step) =>
+        from < to ? MathF.Min(to, from + step) : MathF.Max(to, from - step);
 
     static Vector3 Forward(float heading) => new(MathF.Sin(heading), 0, MathF.Cos(heading));
 

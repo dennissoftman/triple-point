@@ -14,8 +14,11 @@ public static class GameData
         Converters = { new JsonStringEnumConverter() }, // "movement": "tracked"
     };
 
-    /// <summary>Unit types by id, from the contents of units.json.</summary>
-    public static Dictionary<string, UnitType> ParseUnitTypes(string json) =>
-        JsonSerializer.Deserialize<Dictionary<string, UnitType>>(json, Options)
-        ?? throw new InvalidDataException("units.json has no unit types.");
+    /// <summary>Unit types by id, from the contents of units.json. Each type knows its own id.</summary>
+    public static Dictionary<string, UnitType> ParseUnitTypes(string json)
+    {
+        var types = JsonSerializer.Deserialize<Dictionary<string, UnitType>>(json, Options)
+            ?? throw new InvalidDataException("units.json has no unit types.");
+        return types.ToDictionary(t => t.Key, t => t.Value with { Id = t.Key });
+    }
 }

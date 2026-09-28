@@ -14,7 +14,7 @@ public sealed class Player
     public Player(int index) => Index = index;
 }
 
-public enum UnitOrder { None, Move, Repair, AttackSegment, Attack }
+public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove }
 
 /// <summary>
 /// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit or gatherer post).
@@ -32,11 +32,13 @@ public enum Movement { Foot, Wheeled, Tracked }
 
 /// <summary>
 /// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle. TurnRate is in degrees per
-/// second; Acceleration and TurnRate only matter for vehicles.
+/// second; Acceleration, TurnRate and ReverseSpeed (0: can't reverse) only matter for vehicles. Id is the
+/// type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
     int Members, float Speed, float MemberHealth, float MemberDps, float Range,
-    Movement Movement = Movement.Foot, float Acceleration = 0, float TurnRate = 0, bool CanCapture = true);
+    Movement Movement = Movement.Foot, float Acceleration = 0, float TurnRate = 0, float ReverseSpeed = 0,
+    bool CanCapture = true, string Id = "");
 
 /// <summary>
 /// A vehicle, or an infantry squad. A squad is one sim entity (one position, one order); its members
@@ -46,12 +48,14 @@ public sealed record UnitType(
 public struct Unit
 {
     public int Id, Owner;
+    public string Type;                    // unit type id, as in /data/units.json ("" for ad hoc units)
     public Vector3 Position, PrevPosition; // PrevPosition is last tick's, for view interpolation
     public float Heading, PrevHeading;     // radians; facing (sin h, 0, cos h)
     public float Speed, Range;             // top speed m/s, weapon range m
     public Movement Movement;
     public float Acceleration, TurnRate;   // m/s², rad/s; vehicles only
-    public float CurrentSpeed;             // vehicles only
+    public float ReverseSpeed;             // m/s; 0 for units that can't back up
+    public float CurrentSpeed;             // vehicles only; negative while reversing
     public bool CanCapture;                // squads take switches; vehicles only deny them
     public bool Driving;                   // moved under power this tick; otherwise a vehicle coasts to a stop
     public int MaxMembers;

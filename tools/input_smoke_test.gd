@@ -1,6 +1,7 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
 # checks selection (only your own units), group moves, capturing and flipping the switch, the hotseat
-# swap with its per-side camera, and camera pan and zoom.
+# swap with its per-side camera, double-click select by type, the cursor, attack-move, and camera
+# pan and zoom.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -11,6 +12,7 @@ const SWITCH := Vector3(9, 0.2, 0) # on the prototype map
 var frame := 0
 var failures := 0
 var cam: Camera3D
+var player: Node
 var blue: Array
 var red: Array
 var arrow: Node3D
@@ -25,6 +27,7 @@ func _process(_delta) -> bool:
 	match frame:
 		10:
 			cam = root.get_node("Main/Camera")
+			player = root.get_node("Main/PlayerInput")
 			cam.set("EdgeScroll", false) # the real cursor could sit at a screen edge
 			var views = root.get_node("Main/UnitsView").get_children().filter(func(n): return n.has_node("SelectionRing"))
 			blue = views.filter(func(v): return v.get("PlayerIndex") == 0)
@@ -86,22 +89,47 @@ func _process(_delta) -> bool:
 			key(KEY_F2, false)
 		1235:
 			check("F2 back returns to where Blue left off", (cam.get("Focus") as Vector2).distance_to(blue_view) < 0.1, true)
+			double_click(screen(blue[0]))
+		1240:
+			# blue[0] and blue[1] are the squads, blue[2] and blue[3] the vehicles.
+			check("double-click selects every squad on screen, not the vehicles", rings(blue), [true, true, false, false])
+			box(blue)
+		1245:
+			motion(screen(red[0]))
+		1250:
+			check("cursor over an enemy: attack", player.get("CursorName"), "Attack")
+			motion(cam.unproject_position(Vector3(0, 0, -10)))
+		1255:
+			check("cursor over open ground: move", player.get("CursorName"), "Move")
+			motion(cam.unproject_position(SWITCH))
+		1260:
+			check("cursor over your own switch: flip", player.get("CursorName"), "Flip")
+			key(KEY_A, true)
+			key(KEY_A, false)
+		1265:
+			check("A arms attack-move", player.get("CursorName"), "AttackMove")
+			click(cam.unproject_position(Vector3(10, 0, 6))) # short of Red's units
+		1270:
+			check("the click attack-moves and disarms (back to the plain cursor over open ground)", player.get("CursorName"), "Move")
 			cam_before = cam.global_position
 			key(KEY_RIGHT, true)
-		1265:
+		1300:
 			key(KEY_RIGHT, false)
 			check("arrow key pans the camera", cam.global_position.x > cam_before.x + 5, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), true)
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), false)
-		1325:
+		1360:
 			check("wheel zooms in", cam.global_position.y < cam_before.y - 3, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(576, 324), true)
 			motion(Vector2(676, 324))
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(676, 324), false)
-		1330:
+		1365:
 			check("middle-mouse drag moves the map with the cursor", cam.global_position.x < cam_before.x - 1, true)
+		1600:
+			# Six seconds after the attack-move: Blue walked into range of Red's units and opened fire.
+			check("attack-move engages enemies on the way", red.any(func(v): return not is_instance_valid(v) or hurt(v)), true)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
@@ -114,6 +142,18 @@ func check(name: String, actual, expected):
 	if not ok:
 		failures += 1
 	print("%s  %s (got %s, want %s)" % ["PASS" if ok else "FAIL", name, actual, expected])
+
+# Which of these units show their selection ring.
+func rings(views: Array) -> Array:
+	return views.map(func(v): return v.get_node("SelectionRing").visible)
+
+# A unit's health bar shows once it's hurt (HealthBar.cs, created in code as a child of the view).
+func hurt(v: Node) -> bool:
+	for c in v.get_children():
+		var script = c.get_script()
+		if script != null and str(script.resource_path).ends_with("HealthBar.cs") and c.visible:
+			return true
+	return false
 
 func selected(views: Array) -> int:
 	return views.filter(func(v): return is_instance_valid(v) and v.get_node("SelectionRing").visible).size()
@@ -154,6 +194,17 @@ func motion(pos: Vector2):
 	m.position = pos
 	m.global_position = pos
 	Input.parse_input_event(m)
+
+func double_click(pos: Vector2):
+	click(pos)
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.position = pos
+	e.global_position = pos
+	e.pressed = true
+	e.double_click = true
+	Input.parse_input_event(e)
+	mouse(MOUSE_BUTTON_LEFT, pos, false)
 
 func click(pos: Vector2):
 	mouse(MOUSE_BUTTON_LEFT, pos, true)

@@ -125,7 +125,7 @@ public partial class UnitView : Node3D
     /// </summary>
     public void Sync(Vector3 position, float heading, float delta, int members, float health, bool firing, Vector3 fireAt)
     {
-        float moved = _placed ? (position - _lastPosition).Length() : 0;
+        float moved = _placed ? (position - _lastPosition).Dot(Direction(heading)) : 0; // negative when backing up
         GlobalPosition = position;
         _muzzles.Clear();
         if (_hull is not null) SyncVehicle(position, heading, moved, delta, firing, fireAt);
@@ -144,7 +144,7 @@ public partial class UnitView : Node3D
     void SyncVehicle(Vector3 position, float heading, float moved, float delta, bool firing, Vector3 fireAt)
     {
         _hull!.Basis = Basis.LookingAt(Direction(heading), Vector3.Up);
-        _wheelSpin -= moved / WheelRadius; // rolling forward
+        _wheelSpin -= moved / WheelRadius; // rolls forward, or backward when reversing
         foreach (var wheel in _wheels) wheel.Rotation = new Vector3(_wheelSpin, 0, 0);
 
         // The turret tracks its target while firing, and settles back over the nose otherwise.

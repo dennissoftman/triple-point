@@ -19,7 +19,7 @@ The full design, decisions and MVP scope live in [docs/rts-handoff.md](docs/rts-
 - One seeded RNG owned by the sim, and all math routed through one place, so determinism stays possible later.
 - No allocations or LINQ inside the tick.
 - Batch calls across the C#/engine boundary. They cost far more than calls within C#.
-- Input goes through Input Map actions defined in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`), never literal keys or buttons in code.
+- Input goes through Input Map actions defined in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`), never literal keys or buttons in code.
 - Game data is JSON in `/data` (unit types in `data/units.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. The Godot side reads the file (`SimHost.DataDirectory`, relative to the Godot project) and passes the text in.
 - Selection, colors, names and the local player are UI state on the Godot side; the sim only sees commands, each carrying its issuing player.
 

@@ -15,11 +15,13 @@ public partial class UnitsView : Node3D
 
     [Export] public PackedScene UnitScene = null!;
     [Export] public Material? PathMaterial;
+    [Export] public Material? AttackPathMaterial;
     [Export] public Material? FireMaterial;
 
     readonly Dictionary<int, UnitView> _views = [];
     readonly Dictionary<int, Vector3> _positions = []; // interpolated, this frame
     readonly List<int> _gone = [];
+    readonly List<(Vector3 From, Vector3 To, bool Attack)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
 
     public override void _Ready() =>
@@ -66,23 +68,41 @@ public partial class UnitsView : Node3D
 
     // Only your own side's orders: you don't get to see where the enemy is going.
     // Current target first, then each queued order's point; a queued segment order's point depends on
-    // where the leg before it ends.
+    // where the leg before it ends. Attack-move legs are drawn in their own color.
     void DrawOrderPaths(Simulation sim, int localPlayer)
     {
-        bool drawing = false;
+        _legs.Clear();
         foreach (var unit in sim.State.Units)
         {
             if (unit.Owner != localPlayer || unit.Current.Kind == UnitOrder.None) continue;
-            if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, PathMaterial); drawing = true; }
-
             var start = _positions[unit.Id];
             var target = unit.Current.Target;
-            Leg(ref start, ToGodot(target));
+            AddLeg(ref start, ToGodot(target), unit.Current.Kind);
             foreach (var order in unit.Pending)
             {
                 target = sim.OrderPoint(order, target);
-                Leg(ref start, ToGodot(target));
+                AddLeg(ref start, ToGodot(target), order.Kind);
             }
+        }
+        DrawLegs(attack: false, PathMaterial);
+        DrawLegs(attack: true, AttackPathMaterial);
+    }
+
+    void AddLeg(ref Vector3 start, Vector3 end, UnitOrder kind)
+    {
+        _legs.Add((start with { Y = PathHeight }, end with { Y = PathHeight }, kind == UnitOrder.AttackMove));
+        start = end;
+    }
+
+    void DrawLegs(bool attack, Material? material)
+    {
+        bool drawing = false;
+        foreach (var (from, to, isAttack) in _legs)
+        {
+            if (isAttack != attack) continue;
+            if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, material); drawing = true; }
+            _lines.SurfaceAddVertex(from);
+            _lines.SurfaceAddVertex(to);
         }
         if (drawing) _lines.SurfaceEnd();
     }
@@ -107,12 +127,4 @@ public partial class UnitsView : Node3D
         if (drawing) _lines.SurfaceEnd();
     }
 
-    // Draws start -> end on the ground and advances start to end.
-    void Leg(ref Vector3 start, Vector3 end)
-    {
-        var lift = new Vector3(0, PathHeight, 0);
-        _lines.SurfaceAddVertex(start with { Y = 0 } + lift);
-        _lines.SurfaceAddVertex(end with { Y = 0 } + lift);
-        start = end;
-    }
 }

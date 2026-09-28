@@ -58,6 +58,15 @@ public partial class SimHost : Node3D
 
     public override void _Ready()
     {
+        // `-- --cursor-sheet=<png>`: save the placeholder cursors side by side, and quit.
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--cursor-sheet=")) is string sheet)
+        {
+            Cursors.SaveSheet(sheet["--cursor-sheet=".Length..]);
+            SetProcess(false); // nothing is built; don't tick until the quit lands
+            GetTree().Quit();
+            return;
+        }
+
         for (int p = 0; p < PlayerCount; p++)
         {
             _sim.AddPlayer();
@@ -170,9 +179,9 @@ public partial class SimHost : Node3D
                  + $"{switches}\n"
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
-                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, Shift: add   LMB your switch: flip\n"
-                 + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift+RMB: queue\n"
-                 + "Camera: WASD / arrows / screen edge / MMB drag, wheel: zoom";
+                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip\n"
+                 + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
+                 + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom";
     }
 
     string DescribeSwitch(Junction j)
@@ -197,8 +206,8 @@ public partial class SimHost : Node3D
     }
 
     // `godot -- --demo`, on the prototype map, as a scripted match: Blue takes the switch and routes it
-    // to its post; Blue pulls back and Red takes it and routes it south; Red destroys Blue's post; then
-    // Blue attacks Red's units and the two sides fight it out.
+    // to its post; Blue pulls back a short way (its vehicles back up) and Red takes the switch and routes
+    // it south; Red goes for Blue's post; then Blue attack-moves into Red's side and they fight it out.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
@@ -210,22 +219,23 @@ public partial class SimHost : Node3D
         if (tick == 12 * T) _commands.Add(new SetJunctionCommand(Blue, sw, 0));
         if (tick == 40 * T)
         {
-            MoveAll(Blue, new SVector3(14, 0, -12));
+            MoveAll(Blue, switchAt + new SVector3(0, 0, -9)); // 9 m back north: close enough to reverse
             MoveAll(Red, switchAt);
         }
         if (tick == 52 * T) _commands.Add(new SetJunctionCommand(Red, sw, 1));
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
             foreach (int id in _unitsOf[Red]) _commands.Add(new AttackCommand(Red, id, post.Id));
-        if (tick == 80 * T)
-            foreach (int id in _unitsOf[Blue])
-                for (int k = 0; k < _unitsOf[Red].Count; k++)
-                    _commands.Add(new AttackCommand(Blue, id, _unitsOf[Red][k], Queued: k > 0));
+        if (tick == 80 * T) MoveAll(Blue, ToSim(new Vector3(HomeOf(Red).X, 0, HomeOf(Red).Y)), attack: true);
     }
 
-    void MoveAll(int player, SVector3 at)
+    void MoveAll(int player, SVector3 at, bool attack = false)
     {
         for (int i = 0; i < _unitsOf[player].Count; i++)
-            _commands.Add(new MoveCommand(player, _unitsOf[player][i], at + new SVector3((i - 1) * 3f, 0, 0)));
+        {
+            int id = _unitsOf[player][i];
+            var spot = at + new SVector3((i - 1) * 3f, 0, 0);
+            _commands.Add(attack ? new AttackMoveCommand(player, id, spot) : new MoveCommand(player, id, spot));
+        }
     }
 
     // Godot's Curve3D stores each point with in/out handles relative to it; consecutive points

@@ -178,6 +178,55 @@ public class CombatTests
     }
 
     [Fact]
+    public void Stopped_vehicle_backs_up_to_a_close_target_behind_it()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, speed: 4.5f, movement: Movement.Tracked, acceleration: 3, turnRate: 60, reverseSpeed: 2.2f);
+
+        sim.Tick([new MoveCommand(Blue, tank, new Vector3(0, 0, -6))]); // 6 m straight behind
+        Run(sim, T - 1);
+        var backing = UnitById(sim, tank);
+        Assert.True(backing.CurrentSpeed < 0);
+        Assert.Equal(0f, backing.Heading, 0.01f); // still facing the way it was
+        Assert.True(backing.Position.Z < -0.5f);
+
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.UnitArrived, tank), 10 * T) > 0);
+        Run(sim, T);
+        Assert.True(Vector3.Distance(UnitById(sim, tank).Position, new Vector3(0, 0, -6)) < 1f);
+    }
+
+    [Fact]
+    public void Vehicle_turns_around_for_a_far_target_even_if_it_can_back_up()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, speed: 4.5f, movement: Movement.Tracked, acceleration: 3, turnRate: 60, reverseSpeed: 2.2f);
+
+        sim.Tick([new MoveCommand(Blue, tank, new Vector3(0, 0, -30))]);
+        Run(sim, T - 1);
+
+        var turning = UnitById(sim, tank);
+        Assert.True(turning.CurrentSpeed >= 0);
+        Assert.Equal(MathF.PI / 3, MathF.Abs(turning.Heading), 0.02f);
+    }
+
+    [Fact]
+    public void Attack_move_stops_to_fight_on_the_way_then_carries_on()
+    {
+        var sim = NewSim();
+        int blue = sim.AddUnit(Blue, Vector3.Zero, speed: 5, dps: 10, range: 8);
+        int red = sim.AddUnit(Red, new Vector3(15, 0, 3), dps: 0); // off to the side of the route
+
+        // Walks until Red is 8 m away (x = 15 - sqrt(8² - 3²) ≈ 7.6), fights 10 s, then walks on.
+        int killedAt = TicksUntil(sim, new SimEvent(SimEventKind.UnitDied, red), 30 * T,
+            [new AttackMoveCommand(Blue, blue, new Vector3(30, 0, 0))]);
+        Assert.True(killedAt > 0);
+        Assert.Equal(7.6f, UnitById(sim, blue).Position.X, 0.3f);
+
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.UnitArrived, blue), 10 * T) > 0);
+        Assert.Equal(new Vector3(30, 0, 0), UnitById(sim, blue).Position);
+    }
+
+    [Fact]
     public void Vehicles_accelerate_instead_of_starting_at_full_speed()
     {
         var sim = NewSim();
@@ -198,9 +247,10 @@ public class CombatTests
             {
               "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
               "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 3, "turnRate": 60,
-                        "memberHealth": 260, "memberDps": 14, "range": 9, "canCapture": false },
+                        "reverseSpeed": 2.2, "memberHealth": 260, "memberDps": 14, "range": 9, "canCapture": false },
             }
             """);
+        Assert.Equal("tank", types["tank"].Id);
 
         var sim = NewSim();
         var squad = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["rifle_squad"]));
@@ -214,6 +264,9 @@ public class CombatTests
         var tank = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["tank"]));
         Assert.Equal(Movement.Tracked, tank.Movement);
         Assert.Equal(MathF.PI / 3, tank.TurnRate, 0.001f);
+        Assert.Equal(2.2f, tank.ReverseSpeed);
         Assert.False(tank.CanCapture);
+        Assert.Equal("tank", tank.Type);
+        Assert.Equal("rifle_squad", squad.Type);
     }
 }

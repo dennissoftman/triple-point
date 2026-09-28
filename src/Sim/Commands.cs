@@ -14,6 +14,9 @@ public sealed record MoveCommand(int Player, int UnitId, Vector3 Target, bool Qu
 /// <summary>Chase an enemy unit or gatherer post into range and fire until it's destroyed.</summary>
 public sealed record AttackCommand(int Player, int UnitId, int TargetId, bool Queued = false) : Command(Player);
 
+/// <summary>Head for a point, stopping to fight anything that comes into range on the way (weakest first).</summary>
+public sealed record AttackMoveCommand(int Player, int UnitId, Vector3 Target, bool Queued = false) : Command(Player);
+
 /// <summary>Walk into weapon range of a belt segment and fire until it breaks.</summary>
 public sealed record AttackSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
