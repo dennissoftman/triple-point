@@ -8,7 +8,9 @@ using SVector3 = System.Numerics.Vector3;
 /// Belts (broken segments red) with their packages, switches in their owner's color, posts, buildings
 /// (foundations hollow), units as dots (the selection brighter), and the camera's view as an outline.
 /// Click or drag to move the camera there; right-click to move the selection there. Everything shows:
-/// no fog of war yet. Drawn with the canvas API each frame; placeholder look.
+/// no fog of war yet. Drawn with the canvas API each frame, in few calls: every draw call and every
+/// array handed to the engine costs, so belts are two batched line lists, rebuilt only when a segment
+/// breaks or is repaired. Placeholder look.
 /// </summary>
 public partial class Minimap : Control
 {
@@ -24,7 +26,11 @@ public partial class Minimap : Control
     [Export] public RtsCamera Camera = null!;
 
     // Belt outlines in map space (x, z), per line and segment, sampled once: the belt network never moves.
+    // Drawn as two line lists (point pairs), working and broken, rebuilt when a segment's state changes.
     readonly List<Vector2[][]> _belts = [];
+    readonly List<Vector2> _pairs = [];
+    readonly List<bool> _brokenShown = [];
+    Vector2[] _working = [], _broken = [];
     readonly List<Vector2> _packages = [], _dots = [];
     readonly Vector2[] _view = new Vector2[5];
     bool _dragging;
@@ -59,12 +65,9 @@ public partial class Minimap : Control
         if (_belts.Count != state.Belts.Count) SampleBelts(state);
         DrawRect(new Rect2(Vector2.Zero, Size), Background);
 
-        for (int l = 0; l < state.Belts.Count; l++)
-        {
-            var line = state.Belts[l];
-            for (int s = 0; s < line.Segments.Length; s++)
-                DrawPolyline(_belts[l][s], line.Segments[s].State == SegmentState.Broken ? BrokenColor : BeltColor, 2);
-        }
+        if (BeltStatesChanged(state)) BatchBelts(state);
+        if (_working.Length > 0) DrawMultiline(_working, BeltColor, 2);
+        if (_broken.Length > 0) DrawMultiline(_broken, BrokenColor, 2);
         _packages.Clear();
         foreach (var line in state.Belts)
             foreach (var p in line.Packages) AddDot(_packages, ToMap(p.Position), 1);
@@ -116,9 +119,51 @@ public partial class Minimap : Control
         DrawPolyline(_view, ViewColor, 1);
     }
 
+    bool BeltStatesChanged(SimState state)
+    {
+        int i = 0;
+        bool changed = false;
+        foreach (var line in state.Belts)
+            foreach (var segment in line.Segments)
+            {
+                bool broken = segment.State == SegmentState.Broken;
+                if (i == _brokenShown.Count)
+                {
+                    _brokenShown.Add(broken);
+                    changed = true;
+                }
+                else if (_brokenShown[i] != broken)
+                {
+                    _brokenShown[i] = broken;
+                    changed = true;
+                }
+                i++;
+            }
+        return changed;
+    }
+
+    // The two line lists, from the sampled outlines and each segment's state as last seen.
+    void BatchBelts(SimState state)
+    {
+        for (int pass = 0; pass < 2; pass++)
+        {
+            _pairs.Clear();
+            int i = 0;
+            for (int l = 0; l < state.Belts.Count; l++)
+                foreach (var points in _belts[l])
+                {
+                    if (_brokenShown[i++] == (pass == 1))
+                        for (int k = 1; k < points.Length; k++) { _pairs.Add(points[k - 1]); _pairs.Add(points[k]); }
+                }
+            if (pass == 0) _working = _pairs.ToArray();
+            else _broken = _pairs.ToArray();
+        }
+    }
+
     void SampleBelts(SimState state)
     {
         _belts.Clear();
+        _brokenShown.Clear();
         foreach (var line in state.Belts)
         {
             var segments = new Vector2[line.Segments.Length][];

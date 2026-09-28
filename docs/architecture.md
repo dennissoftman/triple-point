@@ -63,7 +63,7 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 - **The boundary is the cost:** a call from C# into the engine costs far more than one within C#. Batch per frame: `InstanceBatch` pushes one transform buffer per MultiMesh, for packages, pickups, shells and flashes. Unit views share materials per player, and views keep what they last drew in C# instead of reading engine properties back.
 - **Scale plan:** one scene per unit is fine for the MVP. Numerous kinds move to MultiMesh, and very large counts to direct `RenderingServer` instances, behind the same view interface.
 - **Measured at MVP scale** (stress scene: 200 units, 400 segments, 800 packages, a battle; dev machine, vsync off):
-  - 330-560 fps; render at most ~1.1 ms CPU and ~0.9 ms GPU.
+  - At 1920×1080: about 300-350 fps; render at most ~1 ms CPU and ~1 ms GPU. (At 1152×648 it was 330-560 fps.)
   - 485 draw calls idle, ~1,600 in battle.
   - Sim in Release: 0.1 ms/tick idle, 0.15 ms in battle (0.9 ms worst, likely return fire alerting a whole block of allies at once, each checking for targets). The editor runs C# in Debug, about 15× slower, so don't judge sim cost from it.
   - Nothing here blocks the MVP.
