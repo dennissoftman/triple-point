@@ -215,6 +215,15 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - MVP: one scene instance per unit is fine. Numerous unit types switch to `MultiMesh` later (and direct `RenderingServer` instances for very large counts) behind the same interface.
 - Biggest performance trap: calls between C# and the engine cost far more than calls within C#. Batch across the boundary (one buffer push per frame for many transforms, not per-unit node calls).
 - Selection is local UI state, not simulation state.
+- **Measured at MVP scale** (stress scene: 200 units, 10 belt lines of 150 m = 400 segments, 800 packages, a full battle; this dev machine, uncapped): 330-560 fps; render at most ~1.1 ms CPU and ~0.9 ms GPU; 485 draw calls idle, ~1,600 in battle. The sim is 0.09 ms/tick idle and 0.2 ms in battle (0.5 ms worst) in Release; the editor runs C# in Debug, which shows ~1.7 ms. Nothing here blocks the MVP.
+- **Rendering debt, for later** (done: one material per player shared by all unit views; views cache what they last drew instead of reading engine properties back):
+  1. *Belt segments:* a mesh and a material per 5 m segment, so 400 of the idle 485 draw calls. Do one mesh per line (or network) with a shader reading segment state from a small texture updated on change. It belongs with the visual pass, since the scrolling belt texture needs that shader anyway.
+  2. *Health bars:* two quads and a material each, drawn on top; most of the ~1,100 extra draw calls in battle. Batch them (a MultiMesh with per-instance color and fill) when they matter.
+  3. *Placeholder mesh detail:* Godot's default capsule and cylinder tessellation puts ~1.6M triangles on screen idle and ~4.4M in battle. Irrelevant once real models land; lower the segment counts if placeholders stay long.
+  4. *Squad members:* a node per member, moved one engine call each per frame. Move them to a MultiMesh first when unit counts grow; they're the most numerous.
+  5. *Order paths and tracers* rebuild an ImmediateMesh every frame; fine through the MVP.
+  6. *The debug HUD* builds its strings with LINQ every frame (garbage for the collector); it's dev-only and goes with the real UI.
+  7. *Sim:* target search is all-pairs; a spatial grid comes with navigation (5.4). Not needed at 200 units.
 - C# conventions in Godot: script classes are `partial`, class name matches file name, prefer `[Export]` fields set in the inspector over `GetNode("path")` strings.
 
 ```csharp

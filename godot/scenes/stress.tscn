@@ -1,0 +1,148 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
+[ext_resource type="Script" path="res://scripts/StressMap.cs" id="9_stress"]
+[ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
+[ext_resource type="PackedScene" path="res://views/unit.tscn" id="3_unit"]
+[ext_resource type="Script" path="res://scripts/UnitsView.cs" id="4_unitsview"]
+[ext_resource type="Script" path="res://scripts/PlayerInput.cs" id="5_playerinput"]
+[ext_resource type="Script" path="res://scripts/RtsCamera.cs" id="6_camera"]
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.55, 0.58, 0.6, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.6, 0.62, 0.65, 1)
+ambient_light_energy = 0.5
+tonemap_mode = 4
+ssao_enabled = true
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.36, 0.38, 0.33, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+material = SubResource("StandardMaterial3D_ground")
+size = Vector2(180, 120)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_belt"]
+albedo_color = Color(0.12, 0.12, 0.13, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_package"]
+albedo_color = Color(1, 0.62, 0.1, 1)
+emission_enabled = true
+emission = Color(1, 0.55, 0.1, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_junction"]
+albedo_color = Color(0.22, 0.23, 0.25, 1)
+metallic = 0.6
+roughness = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_indicator"]
+shading_mode = 0
+albedo_color = Color(0.55, 1, 0.6, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gatherer"]
+albedo_color = Color(0.35, 0.42, 0.45, 1)
+roughness = 0.7
+emission_enabled = true
+emission = Color(1, 0.62, 0.1, 1)
+emission_energy_multiplier = 0.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
+shading_mode = 0
+albedo_color = Color(0.55, 1, 0.6, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_attack_path"]
+shading_mode = 0
+albedo_color = Color(1, 0.4, 0.25, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fire"]
+shading_mode = 0
+albedo_color = Color(1, 0.85, 0.4, 1)
+
+[node name="Stress" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.383, 0.3214, 0, 0.6428, 0.766, -0.5, -0.6634, 0.5567, 0, 20, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 80.0
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 6, 39.32, 32.53)
+current = true
+fov = 38.0
+script = ExtResource("6_camera")
+Focus = Vector2(0, 8)
+Distance = 60.0
+Bounds = Rect2(-90, -60, 180, 120)
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="Belts" type="Node3D" parent="."]
+
+[node name="Junctions" type="Node3D" parent="."]
+
+[node name="Gatherers" type="Node3D" parent="."]
+
+[node name="Units" type="Node3D" parent="."]
+
+[node name="StressMap" type="Node" parent="." node_paths=PackedStringArray("Host", "Belts", "Gatherers", "Units")]
+script = ExtResource("9_stress")
+Host = NodePath("../SimHost")
+Belts = NodePath("../Belts")
+Gatherers = NodePath("../Gatherers")
+Units = NodePath("../Units")
+
+[node name="BeltView" type="Node3D" parent="."]
+script = ExtResource("2_beltview")
+BeltMaterial = SubResource("StandardMaterial3D_belt")
+PackageMaterial = SubResource("StandardMaterial3D_package")
+JunctionMaterial = SubResource("StandardMaterial3D_junction")
+IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
+GathererMaterial = SubResource("StandardMaterial3D_gatherer")
+
+[node name="UnitsView" type="Node3D" parent="."]
+script = ExtResource("4_unitsview")
+UnitScene = ExtResource("3_unit")
+PathMaterial = SubResource("StandardMaterial3D_path")
+AttackPathMaterial = SubResource("StandardMaterial3D_attack_path")
+FireMaterial = SubResource("StandardMaterial3D_fire")
+
+[node name="Ui" type="CanvasLayer" parent="."]
+
+[node name="Hud" type="Label" parent="Ui"]
+offset_left = 16.0
+offset_top = 12.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
+
+[node name="SelectionBox" type="ColorRect" parent="Ui"]
+visible = false
+mouse_filter = 2
+color = Color(0.55, 1, 0.6, 0.18)
+
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "BeltView", "UnitsView", "PlayerInput", "Hud")]
+script = ExtResource("1_simhost")
+SpawnInterval = 1.0
+Belts = NodePath("../Belts")
+Junctions = NodePath("../Junctions")
+Gatherers = NodePath("../Gatherers")
+Units = NodePath("../Units")
+BeltView = NodePath("../BeltView")
+UnitsView = NodePath("../UnitsView")
+PlayerInput = NodePath("../PlayerInput")
+Hud = NodePath("../Ui/Hud")
+
+[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox")]
+script = ExtResource("5_playerinput")
+Host = NodePath("../SimHost")
+Camera = NodePath("../Camera")
+BeltView = NodePath("../BeltView")
+SelectionBox = NodePath("../Ui/SelectionBox")

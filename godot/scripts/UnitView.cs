@@ -29,6 +29,7 @@ public partial class UnitView : Node3D
     float _turretHeight, _barrelLength;
     float _facing;                                 // yaw (radians) a squad faces
     float _wheelSpin, _healthFraction = 1;
+    int _shownMembers = -1;
     Vector3 _lastPosition;
     bool _selected, _placed;
 
@@ -47,12 +48,12 @@ public partial class UnitView : Node3D
         }
     }
 
-    public void Setup(int player, Color color, int members, Movement movement)
+    public void Setup(int player, UnitMaterials materials, int members, Movement movement)
     {
         PlayerIndex = player;
-        var body = new StandardMaterial3D { AlbedoColor = color, Roughness = 0.7f };
+        var (body, turret) = materials.For(player);
         if (members > 1) BuildSquad(members, body);
-        else BuildVehicle(movement, body, color);
+        else BuildVehicle(movement, body, turret, materials.Dark);
 
         float ringRadius = members > 1 ? 2.1f : 1.9f;
         SelectionRing.Scale = new Vector3(ringRadius / 0.9f, 0.2f, ringRadius / 0.9f); // the ring mesh is 0.9 m
@@ -74,9 +75,8 @@ public partial class UnitView : Node3D
     }
 
     // Forward is -Z throughout, as Basis.LookingAt expects.
-    void BuildVehicle(Movement movement, Material body, Color color)
+    void BuildVehicle(Movement movement, Material body, Material turretBody, Material dark)
     {
-        var dark = new StandardMaterial3D { AlbedoColor = new Color(0.12f, 0.12f, 0.13f), Roughness = 0.9f };
         bool tracked = movement == Movement.Tracked;
         var hull = tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
         float hullBottom = tracked ? 0.35f : WheelRadius + 0.1f;
@@ -110,7 +110,7 @@ public partial class UnitView : Node3D
         _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
         AddChild(_turret);
         var turret = tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
-        AddBox(_turret, turret, new StandardMaterial3D { AlbedoColor = color.Darkened(0.3f) }, new Vector3(0, turret.Y / 2, 0));
+        AddBox(_turret, turret, turretBody, new Vector3(0, turret.Y / 2, 0));
         _barrelLength = tracked ? 1.4f : 0.8f;
         AddBox(_turret, new Vector3(0.14f, 0.14f, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
     }
@@ -162,12 +162,13 @@ public partial class UnitView : Node3D
         var right = forward.Cross(Vector3.Up);
         float follow = _placed ? 1 - MathF.Exp(-FollowSharpness * delta) : 1; // snap into place on the first frame
 
-        for (int i = 0; i < _members.Count; i++)
+        if (alive != _shownMembers) // the rearmost members fall first
         {
-            bool living = i < alive; // the rearmost members fall first
-            if (_members[i].Visible != living) _members[i].Visible = living;
-            if (!living) continue;
-
+            _shownMembers = alive;
+            for (int i = 0; i < _members.Count; i++) _members[i].Visible = i < alive;
+        }
+        for (int i = 0; i < alive && i < _members.Count; i++)
+        {
             var slot = WedgeSlot(i);
             _memberPositions[i] = _memberPositions[i].Lerp(position + right * slot.X + forward * slot.Y, follow);
             _members[i].GlobalPosition = _memberPositions[i] + new Vector3(0, MemberHeight / 2, 0);

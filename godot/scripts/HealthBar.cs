@@ -8,6 +8,7 @@ public partial class HealthBar : Node3D
     readonly QuadMesh _fill = new() { Size = new Vector2(Width, Height) };
     readonly StandardMaterial3D _fillMaterial = BarMaterial(Colors.White, renderPriority: 1);
     float _fraction = 1;
+    Color _color = Colors.White;
 
     public HealthBar()
     {
@@ -34,7 +35,7 @@ public partial class HealthBar : Node3D
             _fill.Size = new Vector2(Width * fraction, Height);
             _fill.CenterOffset = new Vector3(-Width * (1 - fraction) / 2, 0, 0); // keep the left edge fixed
         }
-        if (_fillMaterial.AlbedoColor != color) _fillMaterial.AlbedoColor = color;
+        if (_color != color) _fillMaterial.AlbedoColor = _color = color;
     }
 
     static StandardMaterial3D BarMaterial(Color color, int renderPriority) => new()

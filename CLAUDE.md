@@ -62,4 +62,10 @@ Input smoke test (needs a window; headless drops input). Exits with the failure 
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 ```
 
+Stress scene for performance (generated belts, 200 units, a battle); the HUD's Perf line shows fps, sim ms/tick, render CPU/GPU and draw calls, and `--perf-log` prints it once a second. Numbers and the rendering debt list are in the handoff (5.3):
+
+```bash
+"C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot res://scenes/stress.tscn --disable-vsync -- --perf-log
+```
+
 Unattended visual check: `-- --demo` plays a scripted two-player match at 3x (switch captures, a post destroyed, a fight), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Godot;
@@ -46,7 +47,12 @@ public partial class SimHost : Node3D
     readonly List<List<int>> _unitsOf = [];    // starting unit ids per player, for the demo
     readonly List<Vector2> _homes = [];        // per player: the middle of its unit spawns, on the ground (x, z)
     double _accumulator;
-    bool _demo;
+    bool _demo, _perfLog;
+    // Performance, over the last second of real time: how long ticks took, and how many ran.
+    readonly Stopwatch _tickClock = new();
+    double _perfWindow, _tickSeconds;
+    int _ticksInWindow;
+    string _perf = "";
 
     public Simulation Sim => _sim;
 
@@ -105,6 +111,9 @@ public partial class SimHost : Node3D
             _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
         BeltView.Build(_sim.State);
 
+        // Render timings are only measured when asked for.
+        RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
+        _perfLog = OS.GetCmdlineUserArgs().Contains("--perf-log");
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
     }
@@ -132,7 +141,10 @@ public partial class SimHost : Node3D
         {
             if (++ticks > maxTicks) { _accumulator = 0; break; }
             if (_demo) Demo(_sim.State.Tick);
+            _tickClock.Restart();
             var events = _sim.Tick(_commands);
+            _tickSeconds += _tickClock.Elapsed.TotalSeconds;
+            _ticksInWindow++;
             _commands.Clear();
             foreach (var e in events) Log(e);
             _accumulator -= TickSeconds;
@@ -141,7 +153,26 @@ public partial class SimHost : Node3D
         float alpha = (float)(_accumulator / TickSeconds);
         UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection, PlayerInput.LocalPlayer);
         BeltView.Sync(_sim.State, alpha);
+        UpdatePerf(delta);
         UpdateHud();
+    }
+
+    // Once a second: frame rate, sim cost per tick, render cost (CPU and GPU), and what was drawn.
+    // `--perf-log` also prints it, for unattended runs such as the stress scene.
+    void UpdatePerf(double delta)
+    {
+        _perfWindow += delta;
+        if (_perfWindow < 1) return;
+        var viewport = GetViewport().GetViewportRid();
+        int packages = _sim.State.Belts.Sum(l => l.Packages.Count);
+        _perf = $"Perf: {Engine.GetFramesPerSecond():0} fps   sim {_tickSeconds / Math.Max(1, _ticksInWindow) * 1000:0.00} ms/tick   "
+              + $"render cpu {RenderingServer.ViewportGetMeasuredRenderTimeCpu(viewport):0.00} ms, gpu {RenderingServer.ViewportGetMeasuredRenderTimeGpu(viewport):0.00} ms   "
+              + $"draw calls {Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame):0}   "
+              + $"objects {Performance.GetMonitor(Performance.Monitor.RenderTotalObjectsInFrame):0}   "
+              + $"primitives {Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame) / 1000:0}k   "
+              + $"({_sim.State.Units.Count} units, {packages} packages, {_sim.State.Belts.Sum(l => l.Segments.Length)} segments)";
+        if (_perfLog) GD.Print($"[{_sim.State.Tick}] {_perf}");
+        (_perfWindow, _tickSeconds, _ticksInWindow) = (0, 0, 0);
     }
 
     // Game speed is a host setting, not a sim command, so it stays here. Input Map actions, never literal keys.
@@ -181,7 +212,8 @@ public partial class SimHost : Node3D
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
                  + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip\n"
                  + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
-                 + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom";
+                 + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom\n"
+                 + _perf;
     }
 
     string DescribeSwitch(Junction j)

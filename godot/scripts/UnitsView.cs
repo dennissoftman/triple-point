@@ -23,6 +23,7 @@ public partial class UnitsView : Node3D
     readonly List<int> _gone = [];
     readonly List<(Vector3 From, Vector3 To, bool Attack)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
+    readonly UnitMaterials _materials = new();
 
     public override void _Ready() =>
         AddChild(new MeshInstance3D { Mesh = _lines, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
@@ -38,7 +39,7 @@ public partial class UnitsView : Node3D
             {
                 view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
-                view.Setup(unit.Owner, PlayerPalette.Color(unit.Owner), unit.MaxMembers, unit.Movement);
+                view.Setup(unit.Owner, _materials, unit.MaxMembers, unit.Movement);
                 _views[unit.Id] = view;
             }
             var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);

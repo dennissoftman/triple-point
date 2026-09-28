@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using Sim;
 using static SimConvert;
@@ -25,11 +26,20 @@ public partial class BeltView : Node3D
     [Export] public Material? IndicatorMaterial;
     [Export] public StandardMaterial3D GathererMaterial = null!;
 
-    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D[] Arrows, CaptureRing? Ring);
-    sealed record PostView(Node3D Root, StandardMaterial3D Material, HealthBar Health);
+    // What each view last showed is kept here in C#, so a frame only calls into the engine for what changed.
+    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D[] Arrows, CaptureRing? Ring)
+    {
+        public int Owner = int.MinValue, Selected = int.MinValue; // as drawn
+    }
+    sealed record PostView(Node3D Root, StandardMaterial3D Material, HealthBar Health)
+    {
+        public bool Glowing;
+    }
 
-    // One material per segment, indexed [line][segment], so each can show its own state.
+    // One material per segment, indexed [line][segment], so each can show its own state, and the color
+    // each shows. (Dev-grade: a draw call per segment. See the rendering debt in docs/rts-handoff.md.)
     readonly List<StandardMaterial3D[]> _segmentMaterials = [];
+    readonly List<Color[]> _segmentColors = [];
     readonly List<JunctionView> _junctions = [];
     readonly Dictionary<int, PostView> _posts = []; // by gatherer id; destroyed posts go away
     readonly HashSet<int> _seen = [];
@@ -47,6 +57,7 @@ public partial class BeltView : Node3D
                 AddChild(new MeshInstance3D { Mesh = BuildRibbon(line.Segments[s].Curve), MaterialOverride = materials[s] });
             }
             _segmentMaterials.Add(materials);
+            _segmentColors.Add(Enumerable.Repeat(BeltMaterial.AlbedoColor, materials.Length).ToArray());
         }
 
         foreach (var junction in state.Junctions) _junctions.Add(BuildJunction(state, junction));
@@ -66,7 +77,7 @@ public partial class BeltView : Node3D
         for (int l = 0; l < state.Belts.Count; l++)
         {
             var line = state.Belts[l];
-            SyncSegmentColors(line, _segmentMaterials[l]);
+            SyncSegmentColors(line, _segmentMaterials[l], _segmentColors[l]);
             foreach (var p in line.Packages)
                 _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction));
         }
@@ -117,16 +128,19 @@ public partial class BeltView : Node3D
         {
             var junction = state.Junctions[j];
             var view = _junctions[j];
-            var owned = junction.Owner == Player.None
-                ? JunctionMaterial.AlbedoColor
-                : JunctionMaterial.AlbedoColor.Lerp(PlayerPalette.Color(junction.Owner), 0.75f);
-            if (view.Disc.AlbedoColor != owned) view.Disc.AlbedoColor = owned;
+            if (view.Owner != junction.Owner)
+            {
+                view.Owner = junction.Owner;
+                view.Disc.AlbedoColor = junction.Owner == Player.None
+                    ? JunctionMaterial.AlbedoColor
+                    : JunctionMaterial.AlbedoColor.Lerp(PlayerPalette.Color(junction.Owner), 0.75f);
+            }
             if (!junction.IsSwitch) continue;
 
-            for (int o = 0; o < view.Arrows.Length; o++)
+            if (view.Selected != junction.Selected)
             {
-                bool feeds = junction.Selected < 0 || junction.Selected == o;
-                if (view.Arrows[o].Visible != feeds) view.Arrows[o].Visible = feeds;
+                view.Selected = junction.Selected;
+                for (int o = 0; o < view.Arrows.Length; o++) view.Arrows[o].Visible = junction.Selected < 0 || junction.Selected == o;
             }
 
             var zone = PlayerPalette.Color(junction.Owner) with { A = 0.45f };
@@ -143,8 +157,8 @@ public partial class BeltView : Node3D
             _seen.Add(gatherer.Id);
             if (!_posts.TryGetValue(gatherer.Id, out var post)) _posts[gatherer.Id] = post = BuildPost(state, gatherer);
 
-            float energy = state.Tick - gatherer.LastGrabTick < FlashTicks ? 1.5f : 0f;
-            if (post.Material.EmissionEnergyMultiplier != energy) post.Material.EmissionEnergyMultiplier = energy;
+            bool glowing = state.Tick - gatherer.LastGrabTick < FlashTicks;
+            if (post.Glowing != glowing) post.Material.EmissionEnergyMultiplier = (post.Glowing = glowing) ? 1.5f : 0f;
             float health = gatherer.Health / gatherer.MaxHealth;
             post.Health.Set(health, HealthBar.HealthColor(health));
             post.Health.Visible = health < 1;
@@ -193,7 +207,7 @@ public partial class BeltView : Node3D
 
     // Working segments shift toward DamagedColor as health drops. Broken ones are red,
     // fading back toward normal as repair restores health.
-    void SyncSegmentColors(BeltLine line, StandardMaterial3D[] materials)
+    void SyncSegmentColors(BeltLine line, StandardMaterial3D[] materials, Color[] shown)
     {
         var normal = BeltMaterial.AlbedoColor;
         for (int s = 0; s < line.Segments.Length; s++)
@@ -203,7 +217,7 @@ public partial class BeltView : Node3D
             var color = segment.State == SegmentState.Broken
                 ? BrokenColor.Lerp(normal, health)
                 : normal.Lerp(DamagedColor, 1 - health);
-            if (materials[s].AlbedoColor != color) materials[s].AlbedoColor = color;
+            if (shown[s] != color) materials[s].AlbedoColor = shown[s] = color;
         }
     }
 
