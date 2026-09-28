@@ -40,12 +40,12 @@ src/Sim.Tests/      xUnit, headless
 godot/              Godot project: scenes/ (main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md (story documents are kept out of the repo)
-tools/              input smoke test
+tools/              input smoke test, main map generator
 ```
 
 ## Maps
 
-- `main.tscn` is the playable map (the project's main scene); its design rules are in the doctrine (Infrastructure and construction, Playable map).
+- `main.tscn` is the playable map (the project's main scene); its design rules are in the doctrine (Infrastructure and construction, Playable map). Its map nodes are generated: change the layout in `tools/make_main_map.py` and run `python tools/make_main_map.py`, which rewrites only the map nodes (hand edits to them get overwritten).
 - `prototype.tscn` is the small test map that the input smoke test and `--demo` are written against. Don't redesign it without updating both.
 - `stress.tscn` has no authored content; `StressMap` generates it.
 

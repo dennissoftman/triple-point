@@ -162,23 +162,23 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 0.2, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.56, 0, -33)
 script = ExtResource("7_owned")
 
-[node name="BlueForwardWest" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.02, 0, -25.42)
-script = ExtResource("7_owned")
-
-[node name="BlueForwardEast" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.02, 0, -25.42)
-script = ExtResource("7_owned")
-
 [node name="RedHomePost" type="Marker3D" parent="Gatherers"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75.56, 0, 33)
 script = ExtResource("7_owned")
 Player = 1
 
+[node name="BlueForwardWest" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.02, 0, -25.42)
+script = ExtResource("7_owned")
+
 [node name="RedForwardEast" type="Marker3D" parent="Gatherers"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.02, 0, 25.42)
 script = ExtResource("7_owned")
 Player = 1
+
+[node name="BlueForwardEast" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.02, 0, -25.42)
+script = ExtResource("7_owned")
 
 [node name="RedForwardWest" type="Marker3D" parent="Gatherers"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.02, 0, 25.42)
