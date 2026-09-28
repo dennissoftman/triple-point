@@ -1,34 +1,39 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using Sim;
 
 /// <summary>
-/// The look of one unit: a box with a turret for a vehicle, or a capsule per member for a squad. Members
-/// walk loosely in a wedge behind the squad's sim position (visual only: the sim has one position per
-/// squad). Tinted by owner, with a selection ring and a health bar. UnitsView positions it.
+/// The look of one unit. A squad is a capsule per member, walking loosely in a wedge behind the squad's
+/// sim position (visual only: the sim has one position per squad). A vehicle is a hull on wheels or
+/// tracks that follows the sim's heading, with a turret that swings toward what it shoots. Tinted by
+/// owner, with a selection ring and a health bar. UnitsView positions it.
 /// </summary>
 public partial class UnitView : Node3D
 {
-    const float TurnSharpness = 8f;    // how fast the unit turns toward its heading (1/s)
+    const float TurnSharpness = 8f;    // squads turn toward their heading (1/s)
+    const float TurretSharpness = 6f;  // turrets swing toward their target (1/s)
     const float FollowSharpness = 5f;  // how tightly members keep to their wedge slots (1/s)
     const float MemberRadius = 0.28f, MemberHeight = 1.3f;
     const float SlotSpacing = 0.9f;    // m between members
-    static readonly Vector3 HullSize = new(1.6f, 0.9f, 2.2f);
+    const float WheelRadius = 0.35f;
 
     [Export] public Node3D SelectionRing = null!;
     [Export] public int PlayerIndex; // for tools and debugging
 
-    readonly List<MeshInstance3D> _members = [];  // capsules; empty for a vehicle
-    readonly List<Vector3> _memberPositions = []; // ground positions, eased toward their slots
+    readonly List<MeshInstance3D> _members = [];  // squads: capsules
+    readonly List<Vector3> _memberPositions = []; // squads: ground positions, eased toward their slots
+    readonly List<Node3D> _wheels = [];           // wheeled vehicles: spin pivots
     readonly List<Vector3> _muzzles = [];
     readonly HealthBar _health = new();
-    Node3D _hull = null!; // vehicles: turns with the heading
-    Vector3 _heading = Vector3.Forward;
+    Node3D? _hull, _turret;                        // vehicles only
+    float _turretHeight, _barrelLength;
+    float _facing, _aim;                           // yaw (radians): squad facing, turret aim
+    float _wheelSpin, _healthFraction = 1;
     Vector3 _lastPosition;
-    float _healthFraction = 1;
     bool _selected, _placed;
 
-    /// <summary>Where shots come from this frame: the turret, or each living member.</summary>
+    /// <summary>Where shots come from this frame: the barrel tip, or each living member.</summary>
     public IReadOnlyList<Vector3> Muzzles => _muzzles;
 
     public bool Selected
@@ -43,67 +48,90 @@ public partial class UnitView : Node3D
         }
     }
 
-    public void Setup(int player, Color color, int members)
+    public void Setup(int player, Color color, int members, Movement movement)
     {
         PlayerIndex = player;
         var body = new StandardMaterial3D { AlbedoColor = color, Roughness = 0.7f };
-        if (members <= 1)
-        {
-            _hull = new Node3D();
-            AddChild(_hull);
-            _hull.AddChild(new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = HullSize },
-                MaterialOverride = body,
-                Position = new Vector3(0, HullSize.Y / 2, 0),
-            });
-            _hull.AddChild(new MeshInstance3D // turret and barrel, pointing forward (-Z)
-            {
-                Mesh = new BoxMesh { Size = new Vector3(0.7f, 0.35f, 1.3f) },
-                MaterialOverride = new StandardMaterial3D { AlbedoColor = color.Darkened(0.35f) },
-                Position = new Vector3(0, HullSize.Y + 0.17f, -0.35f),
-            });
-        }
-        else
-        {
-            var mesh = new CapsuleMesh { Radius = MemberRadius, Height = MemberHeight };
-            for (int i = 0; i < members; i++)
-            {
-                var member = new MeshInstance3D { Mesh = mesh, MaterialOverride = body };
-                AddChild(member);
-                _members.Add(member);
-                _memberPositions.Add(Vector3.Zero);
-            }
-        }
+        if (members > 1) BuildSquad(members, body);
+        else BuildVehicle(movement, body, color);
 
-        float ringRadius = members <= 1 ? 1.6f : 2.1f;
+        float ringRadius = members > 1 ? 2.1f : 1.9f;
         SelectionRing.Scale = new Vector3(ringRadius / 0.9f, 0.2f, ringRadius / 0.9f); // the ring mesh is 0.9 m
-        _health.Position = new Vector3(0, 2f, 0);
+        _health.Position = new Vector3(0, 2.1f, 0);
         _health.Visible = false;
         AddChild(_health);
     }
 
-    /// <summary>
-    /// Moves the unit to its interpolated sim position. `delta` is sim time for this frame, so members
-    /// keep pace at any game speed.
-    /// </summary>
-    public void Sync(Vector3 position, float delta, int members, float health, bool firing, Vector3 fireAt)
+    void BuildSquad(int members, Material body)
     {
-        // Face where it's going, or what it's shooting at.
-        var toward = firing ? fireAt - position : position - _lastPosition;
-        toward.Y = 0;
-        if (toward.LengthSquared() > 1e-6f)
-            _heading = _heading.Lerp(toward.Normalized(), 1 - MathF.Exp(-TurnSharpness * delta)).Normalized();
-        _lastPosition = position;
-        GlobalPosition = position;
-
-        _muzzles.Clear();
-        if (_members.Count == 0)
+        var mesh = new CapsuleMesh { Radius = MemberRadius, Height = MemberHeight };
+        for (int i = 0; i < members; i++)
         {
-            _hull.Basis = Basis.LookingAt(_heading, Vector3.Up);
-            _muzzles.Add(position + new Vector3(0, HullSize.Y + 0.2f, 0) + _heading * 1.0f);
+            var member = new MeshInstance3D { Mesh = mesh, MaterialOverride = body };
+            AddChild(member);
+            _members.Add(member);
+            _memberPositions.Add(Vector3.Zero);
         }
-        else SyncMembers(position, delta, members);
+    }
+
+    // Forward is -Z throughout, as Basis.LookingAt expects.
+    void BuildVehicle(Movement movement, Material body, Color color)
+    {
+        var dark = new StandardMaterial3D { AlbedoColor = new Color(0.12f, 0.12f, 0.13f), Roughness = 0.9f };
+        bool tracked = movement == Movement.Tracked;
+        var hull = tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
+        float hullBottom = tracked ? 0.35f : WheelRadius + 0.1f;
+
+        _hull = new Node3D();
+        AddChild(_hull);
+        AddBox(_hull, hull, body, new Vector3(0, hullBottom + hull.Y / 2, 0));
+        for (int side = -1; side <= 1; side += 2)
+        {
+            if (tracked)
+            {
+                AddBox(_hull, new Vector3(0.45f, 0.65f, 2.7f), dark, new Vector3(side * (hull.X / 2 + 0.2f), 0.33f, 0));
+                continue;
+            }
+            for (int end = -1; end <= 1; end += 2)
+            {
+                var pivot = new Node3D { Position = new Vector3(side * (hull.X / 2 + 0.1f), WheelRadius, end * 0.75f) };
+                _hull.AddChild(pivot);
+                pivot.AddChild(new MeshInstance3D
+                {
+                    Mesh = new CylinderMesh { TopRadius = WheelRadius, BottomRadius = WheelRadius, Height = 0.28f },
+                    MaterialOverride = dark,
+                    RotationDegrees = new Vector3(0, 0, 90), // axle along X
+                });
+                _wheels.Add(pivot);
+            }
+        }
+
+        // The turret isn't parented to the hull: it aims on its own.
+        _turretHeight = hullBottom + hull.Y;
+        _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
+        AddChild(_turret);
+        var turret = tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
+        AddBox(_turret, turret, new StandardMaterial3D { AlbedoColor = color.Darkened(0.3f) }, new Vector3(0, turret.Y / 2, 0));
+        _barrelLength = tracked ? 1.4f : 0.8f;
+        AddBox(_turret, new Vector3(0.14f, 0.14f, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
+    }
+
+    static void AddBox(Node3D parent, Vector3 size, Material material, Vector3 at) =>
+        parent.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = size }, MaterialOverride = material, Position = at });
+
+    /// <summary>
+    /// Moves the unit to its interpolated sim position and heading (radians). `delta` is sim time for this
+    /// frame, so members and turrets keep pace at any game speed.
+    /// </summary>
+    public void Sync(Vector3 position, float heading, float delta, int members, float health, bool firing, Vector3 fireAt)
+    {
+        float moved = _placed ? (position - _lastPosition).Length() : 0;
+        GlobalPosition = position;
+        _muzzles.Clear();
+        if (_hull is not null) SyncVehicle(position, heading, moved, delta, firing, fireAt);
+        else SyncSquad(position, delta, members, firing, fireAt);
+        _lastPosition = position;
+        _placed = true;
 
         if (health != _healthFraction)
         {
@@ -113,25 +141,46 @@ public partial class UnitView : Node3D
         }
     }
 
-    void SyncMembers(Vector3 position, float delta, int alive)
+    void SyncVehicle(Vector3 position, float heading, float moved, float delta, bool firing, Vector3 fireAt)
     {
-        var right = _heading.Cross(Vector3.Up);
+        _hull!.Basis = Basis.LookingAt(Direction(heading), Vector3.Up);
+        _wheelSpin -= moved / WheelRadius; // rolling forward
+        foreach (var wheel in _wheels) wheel.Rotation = new Vector3(_wheelSpin, 0, 0);
+
+        // The turret tracks its target while firing, and settles back over the nose otherwise.
+        float want = firing && Yaw(fireAt - position) is float toTarget ? toTarget : heading;
+        _aim = _placed ? Mathf.LerpAngle(_aim, want, 1 - MathF.Exp(-TurretSharpness * delta)) : want;
+        var aim = Direction(_aim);
+        _turret!.Basis = Basis.LookingAt(aim, Vector3.Up);
+        _muzzles.Add(position + new Vector3(0, _turretHeight + 0.2f, 0) + aim * (_barrelLength + 0.5f));
+    }
+
+    void SyncSquad(Vector3 position, float delta, int alive, bool firing, Vector3 fireAt)
+    {
+        // Face where it's going, or what it's shooting at.
+        if (Yaw(firing ? fireAt - position : position - _lastPosition) is float want)
+            _facing = _placed ? Mathf.LerpAngle(_facing, want, 1 - MathF.Exp(-TurnSharpness * delta)) : want;
+        var forward = Direction(_facing);
+        var right = forward.Cross(Vector3.Up);
         float follow = _placed ? 1 - MathF.Exp(-FollowSharpness * delta) : 1; // snap into place on the first frame
-        _placed = true;
+
         for (int i = 0; i < _members.Count; i++)
         {
-            // The rearmost members fall first.
-            bool living = i < alive;
+            bool living = i < alive; // the rearmost members fall first
             if (_members[i].Visible != living) _members[i].Visible = living;
             if (!living) continue;
 
             var slot = WedgeSlot(i);
-            var target = position + right * slot.X + _heading * slot.Y;
-            _memberPositions[i] = _memberPositions[i].Lerp(target, follow);
+            _memberPositions[i] = _memberPositions[i].Lerp(position + right * slot.X + forward * slot.Y, follow);
             _members[i].GlobalPosition = _memberPositions[i] + new Vector3(0, MemberHeight / 2, 0);
             _muzzles.Add(_memberPositions[i] + new Vector3(0, MemberHeight * 0.7f, 0));
         }
     }
+
+    // The sim's heading convention: yaw h faces (sin h, 0, cos h).
+    static Vector3 Direction(float yaw) => new(MathF.Sin(yaw), 0, MathF.Cos(yaw));
+
+    static float? Yaw(Vector3 v) => v.X * v.X + v.Z * v.Z > 1e-6f ? MathF.Atan2(v.X, v.Z) : null;
 
     // A wedge: member 0 at the point, then pairs further back and wider, with a little fixed jitter so
     // the squad doesn't look like a grid. X is right, Y is forward, in meters.

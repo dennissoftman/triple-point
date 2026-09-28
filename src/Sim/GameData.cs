@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Sim;
 
@@ -10,6 +11,7 @@ public static class GameData
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+        Converters = { new JsonStringEnumConverter() }, // "movement": "tracked"
     };
 
     /// <summary>Unit types by id, from the contents of units.json.</summary>

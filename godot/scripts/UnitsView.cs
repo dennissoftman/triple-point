@@ -36,12 +36,13 @@ public partial class UnitsView : Node3D
             {
                 view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
-                view.Setup(unit.Owner, PlayerPalette.Color(unit.Owner), unit.MaxMembers);
+                view.Setup(unit.Owner, PlayerPalette.Color(unit.Owner), unit.MaxMembers, unit.Movement);
                 _views[unit.Id] = view;
             }
             var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
+            float heading = Mathf.LerpAngle(unit.PrevHeading, unit.Heading, alpha);
             _positions[unit.Id] = position;
-            view.Sync(position, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt));
+            view.Sync(position, heading, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt));
             view.Selected = selection.Contains(unit.Id);
         }
 

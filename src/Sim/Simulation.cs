@@ -23,6 +23,10 @@ public sealed class Simulation
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
     const float SpillAlongJitter = 0.75f;                     // m along the belt
     const float SpacingSlack = 0.001f;                        // m
+    const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
+    const float BrakeFactor = 2f;                   // vehicles brake this much harder than they accelerate
+    const float TrackedPivotAngle = 0.52f;          // rad (30°); sharper than this, tracks turn nearly on the spot
+    const float WheeledSlowAngle = 1.05f;           // rad (60°); sharper than this, wheels slow down to turn
 
     public SimState State { get; } = new();
 
@@ -40,11 +44,15 @@ public sealed class Simulation
         return State.Players.Count - 1;
     }
 
-    public int AddUnit(int owner, Vector3 position, UnitType type) =>
-        AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, type.MemberDps * type.Members, type.Range, type.Members);
+    /// <summary>A unit of a type from /data, facing `heading` (radians, facing (sin h, 0, cos h)).</summary>
+    public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0) =>
+        AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, type.MemberDps * type.Members, type.Range,
+            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.CanCapture, heading);
 
-    /// <summary>A unit with explicit stats; health and damage are for the whole squad.</summary>
-    public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8, int members = 1)
+    /// <summary>A unit with explicit stats; health and damage are for the whole squad, turnRate is in degrees per second.</summary>
+    public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
+        int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
+        bool canCapture = true, float heading = 0)
     {
         int id = _nextId++;
         State.Units.Add(new Unit
@@ -53,8 +61,14 @@ public sealed class Simulation
             Owner = owner,
             Position = position,
             PrevPosition = position,
+            Heading = heading,
+            PrevHeading = heading,
             Speed = speed,
             Range = range,
+            Movement = movement,
+            Acceleration = acceleration,
+            TurnRate = turnRate * MathF.PI / 180,
+            CanCapture = canCapture,
             MaxMembers = members,
             MemberHealth = maxHealth / members,
             MemberDps = dps / members,
@@ -281,7 +295,8 @@ public sealed class Simulation
         {
             ref var unit = ref units[i];
             unit.PrevPosition = unit.Position;
-            unit.Firing = false;
+            unit.PrevHeading = unit.Heading;
+            (unit.Firing, unit.Driving) = (false, false);
             if (unit.Health <= 0) continue; // killed earlier this tick; removed after the loop
 
             switch (unit.Current.Kind)
@@ -291,7 +306,7 @@ public sealed class Simulation
                     break;
 
                 case UnitOrder.Move:
-                    if (StepToward(ref unit, unit.Current.Target))
+                    if (Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
@@ -336,6 +351,7 @@ public sealed class Simulation
                     UpdateAttack(ref unit);
                     break;
             }
+            if (!unit.Driving) Coast(ref unit);
         }
     }
 
@@ -353,18 +369,21 @@ public sealed class Simulation
         if (InRange(ref unit, unit.Range) && Fire(ref unit, targetId, at)) Complete(ref unit);
     }
 
-    // An idle unit fires at the nearest enemy in range, units before posts. It doesn't chase, and units
-    // with orders don't stop to shoot: move means move.
+    // An idle unit fires at the weakest enemy in range: fewest hit points left, so it dies soonest,
+    // nearest first on ties. Units come before posts. Idle allies near the same enemies pick the same
+    // target, so they focus fire without the player clicking. It doesn't chase, and units with orders
+    // don't stop to shoot: move means move.
     void AutoFire(ref Unit unit)
     {
         int best = -1;
-        float bestSq = unit.Range * unit.Range;
+        float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range;
         var at = Vector3.Zero;
         foreach (var other in State.Units)
         {
             if (other.Owner == unit.Owner || other.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
-            if (sq <= bestSq) (best, bestSq, at) = (other.Id, sq, other.Position);
+            if (sq > rangeSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
+            (best, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
         }
         if (best < 0)
         {
@@ -372,7 +391,8 @@ public sealed class Simulation
             {
                 if (post.Owner == unit.Owner || post.Health <= 0) continue;
                 float sq = GroundDistanceSq(unit.Position, post.Position);
-                if (sq <= bestSq) (best, bestSq, at) = (post.Id, sq, post.Position);
+                if (sq > rangeSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
+                (best, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
             }
         }
         if (best >= 0) Fire(ref unit, best, at);
@@ -397,19 +417,27 @@ public sealed class Simulation
         return post.Health <= 0;
     }
 
-    // Walks toward the order target until within `range`; true once there.
+    // Moves toward the order target until within `range`; true once there.
     static bool InRange(ref Unit unit, float range)
     {
         if (Vector3.Distance(unit.Position, unit.Current.Target) <= range) return true;
-        StepToward(ref unit, unit.Current.Target);
+        Move(ref unit, unit.Current.Target);
         return false;
     }
 
-    // Returns true on arrival.
-    static bool StepToward(ref Unit unit, Vector3 target)
+    // Moves the unit toward `target` this tick, by its kind of movement; true on arrival.
+    static bool Move(ref Unit unit, Vector3 target)
+    {
+        unit.Driving = true;
+        return unit.Movement == Movement.Foot ? Walk(ref unit, target) : Drive(ref unit, target);
+    }
+
+    // Straight at full speed, turning instantly; arrives exactly.
+    static bool Walk(ref Unit unit, Vector3 target)
     {
         var toTarget = target - unit.Position;
         float distance = toTarget.Length();
+        if (distance > 0) unit.Heading = MathF.Atan2(toTarget.X, toTarget.Z);
         float step = unit.Speed * Dt;
         if (distance <= step)
         {
@@ -418,6 +446,57 @@ public sealed class Simulation
         }
         unit.Position += toTarget / distance * step;
         return false;
+    }
+
+    // Steers toward the target at a limited turn rate, accelerating, and braking to stop near it.
+    // Tracked vehicles crawl while turning sharply, so they pivot almost on the spot; wheeled ones need
+    // speed to steer, so from a standstill they drive off in an arc.
+    static bool Drive(ref Unit unit, Vector3 target)
+    {
+        float dx = target.X - unit.Position.X, dz = target.Z - unit.Position.Z;
+        float distance = MathF.Sqrt(dx * dx + dz * dz);
+        float turn = WrapAngle(MathF.Atan2(dx, dz) - unit.Heading);
+        float sharpness = MathF.Abs(turn);
+
+        // Close enough, or so close that lining up would take a loop: stop here and coast to a halt.
+        if (distance <= VehicleArriveRadius || (distance < 2 && sharpness > MathF.PI * 0.6f))
+        {
+            unit.Driving = false;
+            return true;
+        }
+
+        float rate = unit.TurnRate;
+        if (unit.Movement == Movement.Wheeled) rate *= Math.Clamp(unit.CurrentSpeed / (0.3f * unit.Speed), 0.25f, 1f);
+        unit.Heading = WrapAngle(unit.Heading + Math.Clamp(turn, -rate * Dt, rate * Dt));
+
+        float braking = unit.Acceleration * BrakeFactor;
+        float stopping = unit.CurrentSpeed * unit.CurrentSpeed / (2 * braking);
+        float want = distance - VehicleArriveRadius <= stopping ? 0 : unit.Speed;
+        if (unit.Movement == Movement.Tracked && sharpness > TrackedPivotAngle) want = MathF.Min(want, unit.Speed * 0.15f);
+        else if (unit.Movement == Movement.Wheeled && sharpness > WheeledSlowAngle) want = MathF.Min(want, unit.Speed * 0.5f);
+
+        unit.CurrentSpeed = want > unit.CurrentSpeed
+            ? MathF.Min(want, unit.CurrentSpeed + unit.Acceleration * Dt)
+            : MathF.Max(want, unit.CurrentSpeed - braking * Dt);
+        unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
+        return false;
+    }
+
+    // A vehicle that isn't driving this tick rolls on and brakes to a stop.
+    static void Coast(ref Unit unit)
+    {
+        if (unit.Movement == Movement.Foot || unit.CurrentSpeed <= 0) return;
+        unit.CurrentSpeed = MathF.Max(0, unit.CurrentSpeed - unit.Acceleration * BrakeFactor * Dt);
+        unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
+    }
+
+    static Vector3 Forward(float heading) => new(MathF.Sin(heading), 0, MathF.Cos(heading));
+
+    // Into (-pi, pi].
+    static float WrapAngle(float a)
+    {
+        a %= MathF.Tau;
+        return a > MathF.PI ? a - MathF.Tau : a <= -MathF.PI ? a + MathF.Tau : a;
     }
 
     void RemoveDead()
@@ -436,22 +515,25 @@ public sealed class Simulation
         }
     }
 
-    // A switch changes hands when one side's units hold it, with no enemy there, for CaptureSeconds.
-    // Both sides present freezes progress; nobody there, or the owner coming back, drains it.
+    // A switch changes hands when one side holds it, with no enemy there, for CaptureSeconds. Only units
+    // that can capture (squads) take it, but any unit, vehicles too, denies it to the enemy: both sides
+    // present freezes progress. Nobody capturing, or the owner coming back, drains it.
     void UpdateCapture(int index, Junction junction)
     {
         if (!junction.IsSwitch) return;
 
         int present = Player.None;
+        bool capturing = false;
         foreach (var unit in State.Units)
         {
             if (GroundDistanceSq(unit.Position, junction.Position) > CaptureRadius * CaptureRadius) continue;
-            if (present == Player.None) present = unit.Owner;
-            else if (present != unit.Owner) return; // contested
+            if (present != Player.None && present != unit.Owner) return; // contested
+            present = unit.Owner;
+            capturing |= unit.CanCapture;
         }
 
         float step = Dt / CaptureSeconds;
-        if (present != Player.None && present != junction.Owner)
+        if (capturing && present != junction.Owner)
         {
             if (junction.Capturer != present) (junction.Capturer, junction.CaptureProgress) = (present, 0);
             junction.CaptureProgress += step;

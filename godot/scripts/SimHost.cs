@@ -86,7 +86,10 @@ public partial class SimHost : Node3D
                 GD.PushWarning($"Unit spawn '{spawn.Name}' has unknown type '{spawn.UnitType}'; skipped.");
                 continue;
             }
-            _unitsOf[spawn.Player].Add(_sim.AddUnit(spawn.Player, ToSim(spawn.GlobalPosition), type));
+            // Units start facing the way the marker does (its -Z).
+            var facing = -spawn.GlobalBasis.Z;
+            float heading = MathF.Atan2(facing.X, facing.Z);
+            _unitsOf[spawn.Player].Add(_sim.AddUnit(spawn.Player, ToSim(spawn.GlobalPosition), type, heading));
             spawnSums[spawn.Player] += new Vector2(spawn.GlobalPosition.X, spawn.GlobalPosition.Z);
         }
         for (int p = 0; p < PlayerCount; p++)
@@ -168,7 +171,7 @@ public partial class SimHost : Node3D
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
                  + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, Shift: add   LMB your switch: flip\n"
-                 + "RMB: move / attack enemy / hold switch / repair damaged belt   Ctrl+RMB belt: attack   Shift+RMB: queue\n"
+                 + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift+RMB: queue\n"
                  + "Camera: WASD / arrows / screen edge / MMB drag, wheel: zoom";
     }
 

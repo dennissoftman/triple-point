@@ -29,83 +29,84 @@ func _process(_delta) -> bool:
 			var views = root.get_node("Main/UnitsView").get_children().filter(func(n): return n.has_node("SelectionRing"))
 			blue = views.filter(func(v): return v.get("PlayerIndex") == 0)
 			red = views.filter(func(v): return v.get("PlayerIndex") == 1)
-			check("three units per side", [blue.size(), red.size()], [3, 3])
+			check("four units per side", [blue.size(), red.size()], [4, 4])
 		20:
 			box(blue)
 		25:
-			check("box selects all of your units", selected(blue), 3)
+			check("box selects all of your units", selected(blue), 4)
 			right_click(cam.unproject_position(Vector3.ZERO))
-		400:
-			# Three units around (0, 0, 0) in a 2x2 grid with 3 m spacing.
-			var slots := [Vector3(-1.5, 0, -1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, 1.5)]
+		520:
+			# Four units around (0, 0, 0) in a 2x2 grid with 3 m spacing. Squads stop exactly on their slot;
+			# vehicles brake to a stop within about 0.6 m of it.
+			var slots := [Vector3(-1.5, 0, -1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, 1.5), Vector3(1.5, 0, 1.5)]
 			for i in blue.size():
-				check("unit %d at its formation slot" % i, blue[i].global_position.distance_to(slots[i]) < 0.05, true)
+				check("unit %d at its formation slot" % i, blue[i].global_position.distance_to(slots[i]) < 1.0, true)
 			click(screen(blue[0]))
-		405:
+		525:
 			check("click selects one", selected(blue), 1)
 			key(KEY_SHIFT, true)
 			click(screen(blue[1]))
-		410:
+		530:
 			check("shift-click adds", selected(blue), 2)
 			click(screen(blue[1]))
-		415:
+		535:
 			check("shift-click toggles off", selected(blue), 1)
 			key(KEY_SHIFT, false)
 			click(screen(red[0]))
-		420:
+		540:
 			check("enemy units can't be selected", [selected(blue), selected(red)], [0, 0])
 			box(blue)
-		425:
+		545:
 			right_click(cam.unproject_position(SWITCH))
-		1000:
+		1120:
 			# Walked over (~2 s) and held it uncontested (5 s): it's Blue's, but still closed.
 			arrow = switch_arrow()
 			check("switch arrow exists and is hidden while closed", arrow != null and not arrow.visible, true)
 			click(cam.unproject_position(SWITCH))
-		1005:
+		1125:
 			check("clicking your switch opens it", arrow.visible, true)
 			arrow_before = arrow.global_position
 			click(cam.unproject_position(SWITCH))
-		1010:
+		1130:
 			# Both outputs leave heading east; south bends toward +z, so the arrow moves that way.
 			check("clicking it again flips it north -> south", arrow.global_position.z > arrow_before.z + 0.01, true)
 			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
 			key(KEY_F2, false)
-		1028:
+		1148:
 			# 0.3 s into a 0.6 s flight: partway, not jumped.
 			var focus: Vector2 = cam.get("Focus")
 			check("F2 glides the camera instead of jumping", focus.distance_to(blue_view) > 0.5 and focus.distance_to(RED_HOME) > 0.5, true)
-		1060:
+		1180:
 			check("F2 lands on Red's spawn the first time", (cam.get("Focus") as Vector2).distance_to(RED_HOME) < 0.1, true)
 			box(red)
-		1065:
-			check("F2 swaps to Red: Red's units select, Blue's don't", [selected(red), selected(blue)], [3, 0])
+		1185:
+			check("F2 swaps to Red: Red's units select, Blue's don't", [selected(red), selected(blue)], [4, 0])
 			key(KEY_F2, true)
 			key(KEY_F2, false)
-		1115:
+		1235:
 			check("F2 back returns to where Blue left off", (cam.get("Focus") as Vector2).distance_to(blue_view) < 0.1, true)
 			cam_before = cam.global_position
 			key(KEY_RIGHT, true)
-		1145:
+		1265:
 			key(KEY_RIGHT, false)
 			check("arrow key pans the camera", cam.global_position.x > cam_before.x + 5, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), true)
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), false)
-		1205:
+		1325:
 			check("wheel zooms in", cam.global_position.y < cam_before.y - 3, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(576, 324), true)
 			motion(Vector2(676, 324))
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(676, 324), false)
-		1210:
+		1330:
 			check("middle-mouse drag moves the map with the cursor", cam.global_position.x < cam_before.x - 1, true)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
 
-const RED_HOME := Vector2(35.0 / 3.0, 36.5 / 3.0) # the middle of Red's three unit spawns
+const RED_HOME := Vector2(10, 12.375) # the middle of Red's four unit spawns
 var blue_view: Vector2
 
 func check(name: String, actual, expected):

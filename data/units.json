@@ -1,5 +1,14 @@
 // Prototype unit types. Members is 1 for a vehicle; a squad's health and damage are per member.
+// Movement: foot (default), wheeled or tracked. Vehicles also need acceleration (m/s²) and turnRate (°/s).
+// canCapture defaults to true; vehicles can't capture switches, only deny them to the enemy.
 {
   "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
-  "vehicle":     { "members": 1, "speed": 6,   "memberHealth": 180, "memberDps": 12, "range": 9 }
+  "scout_car": {
+    "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 6, "turnRate": 120,
+    "memberHealth": 140, "memberDps": 9, "range": 8, "canCapture": false
+  },
+  "tank": {
+    "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 3, "turnRate": 60,
+    "memberHealth": 260, "memberDps": 14, "range": 9, "canCapture": false
+  },
 }

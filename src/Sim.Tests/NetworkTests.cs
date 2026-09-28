@@ -150,6 +150,23 @@ public class NetworkTests
     }
 
     [Fact]
+    public void Vehicles_cannot_capture_a_switch_but_deny_it_to_the_enemy()
+    {
+        var (sim, j) = Switch();
+        var junction = sim.State.Junctions[j];
+        sim.AddUnit(Blue, new Vector3(10, 0, 1), dps: 0, movement: Movement.Tracked, acceleration: 3, turnRate: 60, canCapture: false);
+
+        Run(sim, 10 * T);
+        Assert.Equal(Player.None, junction.Owner); // a vehicle alone takes nothing
+        Assert.Equal(0f, junction.CaptureProgress);
+
+        sim.AddUnit(Red, new Vector3(10, 0, -1), dps: 0); // a squad that could capture...
+        Run(sim, 10 * T);
+        Assert.Equal(Player.None, junction.Owner);  // ...but Blue's vehicle is there
+        Assert.Equal(0f, junction.CaptureProgress);
+    }
+
+    [Fact]
     public void Capture_progress_drains_when_the_capturer_leaves()
     {
         var (sim, j) = Switch();

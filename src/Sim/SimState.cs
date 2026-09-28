@@ -23,8 +23,20 @@ public enum UnitOrder { None, Move, Repair, AttackSegment, Attack }
 /// </summary>
 public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -1, int Segment = -1, int TargetId = -1);
 
-/// <summary>A unit type, as loaded from /data/units.json. Members is 1 for a vehicle.</summary>
-public sealed record UnitType(int Members, float Speed, float MemberHealth, float MemberDps, float Range);
+/// <summary>
+/// How a unit gets around. Foot units walk straight at full speed and turn instantly. Vehicles have a
+/// heading, accelerate and brake, and turn at a limited rate: tracked ones pivot almost on the spot,
+/// wheeled ones need speed to steer, so they arc.
+/// </summary>
+public enum Movement { Foot, Wheeled, Tracked }
+
+/// <summary>
+/// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle. TurnRate is in degrees per
+/// second; Acceleration and TurnRate only matter for vehicles.
+/// </summary>
+public sealed record UnitType(
+    int Members, float Speed, float MemberHealth, float MemberDps, float Range,
+    Movement Movement = Movement.Foot, float Acceleration = 0, float TurnRate = 0, bool CanCapture = true);
 
 /// <summary>
 /// A vehicle, or an infantry squad. A squad is one sim entity (one position, one order); its members
@@ -35,7 +47,13 @@ public struct Unit
 {
     public int Id, Owner;
     public Vector3 Position, PrevPosition; // PrevPosition is last tick's, for view interpolation
-    public float Speed, Range;             // m/s, m
+    public float Heading, PrevHeading;     // radians; facing (sin h, 0, cos h)
+    public float Speed, Range;             // top speed m/s, weapon range m
+    public Movement Movement;
+    public float Acceleration, TurnRate;   // m/s², rad/s; vehicles only
+    public float CurrentSpeed;             // vehicles only
+    public bool CanCapture;                // squads take switches; vehicles only deny them
+    public bool Driving;                   // moved under power this tick; otherwise a vehicle coasts to a stop
     public int MaxMembers;
     public float MemberHealth, MemberDps;
     public float Health;                   // the whole squad's pool
