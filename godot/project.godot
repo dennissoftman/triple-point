@@ -25,6 +25,39 @@ window/stretch/aspect="expand"
 project/assembly_name="Game"
 project/solution_directory="res://.."
 
+[input]
+
+select={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":1,"pressed":true)
+]
+}
+act={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":2,"pressed":true)
+]
+}
+queue_order={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":4194325)
+]
+}
+force_attack={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":4194326)
+]
+}
+speed_up={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":61), Object(InputEventKey,"device":-1,"keycode":4194437)
+]
+}
+speed_down={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":45), Object(InputEventKey,"device":-1,"keycode":4194435)
+]
+}
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

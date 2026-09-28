@@ -10,7 +10,8 @@ public sealed class Simulation
 
     // Tuning; moves to /data once there are real unit types.
     public const float RepairRange = 2.5f;          // m from the segment
-    public const float RepairSeconds = 5f;          // for one unit, from broken to normal
+    public const float RepairSeconds = 5f;          // for one unit, from 0 to full health
+    public const float AttackRange = 8f;            // m from the segment
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float PickupLifetimeSeconds = 60f;
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
@@ -25,20 +26,18 @@ public sealed class Simulation
 
     public Simulation(uint seed = 1) => _random = new SimRandom(seed);
 
-    public int AddUnit(Vector3 position, float speed)
+    public int AddUnit(Vector3 position, float speed, float dps = 10)
     {
         int id = _nextId++;
-        State.Units.Add(new Unit { Id = id, Position = position, PrevPosition = position, Speed = speed, Pending = new() });
+        State.Units.Add(new Unit { Id = id, Position = position, PrevPosition = position, Speed = speed, Dps = dps, Pending = new() });
         return id;
     }
 
-    /// <summary>Adds a belt line; each curve is cut into breakable segments no longer than `maxSegmentLength`.</summary>
-    public void AddBeltLine(BezierSegment[] curves, float speed, float spacing, float spawnIntervalSeconds,
-                            float maxSegmentLength = float.PositiveInfinity)
+    /// <summary>Adds a belt line; each curve is cut into breakable segments no longer than the config allows.</summary>
+    public void AddBeltLine(BezierSegment[] curves, BeltConfig config)
     {
-        int ticks = Math.Max(1, (int)MathF.Round(spawnIntervalSeconds * TicksPerSecond));
-        var segments = curves.SelectMany(c => c.Split(maxSegmentLength)).ToArray();
-        State.Belts.Add(new BeltLine(segments, speed, spacing, ticks));
+        var segments = curves.SelectMany(c => c.Split(config.MaxSegmentLength)).ToArray();
+        State.Belts.Add(new BeltLine(segments, config, TicksPerSecond));
     }
 
     /// <summary>The belt segment nearest to a ground point, if one is within `maxDistance`.</summary>
@@ -58,8 +57,8 @@ public sealed class Simulation
         return line >= 0;
     }
 
-    /// <summary>Where a unit coming from `from` walks to repair a segment: its nearest point, on the ground.</summary>
-    public Vector3 RepairPoint(int line, int segment, Vector3 from)
+    /// <summary>Where a unit coming from `from` heads for a segment order: the segment's nearest point, on the ground.</summary>
+    public Vector3 SegmentPoint(int line, int segment, Vector3 from)
     {
         var curve = State.Belts[line].Segments[segment].Curve;
         return curve.PositionAt(curve.ClosestDistanceAlong(from, out _)) with { Y = from.Y };
@@ -88,6 +87,9 @@ public sealed class Simulation
             case RepairSegmentCommand r:
                 Issue(r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
                 break;
+            case AttackSegmentCommand a:
+                Issue(a.UnitId, new Order(UnitOrder.Attack, default, a.Line, a.Segment), a.Queued);
+                break;
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
                 break;
@@ -110,8 +112,9 @@ public sealed class Simulation
 
     void Start(ref Unit unit, Order order)
     {
-        // Resolved now rather than when issued: a queued repair starts from wherever the unit ended up.
-        if (order.Kind == UnitOrder.Repair) order = order with { Target = RepairPoint(order.Line, order.Segment, unit.Position) };
+        // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
+        if (order.Kind is UnitOrder.Repair or UnitOrder.Attack)
+            order = order with { Target = SegmentPoint(order.Line, order.Segment, unit.Position) };
         unit.Current = order;
     }
 
@@ -133,6 +136,7 @@ public sealed class Simulation
         foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
         {
             unit.PrevPosition = unit.Position;
+            unit.Firing = false;
             switch (unit.Current.Kind)
             {
                 case UnitOrder.Move:
@@ -144,25 +148,48 @@ public sealed class Simulation
                     break;
 
                 case UnitOrder.Repair:
+                {
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
-                    if (segment.State != SegmentState.Broken) { Complete(ref unit); break; }
-                    if (Vector3.Distance(unit.Position, unit.Current.Target) > RepairRange)
-                    {
-                        StepToward(ref unit, unit.Current.Target);
-                        break;
-                    }
+                    if (segment.Health >= segment.MaxHealth) { Complete(ref unit); break; }
+                    if (!InRange(ref unit, RepairRange)) break;
 
-                    segment.RepairProgress += Dt / RepairSeconds;
-                    if (segment.RepairProgress >= 1)
+                    segment.Health = MathF.Min(segment.MaxHealth, segment.Health + segment.MaxHealth / RepairSeconds * Dt);
+                    if (segment.Health >= segment.MaxHealth)
                     {
-                        (segment.State, segment.RepairProgress) = (SegmentState.Normal, 0);
+                        segment.State = SegmentState.Normal;
                         _events.Add(new SimEvent(SimEventKind.SegmentRepaired, l, s));
                         Complete(ref unit);
                     }
                     break;
+                }
+
+                case UnitOrder.Attack:
+                {
+                    var (l, s) = (unit.Current.Line, unit.Current.Segment);
+                    var segment = State.Belts[l].Segments[s];
+                    if (segment.State == SegmentState.Broken) { Complete(ref unit); break; }
+                    if (!InRange(ref unit, AttackRange)) break;
+
+                    unit.Firing = true;
+                    segment.Health -= unit.Dps * Dt;
+                    if (segment.Health <= 0)
+                    {
+                        Break(l, s);
+                        Complete(ref unit);
+                    }
+                    break;
+                }
             }
         }
+    }
+
+    // Walks toward the order target until within `range`; true once there.
+    static bool InRange(ref Unit unit, float range)
+    {
+        if (Vector3.Distance(unit.Position, unit.Current.Target) <= range) return true;
+        StepToward(ref unit, unit.Current.Target);
+        return false;
     }
 
     // Returns true on arrival.
@@ -185,7 +212,7 @@ public sealed class Simulation
         var line = State.Belts[lineIndex];
         var segment = line.Segments[segmentIndex];
         if (segment.State == SegmentState.Broken) return;
-        (segment.State, segment.RepairProgress) = (SegmentState.Broken, 0);
+        (segment.State, segment.Health) = (SegmentState.Broken, 0);
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
 
         // Everything on the segment falls off where it is.
@@ -235,6 +262,14 @@ public sealed class Simulation
 
     void Spill(BeltLine line, Vector3 at, Vector3 direction)
     {
+        line.Spilled++;
+        // Some break in the fall, so holding a break never captures the whole stream.
+        if (_random.Range(0, 1) < line.SpillLoss)
+        {
+            line.Destroyed++;
+            return;
+        }
+
         var side = Vector3.Normalize(Vector3.Cross(direction, Vector3.UnitY));
         float offset = _random.Range(SpillMinOffset, SpillMaxOffset) * (_random.NextUInt() % 2 == 0 ? 1 : -1);
         var position = at + side * offset + direction * _random.Range(-SpillAlongJitter, SpillAlongJitter);
@@ -244,7 +279,6 @@ public sealed class Simulation
             Position = position with { Y = 0 },
             ExpiresAtTick = State.Tick + (int)(PickupLifetimeSeconds * TicksPerSecond),
         });
-        line.Spilled++;
     }
 
     void SpawnPackage(BeltLine line)

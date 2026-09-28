@@ -36,6 +36,10 @@ emission_energy_multiplier = 0.4
 shading_mode = 0
 albedo_color = Color(0.55, 1, 0.6, 1)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fire"]
+shading_mode = 0
+albedo_color = Color(1, 0.85, 0.4, 1)
+
 [sub_resource type="Curve3D" id="Curve3D_belt1"]
 _data = {
 "points": PackedVector3Array(0, 0, 0, 6, 0, -6, -20, 0.2, 4, -5, 0, 0, 5, 0, 0, -4, 0.2, -3, -5, 0, 0, 5, 0, 0, 10, 0.2, 4, -5, 0, 3, 0, 0, 0, 20, 0.2, -2),
@@ -75,6 +79,7 @@ PackageMaterial = SubResource("StandardMaterial3D_package")
 script = ExtResource("4_unitsview")
 UnitScene = ExtResource("3_unit")
 PathMaterial = SubResource("StandardMaterial3D_path")
+FireMaterial = SubResource("StandardMaterial3D_fire")
 
 [node name="Ui" type="CanvasLayer" parent="."]
 

@@ -14,6 +14,10 @@ public class SimulationTests
     static BezierSegment[] TwoSegments() =>
         [Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(20, 0, 0))];
 
+    // 2 m/s, 1 m spacing, 100 health per segment.
+    static BeltConfig Belt(float spawnIntervalSeconds, float spillLoss = 0) =>
+        new(Speed: 2, Spacing: 1, SpawnIntervalSeconds: spawnIntervalSeconds, SpillLoss: spillLoss);
+
     static void Run(Simulation sim, int ticks)
     {
         for (int i = 0; i < ticks; i++) sim.Tick(NoCommands);
@@ -70,7 +74,7 @@ public class SimulationTests
     public void Queued_repair_walks_from_where_the_previous_order_ends()
     {
         var sim = new Simulation();
-        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], speed: 2, spacing: 1, spawnIntervalSeconds: 1);
+        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], Belt(1));
         int id = sim.AddUnit(new Vector3(0, 0, 5), speed: 5);
 
         sim.Tick([
@@ -121,7 +125,7 @@ public class SimulationTests
         // Two 1.5 m segments, 2 m/s, one package per second.
         sim.AddBeltLine(
             [Straight(Vector3.Zero, new(1.5f, 0, 0)), Straight(new(1.5f, 0, 0), new(3, 0, 0))],
-            speed: 2, spacing: 1, spawnIntervalSeconds: 1);
+            Belt(1));
         var line = sim.State.Belts[0];
 
         sim.Tick(NoCommands); // tick 1 spawns the first package at the start
@@ -141,7 +145,7 @@ public class SimulationTests
     {
         var sim = new Simulation();
         // A spawn every 0.5 m of travel, but packages need 1 m.
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.25f);
+        sim.AddBeltLine(TwoSegments(), Belt(0.25f));
         var line = sim.State.Belts[0];
 
         Run(sim, 150);
@@ -155,7 +159,7 @@ public class SimulationTests
     public void Breaking_a_segment_spills_the_packages_on_it()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
+        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
         var line = sim.State.Belts[0];
         Run(sim, 150); // the first packages are ~5 m into segment 1
         int onSegment = line.Packages.Count(p => p.Segment == 1);
@@ -172,7 +176,7 @@ public class SimulationTests
     public void Packages_reaching_a_break_spill_beside_it_and_the_source_keeps_flowing()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
+        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
         var line = sim.State.Belts[0];
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
@@ -196,7 +200,7 @@ public class SimulationTests
     public void Units_collect_pickups_they_stand_near()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
+        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
         // One on each side of the break; spills land 1.3-2.5 m to either side.
         sim.AddUnit(new Vector3(10, 0, 1.75f), speed: 5);
         sim.AddUnit(new Vector3(10, 0, -1.75f), speed: 5);
@@ -213,7 +217,7 @@ public class SimulationTests
     public void Uncollected_pickups_expire()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 1000); // a single package
+        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single package
         Run(sim, 120); // ~12 m along, on segment 1
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Assert.Single(sim.State.Pickups);
@@ -230,7 +234,7 @@ public class SimulationTests
     public void Unit_walks_to_broken_segment_repairs_it_and_flow_resumes()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 1);
+        sim.AddBeltLine(TwoSegments(), Belt(1));
         var line = sim.State.Belts[0];
         int unit = sim.AddUnit(new Vector3(10, 0, 5), speed: 5); // 5 m from the segment start
 
@@ -250,5 +254,66 @@ public class SimulationTests
 
         Run(sim, 200);
         Assert.True(line.Lost > 0);
+    }
+
+    [Fact]
+    public void Attacking_walks_into_range_and_breaks_the_segment_over_time()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), Belt(1));
+        int unit = sim.AddUnit(new Vector3(15, 0, 20), speed: 5, dps: 10); // 20 m from segment 1
+
+        var events = sim.Tick([new AttackSegmentCommand(unit, 0, 1)]);
+        int brokenAt = -1;
+        for (int tick = 1; tick <= 400 && brokenAt < 0; tick++)
+        {
+            if (events.Contains(new SimEvent(SimEventKind.SegmentBroken, 0, 1))) brokenAt = tick;
+            else events = sim.Tick(NoCommands);
+        }
+
+        // 12 m to get within 8 m (48 ticks), then 100 health at 10 dps (200 ticks).
+        Assert.InRange(brokenAt, 247, 251);
+        Assert.Equal(SegmentState.Broken, sim.State.Belts[0].Segments[1].State);
+        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+        Assert.True(sim.State.Units[0].Position.Z > 7.9f); // fired from range, didn't walk up to it
+    }
+
+    [Fact]
+    public void Damaged_segment_keeps_working_and_repairs_back_to_full()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), Belt(1));
+        var line = sim.State.Belts[0];
+        var segment = line.Segments[1];
+        int unit = sim.AddUnit(new Vector3(15, 0, 5), speed: 5, dps: 10); // already in range
+
+        sim.Tick([new AttackSegmentCommand(unit, 0, 1)]);
+        Run(sim, 99); // 100 ticks of fire: half health
+        sim.Tick([new MoveCommand(unit, new Vector3(15, 0, 5))]); // stop firing
+        Assert.Equal(50f, segment.Health, 1f);
+        Assert.Equal(SegmentState.Normal, segment.State);
+
+        Run(sim, 300);
+        Assert.True(line.Lost > 0); // packages still cross it
+        Assert.Equal(0, line.Spilled);
+
+        sim.Tick([new RepairSegmentCommand(unit, 0, 1)]);
+        Run(sim, 100); // walk ~2.5 m, then half of the 5 s full repair
+        Assert.Equal(segment.MaxHealth, segment.Health);
+        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+    }
+
+    [Fact]
+    public void Spill_loss_destroys_about_that_share_of_spilled_packages()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), Belt(0.5f, spillLoss: 0.3f));
+        var line = sim.State.Belts[0];
+
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        Run(sim, 2000); // ~100 spills
+
+        Assert.True(line.Spilled > 80);
+        Assert.InRange(line.Destroyed / (float)line.Spilled, 0.2f, 0.4f);
     }
 }

@@ -12,6 +12,7 @@ public partial class BeltView : Node3D
     [Export] public StandardMaterial3D BeltMaterial = null!;
     [Export] public Material? PackageMaterial;
     [Export] public Color BrokenColor = new(0.75f, 0.12f, 0.1f);
+    [Export] public Color DamagedColor = new(0.55f, 0.35f, 0.1f); // a working segment near 0 health
     [Export] public float BeltWidth = 1.2f;
     [Export] public float PackageSize = 0.6f;
 
@@ -62,15 +63,18 @@ public partial class BeltView : Node3D
         _pickups.End();
     }
 
-    // Broken is red, fading back toward normal as repair progresses.
+    // Working segments shift toward DamagedColor as health drops. Broken ones are red,
+    // fading back toward normal as repair restores health.
     void SyncSegmentColors(BeltLine line, StandardMaterial3D[] materials)
     {
+        var normal = BeltMaterial.AlbedoColor;
         for (int s = 0; s < line.Segments.Length; s++)
         {
             var segment = line.Segments[s];
+            float health = segment.Health / segment.MaxHealth;
             var color = segment.State == SegmentState.Broken
-                ? BrokenColor.Lerp(BeltMaterial.AlbedoColor, segment.RepairProgress)
-                : BeltMaterial.AlbedoColor;
+                ? BrokenColor.Lerp(normal, health)
+                : normal.Lerp(DamagedColor, 1 - health);
             if (materials[s].AlbedoColor != color) materials[s].AlbedoColor = color;
         }
     }
