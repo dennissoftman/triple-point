@@ -31,6 +31,7 @@ public sealed class Simulation
     const float ReturnFireLeash = 15f;              // m from where it began that a unit chases an attacker it can't reach
     const float AssistRadius = 8f;                  // m; idle allies this close to a unit under fire answer it too
     const int HitAttentionTicks = 3 * TicksPerSecond; // a unit with nothing in range keeps its turret on whoever hit it this long
+    const float RallySpread = 2.5f;                 // m; produced units stand around the rally point, not on it
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
     const float StopMargin = 0.3f;                  // m short of the target that a vehicle eases to a stop
@@ -175,6 +176,15 @@ public sealed class Simulation
         return id;
     }
 
+    /// <summary>A building for `owner`, its exit facing `heading`. Its rally point starts at the exit. Returns its id.</summary>
+    public int AddBuilding(int owner, Vector3 position, BuildingType type, float heading = 0)
+    {
+        var building = new Building(_nextId++, owner, type, position, heading);
+        building.Rally = building.Exit;
+        State.Buildings.Add(building);
+        return building.Id;
+    }
+
     // ---- Queries ----
 
     /// <summary>The junction nearest to a ground point, if one is within `maxDistance`.</summary>
@@ -207,13 +217,15 @@ public sealed class Simulation
         return line >= 0;
     }
 
-    /// <summary>A living unit or gatherer post by id: where it is and who owns it.</summary>
+    /// <summary>A living unit, gatherer post or building by id: where it is and who owns it.</summary>
     public bool TryGetTarget(int id, out Vector3 position, out int owner)
     {
         foreach (var unit in State.Units)
             if (unit.Id == id && unit.Health > 0) { (position, owner) = (unit.Position, unit.Owner); return true; }
         foreach (var post in State.Gatherers)
             if (post.Id == id && post.Health > 0) { (position, owner) = (post.Position, post.Owner); return true; }
+        foreach (var building in State.Buildings)
+            if (building.Id == id && building.Health > 0) { (position, owner) = (building.Position, building.Owner); return true; }
         (position, owner) = (default, Player.None);
         return false;
     }
@@ -247,6 +259,7 @@ public sealed class Simulation
         foreach (var line in State.Belts) MovePackages(line);
         foreach (var junction in State.Junctions) Transfer(junction);
         UpdateGatherers();
+        foreach (var building in State.Buildings) UpdateProduction(building);
         foreach (var line in State.Belts) SpawnPackage(line);
         UpdatePickups();
         State.Tick++;
@@ -278,7 +291,66 @@ public sealed class Simulation
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
                 break;
+            case ProduceCommand p when OwnBuilding(p.Player, p.BuildingId) is { } building:
+                if (building.Queue.Count >= building.Type.QueueLimit) break;
+                foreach (var type in building.Type.Units)
+                    if (type.Id == p.UnitType) { building.Queue.Add(type); break; }
+                break;
+            case CancelProductionCommand c when OwnBuilding(c.Player, c.BuildingId) is { } building:
+                if (c.Index < 0 || c.Index >= building.Queue.Count) break;
+                if (c.Index == 0)
+                {
+                    State.Players[building.Owner].Resources += building.Paid;
+                    (building.Progress, building.Paid, building.Stalled) = (0, 0, false);
+                }
+                building.Queue.RemoveAt(c.Index);
+                break;
+            case SetRepeatCommand r when OwnBuilding(r.Player, r.BuildingId) is { } building:
+                building.Repeat = r.Repeat;
+                break;
+            case SetRallyCommand r when OwnBuilding(r.Player, r.BuildingId) is { } building:
+                building.Rally = r.Rally;
+                break;
         }
+    }
+
+    // Commands only reach buildings their issuer owns.
+    Building? OwnBuilding(int player, int id)
+    {
+        foreach (var building in State.Buildings)
+            if (building.Id == id) return building.Owner == player ? building : null;
+        return null;
+    }
+
+    // Trains the front unit of the queue: each tick pays the share of the cost due by then (in whole
+    // Resources, so the total comes out exact), or stalls until the owner can. A finished unit leaves by
+    // the exit for its spot around the rally point; with Repeat on, its type rejoins the back of the queue.
+    void UpdateProduction(Building building)
+    {
+        building.Stalled = false;
+        if (building.Queue.Count == 0) return;
+        var type = building.Queue[0];
+        var owner = State.Players[building.Owner];
+        int ticks = type.BuildTicks, due = (type.Cost * (building.Progress + 1) + ticks - 1) / ticks - building.Paid;
+        if (owner.Resources < due)
+        {
+            building.Stalled = true;
+            return;
+        }
+        (owner.Resources, building.Paid) = (owner.Resources - due, building.Paid + due);
+        if (++building.Progress < ticks) return;
+
+        building.Queue.RemoveAt(0);
+        (building.Progress, building.Paid) = (0, 0);
+        if (building.Repeat) building.Queue.Add(type);
+
+        int id = AddUnit(building.Owner, building.Exit, type, building.Heading);
+        ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
+        int slot = building.Produced++ % 7; // the rally point, then six around it
+        float angle = (slot - 1) * MathF.Tau / 6;
+        var spot = building.Rally + (slot == 0 ? Vector3.Zero : new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * RallySpread);
+        if (GroundDistanceSq(spot, unit.Position) > VehicleParkRadius * VehicleParkRadius) Start(ref unit, new Order(UnitOrder.Move, spot));
+        _events.Add(new SimEvent(SimEventKind.UnitProduced, id, building.Id));
     }
 
     // Orders only reach units their issuer owns.
@@ -509,7 +581,7 @@ public sealed class Simulation
     }
 
     // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
-    // Units come before posts. Allies near the same enemies pick the same target, so they focus fire
+    // Units come before posts and buildings. Allies near the same enemies pick the same target, so they focus fire
     // without the player clicking.
     bool FindTarget(in Unit unit, out int target, out Vector3 at)
     {
@@ -529,6 +601,13 @@ public sealed class Simulation
             float sq = GroundDistanceSq(unit.Position, post.Position);
             if (sq > rangeSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
             (target, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
+        }
+        foreach (var building in State.Buildings)
+        {
+            if (building.Owner == unit.Owner || building.Health <= 0) continue;
+            float sq = GroundDistanceSq(unit.Position, building.Position);
+            if (sq > rangeSq || building.Health > bestHealth || (building.Health == bestHealth && sq >= bestSq)) continue;
+            (target, bestHealth, bestSq, at) = (building.Id, building.Health, sq, building.Position);
         }
         return target >= 0;
     }
@@ -648,9 +727,17 @@ public sealed class Simulation
             post.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
             destroyed |= post.Id == targetId && post.Health <= 0;
         }
+        foreach (var building in State.Buildings)
+        {
+            if (building.Owner == owner || building.Health <= 0) continue;
+            float d = MathF.Sqrt(GroundDistanceSq(building.Position, at));
+            if (d > radius) continue;
+            building.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            destroyed |= building.Id == targetId && building.Health <= 0;
+        }
     }
 
-    // Damages a unit or post by id, or else a belt segment, for `shooter`; true if that destroyed it.
+    // Damages a unit, post or building by id, or else a belt segment, for `shooter`; true if that destroyed it.
     bool Hit(int shooter, int targetId, int line, int segment, float damage)
     {
         if (targetId < 0)
@@ -671,10 +758,19 @@ public sealed class Simulation
             return target.Health <= 0;
         }
         int g = FindGatherer(targetId);
-        if (g < 0) return false;
-        ref var post = ref CollectionsMarshal.AsSpan(State.Gatherers)[g];
-        post.Health -= damage;
-        return post.Health <= 0;
+        if (g >= 0)
+        {
+            ref var post = ref CollectionsMarshal.AsSpan(State.Gatherers)[g];
+            post.Health -= damage;
+            return post.Health <= 0;
+        }
+        foreach (var building in State.Buildings)
+        {
+            if (building.Id != targetId) continue;
+            building.Health -= damage;
+            return building.Health <= 0;
+        }
+        return false;
     }
 
     // Moves toward the order target until within `range`; true once there.
@@ -869,6 +965,12 @@ public sealed class Simulation
             if (State.Gatherers[i].Health > 0) continue;
             _events.Add(new SimEvent(SimEventKind.GathererDestroyed, State.Gatherers[i].Id));
             State.Gatherers.RemoveAt(i);
+        }
+        for (int i = State.Buildings.Count - 1; i >= 0; i--)
+        {
+            if (State.Buildings[i].Health > 0) continue;
+            _events.Add(new SimEvent(SimEventKind.BuildingDestroyed, State.Buildings[i].Id));
+            State.Buildings.RemoveAt(i);
         }
     }
 

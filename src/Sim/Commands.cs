@@ -26,6 +26,18 @@ public sealed record RepairSegmentCommand(int Player, int UnitId, int Line, int 
 /// <summary>Set a switch's live output (an index into its Outputs). Only its owner can, from anywhere.</summary>
 public sealed record SetJunctionCommand(int Player, int Junction, int Output) : Command(Player);
 
+/// <summary>Adds a unit of `UnitType` (an id in units.json) to the back of a building's queue, if it produces that type and has room.</summary>
+public sealed record ProduceCommand(int Player, int BuildingId, string UnitType) : Command(Player);
+
+/// <summary>Removes the queue entry at `Index`; the one in production refunds what was paid for it.</summary>
+public sealed record CancelProductionCommand(int Player, int BuildingId, int Index) : Command(Player);
+
+/// <summary>Repeat on: each finished unit's type goes back to the end of the queue.</summary>
+public sealed record SetRepeatCommand(int Player, int BuildingId, bool Repeat) : Command(Player);
+
+/// <summary>Where a building's finished units go.</summary>
+public sealed record SetRallyCommand(int Player, int BuildingId, Vector3 Rally) : Command(Player);
+
 /// <summary>Breaks a segment instantly. For tests and scripted events; players break segments by attacking them.</summary>
 public sealed record BreakSegmentCommand(int Line, int Segment) : Command(Sim.Player.None);
 
@@ -33,13 +45,14 @@ public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, GathererDestroyed,
     SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched, ShellHit,
+    UnitProduced, BuildingDestroyed,
 }
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id: a unit, package or gatherer id; the line index for segment events; the junction index for junction
+/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced); the line index for segment events; the junction index for junction
 /// events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
 /// Index: the segment for segment events, the gatherer id for PackageGathered, the new owner for
-/// JunctionCaptured, the output for JunctionSwitched.
+/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced.
 /// </summary>
 public readonly record struct SimEvent(SimEventKind Kind, int Id, int Index = -1);

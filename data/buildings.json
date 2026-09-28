@@ -1,0 +1,6 @@
+// Prototype building types, placed on the map by BuildingSpawn markers.
+// health; size (m): the side of its square footprint; produces: unit type ids from units.json, in the
+// order the production panel shows them; queueLimit: how many units its queue holds (default 5).
+{
+  "hq": { "health": 1200, "size": 5, "produces": ["rifle_squad", "scout_car", "tank"], "queueLimit": 5 },
+}

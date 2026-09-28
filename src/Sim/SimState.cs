@@ -61,14 +61,54 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// vehicles: Acceleration and Braking in m/s² (Braking 0: twice Acceleration); EaseIn and EaseOut in
 /// seconds, how long speeding up, braking and turning take to build up to full and to settle (0:
 /// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
-/// instantly); ReverseSpeed in m/s (0: can't back up). Id is the type's key in the file, filled in when parsed.
+/// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in Resources, paid over BuildTime seconds of
+/// production. Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
     int Members, float Speed, float MemberHealth, string Weapon,
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
-    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true, string Id = "")
+    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true,
+    int Cost = 0, float BuildTime = 0, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
+    public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
+}
+
+/// <summary>
+/// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
+/// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), and how
+/// many units its queue holds. Id is its key in the file.
+/// </summary>
+public sealed record BuildingType(float Health, float Size, string[] Produces, int QueueLimit = 5, string Id = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
+}
+
+/// <summary>
+/// A player's building. One that produces trains the unit at the front of its Queue: each tick of
+/// Progress pays its share of the cost, and production stalls while its owner can't pay. A finished unit
+/// leaves by the Exit and heads for the Rally point; with Repeat on, its type goes back to the end of the
+/// queue.
+/// </summary>
+public sealed class Building
+{
+    public readonly int Id, Owner;
+    public readonly BuildingType Type;
+    public readonly Vector3 Position;
+    public readonly float Heading;      // radians, like a unit's; the exit is on this side
+    public float Health;
+    public readonly List<UnitType> Queue = []; // the front one is in production
+    public int Progress, Paid;          // ticks into the front unit, and Resources paid toward it
+    public bool Stalled;                // couldn't pay this tick
+    public bool Repeat;
+    public Vector3 Rally;
+    internal int Produced;              // spreads units out around the rally point
+
+    public Building(int id, int owner, BuildingType type, Vector3 position, float heading) =>
+        (Id, Owner, Type, Position, Heading, Health) = (id, owner, type, position, heading, type.Health);
+
+    public float MaxHealth => Type.Health;
+    public Vector3 Exit => Position + new Vector3(MathF.Sin(Heading), 0, MathF.Cos(Heading)) * (Type.Size / 2 + 1.5f);
 }
 
 /// <summary>
@@ -282,6 +322,7 @@ public sealed class SimState
     public readonly List<BeltLine> Belts = [];
     public readonly List<Junction> Junctions = [];
     public readonly List<Gatherer> Gatherers = [];
+    public readonly List<Building> Buildings = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last
     public readonly List<Projectile> Projectiles = []; // unordered
 }

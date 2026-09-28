@@ -511,6 +511,8 @@ public class CombatTests
         Assert.Equal(WeaponKind.Shell, types["tank"].Gun.Kind);
         Assert.Equal(HitKind.Direct, types["tank"].Gun.Hit);
         Assert.All(types.Values, t => Assert.NotNull(t.Gun));
+        var buildings = GameData.ParseBuildingTypes(File.ReadAllText(Path.Combine(data, "buildings.json")), types);
+        Assert.Contains(types["tank"], buildings["hq"].Units);
     }
 
     static string RepoRoot()

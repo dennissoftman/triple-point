@@ -34,8 +34,30 @@ public static class GameData
     {
         var types = JsonSerializer.Deserialize<Dictionary<string, UnitType>>(json, Options)
             ?? throw new InvalidDataException("units.json has no unit types.");
+        foreach (var (id, t) in types)
+            if (t.Cost < 0 || t.BuildTime < 0) throw new InvalidDataException($"Unit type '{id}' needs a cost and buildTime of at least 0.");
         return types.ToDictionary(t => t.Key, t => weapons.TryGetValue(t.Value.Weapon ?? "", out var gun)
             ? t.Value with { Id = t.Key, Gun = gun }
             : throw new InvalidDataException($"Unit type '{t.Key}' has unknown weapon '{t.Value.Weapon}'."));
+    }
+
+    /// <summary>
+    /// Building types by id, from the contents of buildings.json, with the unit types each produces looked
+    /// up in `units`. Each type knows its own id.
+    /// </summary>
+    public static Dictionary<string, BuildingType> ParseBuildingTypes(string json, IReadOnlyDictionary<string, UnitType> units)
+    {
+        var types = JsonSerializer.Deserialize<Dictionary<string, BuildingType>>(json, Options)
+            ?? throw new InvalidDataException("buildings.json has no building types.");
+        var parsed = new Dictionary<string, BuildingType>();
+        foreach (var (id, t) in types)
+        {
+            if (t.Health <= 0 || t.Size <= 0 || t.QueueLimit <= 0)
+                throw new InvalidDataException($"Building type '{id}' needs a health, size and queueLimit above 0.");
+            var produces = (t.Produces ?? []).Select(u => units.TryGetValue(u, out var type) ? type
+                : throw new InvalidDataException($"Building type '{id}' produces unknown unit type '{u}'.")).ToArray();
+            parsed[id] = t with { Id = id, Produces = t.Produces ?? [], Units = produces };
+        }
+        return parsed;
     }
 }
