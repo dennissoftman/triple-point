@@ -24,7 +24,7 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 
 | Concern | Sim (`src/Sim`) | View and host (`godot/scripts`) |
 |---|---|---|
-| Units, orders, movement, easing, turrets, weapons, shells, splash | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, paths, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
+| Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, paths, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
 | Belts, spill, pickups, junctions, capture, gatherers | `Simulation.cs`, `BezierSegment.cs` | `BeltView` (ribbons, packages, discs, arrows, posts), `CaptureRing`, `InstanceBatch` |
 | Game data | `GameData.cs` (parses `data/units.json` and `data/weapons.json`) | `SimHost.LoadUnitTypes` reads the files |
 | Host: ticks, game speed, map building, HUD, perf readout, demo script | | `SimHost` |

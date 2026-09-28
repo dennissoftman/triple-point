@@ -107,6 +107,13 @@ public struct Unit
     public int ReloadTicks, ReadyAtTick, LastShotTick;
     public bool Firing;                    // engaging something this tick (on target, in range), reloading or not
     public Vector3 FireAt;                 // what it's engaging
+    // Return fire. LastAttacker (a unit id, -1 none) is who hit it last, at LastHitTick. RespondTo is the
+    // attacker it's answering, chasing it no further than the leash from Anchor, where the response began;
+    // Returning, an idle unit walking back there. GaveUpOn is an attacker it left at the leash, so it
+    // doesn't bounce on the leash under that attacker's fire; a new order clears it.
+    public int LastAttacker, LastHitTick, RespondTo, GaveUpOn;
+    public Vector3 Anchor;
+    public bool Returning;
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
 
@@ -246,7 +253,7 @@ public struct Gatherer
 /// </summary>
 public struct Projectile
 {
-    public int Id, Owner, TargetId, Line, Segment;
+    public int Id, Owner, Shooter, TargetId, Line, Segment; // Shooter: the unit that fired it, for return fire
     public Vector3 Position, PrevPosition, Target;
     public float Speed, Damage, SplashRadius; // SplashRadius 0: a direct hit
 }

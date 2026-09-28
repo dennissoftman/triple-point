@@ -61,6 +61,11 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] **Orders:** move, attack (a unit or post), attack-move, attack a segment, repair a segment. A move onto a switch captures it. Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
 - [decided] Belt-targeted orders still to come: guard segment, raid segment, escort convoy.
 - [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before posts), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. Attack chases into range and fires until the target dies. [decided] Heavy or emplaced weapons that must stop before firing become a per-type flag once such a unit exists.
+- [built] **Return fire.** An idle or attack-moving unit hit by an enemy while nothing is in range to shoot back at chases the attacker into range and fires on it, and idle or attack-moving allies close by join in.
+  - **Leash:** it gives up past a leash distance from where the chase began and ignores that attacker until it comes back within the leash. Idle units walk back to their spot; attack-move carries on to its point.
+  - **Exceptions:** a move order is never diverted, and no other explicit order is either. Units inside a switch's capture radius hold it and only turn their turret to the attacker. Immobile and unarmed units don't answer.
+  - After a hit, a unit with nothing in range keeps its turret on the attacker for a few seconds, the one exception to turrets ignoring enemies out of range.
+  - Being outranged still loses: the answer is retreat automation (below), not return fire.
 - [built] **Weapons are data.** Each unit type names a weapon. Damage comes as discrete shots with a reload, not a steady stream.
   - **Delivery:** a bullet hits at once and draws a tracer. A shell is a projectile that homes on its target and hits on arrival.
   - **Hit:** direct hits only the target. Splash hits every enemy within its radius, less toward the edge.
@@ -77,8 +82,15 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - Tracked vehicles pivot almost on the spot; wheeled ones need speed to steer, so they arc.
   - **Easing:** everything is eased (ease in, ease out), as physics that reacts to new orders mid-move, not as tween curves.
   - **Reversing:** a stopped vehicle backs up to a close target behind it.
-  - **Turrets:** turrets are sim state. They turn at their own rate and fire only once on target. An attack order swings the turret onto its target while the vehicle drives there. Otherwise turrets only turn to enemies already in range.
+  - **Turrets:** turrets are sim state. They turn at their own rate and fire only once on target. An attack order swings the turret onto its target while the vehicle drives there. Otherwise turrets only turn to enemies already in range, or to whoever just hit them.
   - **Lean:** the view leans the hull on its suspension (look only).
+- [decided] **Production (MVP):** each player starts with one HQ, authored on the map, that trains every unit type. There's no construction yet.
+  - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
+  - **Queue:** one per HQ, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
+  - **Repeat:** one toggle per HQ. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
+  - **Rally point:** finished units leave the HQ and move to its rally point.
+  - **HQ targeting:** the HQ is a target like a post. Destroying it stops that player's production; losing comes with `CanStillRecover`.
+  - **Not yet:** Energy (it comes with several building types) and squad reinforcement.
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
 ## Controls
@@ -191,7 +203,8 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - **Two belt currencies:** they clutter the belt, the one thing that must read instantly, and double the cost tuning across three factions. High-value packages give the "which to raid" choice more cheaply.
 - **Switches that close or pause the stream:** players steer the flow and build on it, they don't stop it.
 - **Splash damage on tank shells:** tanks would be best at everything; splash belongs to artillery and rockets.
-- **Turrets tracking enemies out of range, with no order:** too twitchy. Only an attack order aims ahead.
+- **Turrets tracking enemies out of range, with no order:** too twitchy. Only an attack order aims ahead, and a hit makes the turret watch its attacker for a while.
+- **Upfront payment for production (Generals style):** repeat would wait until the full cost was banked, and it hides how belt income becomes units.
 - **Units that stop firing while moving:** units fire on the move; only a future per-type flag for heavy or emplaced weapons.
 - **Tween curves for vehicle motion:** easing is physics, so it reacts to new orders mid-move.
 - **Navmesh, TOML game data, TAA, ECS (for now):** reasons in `docs/architecture.md`.

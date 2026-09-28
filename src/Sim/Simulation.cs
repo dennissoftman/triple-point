@@ -28,6 +28,9 @@ public sealed class Simulation
     const float SquadFootprint = 1.5f;              // m, radius; the area a squad's members spread over, for splash
     const float SplashEdge = 0.5f;                  // share of full splash damage at the blast's edge
     const float AimTolerance = 0.1f;                // rad (~6°); a turret this close to its target fires
+    const float ReturnFireLeash = 15f;              // m from where it began that a unit chases an attacker it can't reach
+    const float AssistRadius = 8f;                  // m; idle allies this close to a unit under fire answer it too
+    const int HitAttentionTicks = 3 * TicksPerSecond; // a unit with nothing in range keeps its turret on whoever hit it this long
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
     const float StopMargin = 0.3f;                  // m short of the target that a vehicle eases to a stop
@@ -105,6 +108,10 @@ public sealed class Simulation
             SplashRadius = weapon.Hit == HitKind.Splash ? weapon.SplashRadius : 0,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
+            LastAttacker = -1,
+            LastHitTick = int.MinValue / 2,
+            RespondTo = -1,
+            GaveUpOn = -1,
             Pending = new(),
         });
         return id;
@@ -293,6 +300,7 @@ public sealed class Simulation
     {
         // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
         unit.Current = order with { Target = OrderPoint(order, unit.Position) };
+        (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
     }
 
     void Complete(ref Unit unit)
@@ -339,7 +347,9 @@ public sealed class Simulation
             switch (unit.Current.Kind)
             {
                 case UnitOrder.None:
-                    Engage(ref unit);
+                    // Stay and fight what's in range; walk back to where it stood after chasing an attacker.
+                    if (!ReturnFire(ref unit, units) && !Engage(ref unit) && unit.Returning && Move(ref unit, unit.Anchor))
+                        unit.Returning = false;
                     break;
 
                 case UnitOrder.Move:
@@ -386,8 +396,9 @@ public sealed class Simulation
                     break;
 
                 case UnitOrder.AttackMove:
-                    // Head for the point, but stop to fight whatever comes into range; then carry on.
-                    if (!Engage(ref unit) && Move(ref unit, unit.Current.Target))
+                    // Head for the point, but stop to fight whatever comes into range, or turn on whatever shoots
+                    // at it from out of range; then carry on.
+                    if (!ReturnFire(ref unit, units) && !Engage(ref unit) && Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
@@ -423,11 +434,78 @@ public sealed class Simulation
     {
         if (!FindTarget(unit, out int target, out var at))
         {
-            TurnTurret(ref unit, unit.Heading);
+            // Being shot is the exception: the turret watches whoever hit it for a while.
+            bool watching = State.Tick - unit.LastHitTick <= HitAttentionTicks && TryGetTarget(unit.LastAttacker, out at, out _);
+            if (watching) AimAt(ref unit, at);
+            else TurnTurret(ref unit, unit.Heading);
             return false;
         }
         if (AimAt(ref unit, at)) Fire(ref unit, target, at);
         return true;
+    }
+
+    // Return fire, for idle and attack-move units: hit by an enemy while nothing is in range to shoot back
+    // at, a unit chases the attacker into range and fires on it, like an attack order, and idle allies
+    // close by join in. It gives up past the leash from where it began (idle units then walk back there),
+    // or when the attacker dies. Units holding a switch stay put (Engage keeps their turret on the
+    // attacker), and unarmed ones can't answer. True while it's answering, so the order itself waits.
+    bool ReturnFire(ref Unit unit, Span<Unit> units)
+    {
+        if (unit.RespondTo < 0)
+        {
+            if (!Provoked(unit, out int attacker)) return false;
+            Answer(ref unit, attacker);
+            foreach (ref var ally in units)
+            {
+                if (ally.Owner != unit.Owner || ally.Id == unit.Id || ally.Health <= 0 || ally.RespondTo >= 0) continue;
+                if (ally.Current.Kind is not (UnitOrder.None or UnitOrder.AttackMove)) continue;
+                if (GroundDistanceSq(ally.Position, unit.Position) > AssistRadius * AssistRadius) continue;
+                if (CanAnswer(ally, attacker)) Answer(ref ally, attacker);
+            }
+        }
+
+        if (!TryGetTarget(unit.RespondTo, out var at, out int owner) || owner == unit.Owner)
+        {
+            (unit.RespondTo, unit.Returning) = (-1, unit.Current.Kind == UnitOrder.None);
+            return false;
+        }
+        if (GroundDistanceSq(unit.Position, unit.Anchor) > ReturnFireLeash * ReturnFireLeash)
+        {
+            (unit.GaveUpOn, unit.RespondTo, unit.Returning) = (unit.RespondTo, -1, unit.Current.Kind == UnitOrder.None);
+            return false;
+        }
+        bool onTarget = AimAt(ref unit, at);
+        if (GroundDistanceSq(unit.Position, at) > unit.Range * unit.Range) Move(ref unit, at with { Y = unit.Position.Y });
+        else if (onTarget) Fire(ref unit, unit.RespondTo, at);
+        return true;
+    }
+
+    // Hit since its last update by an enemy it could answer. One it gave up on counts again once it comes
+    // back within the leash.
+    bool Provoked(in Unit unit, out int attacker)
+    {
+        attacker = unit.LastAttacker;
+        if (unit.LastHitTick < State.Tick - 1 || !CanAnswer(unit, attacker)) return false;
+        return attacker != unit.GaveUpOn || (TryGetTarget(attacker, out var at, out _) &&
+            GroundDistanceSq(unit.Position, at) <= ReturnFireLeash * ReturnFireLeash);
+    }
+
+    // Armed, mobile, free to leave, nothing in range to fight where it is, and the attacker still alive.
+    bool CanAnswer(in Unit unit, int attacker) =>
+        unit.Damage > 0 && unit.Speed > 0 && !OnSwitch(unit.Position) && !FindTarget(unit, out _, out _) && TryGetTarget(attacker, out _, out _);
+
+    static void Answer(ref Unit unit, int attacker)
+    {
+        if (!unit.Returning) unit.Anchor = unit.Position; // one already walking back keeps its original spot
+        (unit.RespondTo, unit.Returning) = (attacker, false);
+    }
+
+    // Within capture range of a switch: holding it matters more than chasing.
+    bool OnSwitch(Vector3 position)
+    {
+        foreach (var junction in State.Junctions)
+            if (junction.IsSwitch && GroundDistanceSq(junction.Position, position) <= CaptureRadius * CaptureRadius) return true;
+        return false;
     }
 
     // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
@@ -481,13 +559,14 @@ public sealed class Simulation
         if (State.Tick < unit.ReadyAtTick) return false;
         (unit.ReadyAtTick, unit.LastShotTick) = (State.Tick + unit.ReloadTicks, State.Tick);
         float damage = unit.Damage * unit.Members;
-        if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, targetId, line, segment, at, damage, unit.SplashRadius);
+        if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius);
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
         State.Projectiles.Add(new Projectile
         {
             Id = _nextId++,
             Owner = unit.Owner,
+            Shooter = unit.Id,
             TargetId = targetId,
             Line = line,
             Segment = segment,
@@ -521,28 +600,28 @@ public sealed class Simulation
                 shells[i] = p;
                 continue;
             }
-            if (alive || p.SplashRadius > 0) Impact(p.Owner, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius);
+            if (alive || p.SplashRadius > 0) Impact(p.Owner, p.Shooter, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius);
             _events.Add(new SimEvent(SimEventKind.ShellHit, p.Id));
             shells[i] = shells[^1];
             shells.RemoveAt(shells.Count - 1);
         }
     }
 
-    // A shot landing at `at`: a direct one damages its target; a splash one every enemy of `owner` around
-    // (and a belt segment it was aimed at). Target -2: nothing in particular, its target died on the way.
-    // True if the aimed-at target was destroyed.
-    bool Impact(int owner, int targetId, int line, int segment, Vector3 at, float damage, float radius)
+    // A shot by `shooter` (a unit id) landing at `at`: a direct one damages its target; a splash one every
+    // enemy of `owner` around (and a belt segment it was aimed at). Target -2: nothing in particular, its
+    // target died on the way. True if the aimed-at target was destroyed.
+    bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius)
     {
-        if (radius <= 0) return targetId != -2 && Hit(targetId, line, segment, damage);
-        bool destroyed = targetId == -1 && Hit(-1, line, segment, damage);
-        Splash(owner, at, damage, radius, targetId, ref destroyed);
+        if (radius <= 0) return targetId != -2 && Hit(shooter, targetId, line, segment, damage);
+        bool destroyed = targetId == -1 && Hit(shooter, -1, line, segment, damage);
+        Splash(owner, shooter, at, damage, radius, targetId, ref destroyed);
         return destroyed;
     }
 
     // Full damage at the center, falling to SplashEdge of it at the radius. A squad takes it on the members
     // the blast covers: the overlap of the blast with its footprint, by distance across it, each member
     // losing at most its own health.
-    void Splash(int owner, Vector3 at, float damage, float radius, int targetId, ref bool destroyed)
+    void Splash(int owner, int shooter, Vector3 at, float damage, float radius, int targetId, ref bool destroyed)
     {
         foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
         {
@@ -558,6 +637,7 @@ public sealed class Simulation
             else hit = d <= radius ? damage * falloff : 0;
             if (hit <= 0) continue;
             unit.Health -= hit;
+            (unit.LastAttacker, unit.LastHitTick) = (shooter, State.Tick);
             destroyed |= unit.Id == targetId && unit.Health <= 0;
         }
         foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
@@ -570,8 +650,8 @@ public sealed class Simulation
         }
     }
 
-    // Damages a unit or post by id, or else a belt segment; true if that destroyed it.
-    bool Hit(int targetId, int line, int segment, float damage)
+    // Damages a unit or post by id, or else a belt segment, for `shooter`; true if that destroyed it.
+    bool Hit(int shooter, int targetId, int line, int segment, float damage)
     {
         if (targetId < 0)
         {
@@ -587,6 +667,7 @@ public sealed class Simulation
         {
             ref var target = ref CollectionsMarshal.AsSpan(State.Units)[u];
             target.Health -= damage;
+            (target.LastAttacker, target.LastHitTick) = (shooter, State.Tick);
             return target.Health <= 0;
         }
         int g = FindGatherer(targetId);

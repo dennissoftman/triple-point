@@ -53,7 +53,7 @@ public class CombatTests
     public void Moving_units_fire_on_the_move_without_stopping()
     {
         var sim = NewSim();
-        int red = sim.AddUnit(Red, Vector3.Zero, dps: 10, range: 8);
+        int red = sim.AddUnit(Red, Vector3.Zero, speed: 0, dps: 10, range: 8); // can't move, so it doesn't chase Blue off (return fire)
         int blue = sim.AddUnit(Blue, new Vector3(-10, 0, 5), speed: 5, dps: 10, range: 8);
 
         // Blue walks past Red, 5 m away at the closest; each is inside the other's 8 m range for ~12.5 m
