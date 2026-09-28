@@ -262,7 +262,7 @@ public partial class SimHost : Node3D
         }
     }
 
-    // `godot -- --demo`, on the prototype map, as a scripted match. The neutral switch splits the stream;
+    // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. The neutral switch splits the stream;
     // Blue takes it, which turns it to Blue's post; Blue pulls back (its vehicles back up, then turn
     // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
     // on the way; then Blue attack-moves into Red's side and they fight it out. Meanwhile each HQ trains
@@ -279,7 +279,11 @@ public partial class SimHost : Node3D
                 _commands.Add(new SetRepeatCommand(hq.Owner, hq.Id, true));
                 if (hq.Owner == PlayerInput.LocalPlayer) PlayerInput.SelectedBuilding = hq.Id; // shows the production bar
             }
-        _sim.FindJunction(new SVector3(9, 0, 0), 2, out int sw);
+        if (!_sim.FindJunction(new SVector3(9, 0, 0), 2, out int sw))
+        {
+            if (tick == 0) GD.PushWarning("--demo is scripted for scenes/prototype.tscn; this map has no switch at (9, 0).");
+            return;
+        }
         var switchAt = _sim.State.Junctions[sw].Position with { Y = 0 };
 
         if (tick == 2 * T) MoveAll(Blue, switchAt);

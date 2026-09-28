@@ -141,6 +141,12 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [decided] Engineers repair: it costs money and time, they're unarmed, auto-repair works in a limited radius, and the player sets priorities. Prototype repair is any unit, free.
 - [decided] Buildings snap to the navigation grid, rotated in 90° steps.
 - [proposed] Belt buildings (posts, relays) snap to sockets beside segments.
+- [built] **Playable map** (`main.tscn`): 200×140 m, point-symmetric (Blue's half turned 180° is Red's), so it's fair by construction.
+  - Two belts, one from each side. Each passes its own side's **home post** first, deep in that side's half: safe income from the first seconds, without fighting.
+  - Each belt then reaches a **switch on the center line**, which splits it between one branch toward each side's **forward posts**. The home post takes about half of its belt, so the fight is over the other half: holding both switches is worth three times the enemy's share of the middle.
+  - Raiding the enemy's home stretch (breaking segments) is the way to hurt their safe income.
+  - [decided] Flat until navigation exists: hills and obstacles would be decoration units drive through.
+- [proposed] **Income vs spending:** full production of the dearest unit costs more than a side's income with both switches neutral, so extra belt income always buys something. Costs live in `data/units.json`.
 - **Map rule:** keep structures and spawns out of range of capture points, unless that's the point: at least the longest weapon range plus the capture radius. Otherwise whoever holds the point kills them for free.
 
 ## Win and lose (skirmish)
@@ -191,7 +197,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 ## Open decisions (defaults until changed)
 
-1. **Grid and MVP map:** 2 m cells; MVP map 256 m square. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. The prototype map (80×60 m) has no grid yet.
+1. **Grid and MVP map:** 2 m cells. The playable map is 200×140 m for now (256 m square was the earlier default); grow it if fights feel cramped. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. No map has a grid yet.
 2. **Belt flow:** fixed-rate sources; packages reaching an end are lost. Loops are a map option.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
 4. **Friendly fire** for splash: decide with artillery.

@@ -9,15 +9,15 @@
 // canCapture defaults to true; vehicles can't capture switches, only deny them to the enemy.
 // cost (Resources) is paid bit by bit over buildTime (s) while a building produces it; production stalls while broke.
 {
-  "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 4, "buildTime": 10 },
+  "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 8, "buildTime": 10 },
   "scout_car": {
     "members": 1, "movement": "wheeled", "speed": 8, "reverseSpeed": 4,
     "acceleration": 4, "braking": 8, "easeIn": 0.3, "easeOut": 0.5, "turnRate": 120, "turretTurnRate": 180,
-    "memberHealth": 140, "weapon": "machine_gun", "canCapture": false, "cost": 6, "buildTime": 12
+    "memberHealth": 140, "weapon": "machine_gun", "canCapture": false, "cost": 12, "buildTime": 12
   },
   "tank": {
     "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
     "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,
-    "memberHealth": 260, "weapon": "tank_cannon", "canCapture": false, "cost": 10, "buildTime": 18
+    "memberHealth": 260, "weapon": "tank_cannon", "canCapture": false, "cost": 20, "buildTime": 18
   },
 }

@@ -90,8 +90,8 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 ## Testing
 
 - `src/Sim.Tests` (xUnit, headless): sim rules, one behavior per test. Helpers are in `TestHelpers.cs`. Ad-hoc units made with `dps`/`range` get a bullet weapon that fires every tick, so damage timings stay exact. The win/lose edge-case table will live here too.
-- `tools/input_smoke_test.gd`: real input events through `Input.parse_input_event` against `main.tscn`. It needs a window, because headless Godot drops input. It checks selection, formation, switch capture and flips, the hotseat camera, double-click, cursors, attack-move, order paths, camera controls, and production (HQ selection, hotkeys, rally, cancel). It exits with the failure count.
-- `-- --demo`: a scripted two-player match at 3x, with both HQs producing on repeat and Blue's selected, for unattended checks and movie-maker frames.
+- `tools/input_smoke_test.gd`: real input events through `Input.parse_input_event` against the test map, `prototype.tscn`. It needs a window, because headless Godot drops input. It checks selection, formation, switch capture and flips, the hotseat camera, double-click, cursors, attack-move, order paths, camera controls, and production (HQ selection, hotkeys, rally, cancel). It exits with the failure count.
+- `res://scenes/prototype.tscn -- --demo`: a scripted two-player match at 3x on the test map, with both HQs producing on repeat and Blue's selected, for unattended checks and movie-maker frames.
 - `stress.tscn` with `-- --perf-log`: the performance numbers above.
 
 ## References

@@ -19,7 +19,7 @@ var red: Array
 var cam_before: Vector3
 
 func _initialize():
-	change_scene_to_file("res://scenes/main.tscn")
+	change_scene_to_file("res://scenes/prototype.tscn")
 
 func _process(_delta) -> bool:
 	frame += 1

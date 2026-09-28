@@ -37,13 +37,19 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 Game.sln            root solution; Godot uses it (dotnet/project/solution_directory = res://..)
 src/Sim/            simulation library, net10.0
 src/Sim.Tests/      xUnit, headless
-godot/              Godot project: scenes/ (main, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
+godot/              Godot project: scenes/ (main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md (story documents are kept out of the repo)
 tools/              input smoke test
 ```
 
-## Map authoring (godot/scenes/main.tscn)
+## Maps
+
+- `main.tscn` is the playable map (the project's main scene); its design rules are in the doctrine (Infrastructure and construction, Playable map).
+- `prototype.tscn` is the small test map that the input smoke test and `--demo` are written against. Don't redesign it without updating both.
+- `stress.tscn` has no authored content; `StressMap` generates it.
+
+Authoring, in any map scene:
 
 - `Belts`: `Path3D` curves become belt lines (cut into 5 m breakable segments at load).
 - `Junctions`: markers; belt ends within 1 m attach (a line's end is an input, its start an output).
@@ -51,7 +57,6 @@ tools/              input smoke test
 - `Units`: `UnitSpawn`s (with `Player` and a `UnitType` from `data/units.json`) are the starting units; a marker's -Z is the unit's facing.
 - `Buildings`: `BuildingSpawn`s (with `Player` and a `BuildingType` from `data/buildings.json`) are the starting buildings; a marker's -Z is the exit side. `SimHost.StartingResources` is each player's starting money.
 - Keep posts and spawns out of range of capture points: at least the longest weapon range plus the capture radius.
-- `stress.tscn` has no authored content; `StressMap` generates it.
 
 ## Commands
 
@@ -79,4 +84,4 @@ Stress scene (generated belts, 200 units, a battle). The HUD's Perf line shows f
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot res://scenes/stress.tscn --disable-vsync -- --perf-log
 ```
 
-Unattended visual check: `-- --demo` plays a scripted two-player match at 3x (switch captures, a post destroyed, a fight, both HQs producing), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
+Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripted two-player match at 3x on the test map (switch captures, a post destroyed, a fight, both HQs producing), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
