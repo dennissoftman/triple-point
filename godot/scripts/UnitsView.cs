@@ -26,9 +26,9 @@ public partial class UnitsView : Node3D
     readonly List<(Vector3 From, Vector3 To, bool Attack)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
     readonly UnitMaterials _materials = new();
-    readonly Dictionary<int, Vector3> _shellsAt = [];         // where each shell was last drawn, for its impact
+    readonly Dictionary<int, (Vector3 At, float Radius)> _shellsAt = []; // where each shell was last drawn, for its impact
     readonly Dictionary<int, int> _lastShots = [];            // per unit: the shot tick last seen, to flash new ones
-    readonly List<(Vector3 At, float Left)> _flashes = [];    // sim seconds left
+    readonly List<(Vector3 At, float Size, float Left)> _flashes = []; // size: times the flash mesh; sim seconds left
     InstanceBatch _shellBatch = null!, _flashBatch = null!;
 
     public override void _Ready()
@@ -44,7 +44,9 @@ public partial class UnitsView : Node3D
     /// <summary>A sim event, for effects. SimHost passes every one on.</summary>
     public void OnEvent(SimEvent e)
     {
-        if (e.Kind == SimEventKind.ShellHit && _shellsAt.Remove(e.Id, out var at)) _flashes.Add((at, FlashSeconds));
+        // A splash impact flashes as big as its blast (the flash ball is 0.35 m across the radius).
+        if (e.Kind == SimEventKind.ShellHit && _shellsAt.Remove(e.Id, out var shell))
+            _flashes.Add((shell.At, shell.Radius > 0 ? shell.Radius / 0.35f : 1, FlashSeconds));
     }
 
     /// <summary>`delta` is the sim time this frame covers, for member movement.</summary>
@@ -69,7 +71,7 @@ public partial class UnitsView : Node3D
                 unit.CurrentAcceleration, unit.LateralAcceleration);
             view.Selected = selection.Contains(unit.Id);
             if (unit.WeaponKind == WeaponKind.Shell && _lastShots.GetValueOrDefault(unit.Id, unit.LastShotTick) != unit.LastShotTick)
-                _flashes.Add((view.Muzzles[0], FlashSeconds));
+                _flashes.Add((view.Muzzles[0], 1, FlashSeconds));
             _lastShots[unit.Id] = unit.LastShotTick;
         }
 
@@ -87,18 +89,18 @@ public partial class UnitsView : Node3D
             var (from, to) = (ToGodot(p.PrevPosition), ToGodot(p.Position));
             var at = from.Lerp(to, alpha);
             _shellBatch.Add(at, to - from is { } v && v.LengthSquared() > 1e-8f ? v.Normalized() : Vector3.Forward);
-            _shellsAt[p.Id] = at;
+            _shellsAt[p.Id] = (at, p.SplashRadius);
         }
         _shellBatch.End();
 
         for (int i = _flashes.Count - 1; i >= 0; i--)
         {
-            var (at, left) = _flashes[i];
+            var (at, size, left) = _flashes[i];
             if ((left -= delta) <= 0) _flashes.RemoveAt(i);
-            else _flashes[i] = (at, left);
+            else _flashes[i] = (at, size, left);
         }
         _flashBatch.Begin(_flashes.Count);
-        foreach (var (at, _) in _flashes) _flashBatch.Add(at, Vector3.Forward);
+        foreach (var (at, size, _) in _flashes) _flashBatch.Add(at, Vector3.Forward, size);
         _flashBatch.End();
     }
 

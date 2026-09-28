@@ -25,6 +25,8 @@ public sealed class Simulation
     const float SpacingSlack = 0.001f;                        // m
     const float MuzzleReach = 1.5f, MuzzleHeight = 1.2f; // m; where shells start, ahead of a vehicle along its turret
     const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
+    const float SquadFootprint = 1.5f;              // m, radius; the area a squad's members spread over, for splash
+    const float SplashEdge = 0.5f;                  // share of full splash damage at the blast's edge
     const float AimTolerance = 0.1f;                // rad (~6°); a turret this close to its target fires
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
@@ -100,6 +102,7 @@ public sealed class Simulation
             Damage = weapon.Damage,
             Range = weapon.Range,
             ShellSpeed = weapon.ShellSpeed,
+            SplashRadius = weapon.Hit == HitKind.Splash ? weapon.SplashRadius : 0,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
             Pending = new(),
@@ -478,7 +481,7 @@ public sealed class Simulation
         if (State.Tick < unit.ReadyAtTick) return false;
         (unit.ReadyAtTick, unit.LastShotTick) = (State.Tick + unit.ReloadTicks, State.Tick);
         float damage = unit.Damage * unit.Members;
-        if (unit.WeaponKind == WeaponKind.Bullet) return Hit(targetId, line, segment, damage);
+        if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, targetId, line, segment, at, damage, unit.SplashRadius);
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
         State.Projectiles.Add(new Projectile
@@ -493,6 +496,7 @@ public sealed class Simulation
             Target = at with { Y = HitHeight },
             Speed = unit.ShellSpeed,
             Damage = damage,
+            SplashRadius = unit.SplashRadius,
         });
         return false;
     }
@@ -517,10 +521,52 @@ public sealed class Simulation
                 shells[i] = p;
                 continue;
             }
-            if (alive) Hit(p.TargetId, p.Line, p.Segment, p.Damage);
+            if (alive || p.SplashRadius > 0) Impact(p.Owner, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius);
             _events.Add(new SimEvent(SimEventKind.ShellHit, p.Id));
             shells[i] = shells[^1];
             shells.RemoveAt(shells.Count - 1);
+        }
+    }
+
+    // A shot landing at `at`: a direct one damages its target; a splash one every enemy of `owner` around
+    // (and a belt segment it was aimed at). Target -2: nothing in particular, its target died on the way.
+    // True if the aimed-at target was destroyed.
+    bool Impact(int owner, int targetId, int line, int segment, Vector3 at, float damage, float radius)
+    {
+        if (radius <= 0) return targetId != -2 && Hit(targetId, line, segment, damage);
+        bool destroyed = targetId == -1 && Hit(-1, line, segment, damage);
+        Splash(owner, at, damage, radius, targetId, ref destroyed);
+        return destroyed;
+    }
+
+    // Full damage at the center, falling to SplashEdge of it at the radius. A squad takes it on the members
+    // the blast covers: the overlap of the blast with its footprint, by distance across it, each member
+    // losing at most its own health.
+    void Splash(int owner, Vector3 at, float damage, float radius, int targetId, ref bool destroyed)
+    {
+        foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
+        {
+            if (unit.Owner == owner || unit.Health <= 0) continue;
+            float d = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
+            float falloff = 1 - (1 - SplashEdge) * MathF.Min(1, d / radius);
+            float hit;
+            if (unit.MaxMembers > 1)
+            {
+                float covered = Math.Clamp((radius + SquadFootprint - d) / (2 * SquadFootprint), 0, 1);
+                hit = MathF.Min(damage * falloff, unit.MemberHealth) * covered * unit.Members;
+            }
+            else hit = d <= radius ? damage * falloff : 0;
+            if (hit <= 0) continue;
+            unit.Health -= hit;
+            destroyed |= unit.Id == targetId && unit.Health <= 0;
+        }
+        foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
+        {
+            if (post.Owner == owner || post.Health <= 0) continue;
+            float d = MathF.Sqrt(GroundDistanceSq(post.Position, at));
+            if (d > radius) continue;
+            post.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            destroyed |= post.Id == targetId && post.Health <= 0;
         }
     }
 

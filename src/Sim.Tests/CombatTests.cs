@@ -410,6 +410,44 @@ public class CombatTests
     }
 
     [Fact]
+    public void Direct_shells_hit_only_their_target_and_splash_hits_every_enemy_around()
+    {
+        foreach (var hit in new[] { HitKind.Direct, HitKind.Splash })
+        {
+            var sim = NewSim();
+            var shell = new WeaponType(WeaponKind.Shell, Damage: 40, Reload: 10, Range: 14, ShellSpeed: 40,
+                Hit: hit, SplashRadius: hit == HitKind.Splash ? 3 : 0);
+            sim.AddUnit(Blue, Vector3.Zero, weapon: shell);
+            int target = sim.AddUnit(Red, new Vector3(0, 0, 10), maxHealth: 1000, dps: 0);
+            int near = sim.AddUnit(Red, new Vector3(2, 0, 10), maxHealth: 1000, dps: 0);  // 2 m from the impact
+            int far = sim.AddUnit(Red, new Vector3(5, 0, 10), maxHealth: 1000, dps: 0);   // outside 3 m
+            int friend = sim.AddUnit(Blue, new Vector3(-1, 0, 10), maxHealth: 1000, dps: 0);
+
+            Run(sim, T);
+
+            Assert.Equal(960f, UnitById(sim, target).Health);
+            Assert.Equal(hit == HitKind.Splash ? 1000 - 40 * (1 - 0.5f * 2 / 3) : 1000f, UnitById(sim, near).Health, 0.01f);
+            Assert.Equal(1000f, UnitById(sim, far).Health);
+            Assert.Equal(1000f, UnitById(sim, friend).Health); // no friendly fire
+        }
+    }
+
+    [Fact]
+    public void Splash_hurts_a_squad_by_how_much_of_it_the_blast_covers()
+    {
+        var sim = NewSim();
+        var mortar = new WeaponType(WeaponKind.Shell, Damage: 10, Reload: 10, Range: 20, ShellSpeed: 40, Hit: HitKind.Splash, SplashRadius: 2);
+        sim.AddUnit(Blue, Vector3.Zero, weapon: mortar);
+        int squad = sim.AddUnit(Red, new Vector3(0, 0, 10), maxHealth: 100, dps: 0, members: 5); // right under it
+        int edge = sim.AddUnit(Red, new Vector3(2, 0, 10), maxHealth: 100, dps: 0, members: 5);  // at the blast's edge: half its footprint inside
+
+        Run(sim, T);
+
+        Assert.Equal(100 - 10 * 5, UnitById(sim, squad).Health, 0.01f); // every member caught, full damage
+        Assert.Equal(100 - 10 * 0.5f * 0.5f * 5, UnitById(sim, edge).Health, 0.01f); // half the members, at the edge's half damage
+    }
+
+    [Fact]
     public void Unit_types_load_from_json_with_their_weapons()
     {
         var weapons = GameData.ParseWeapons("""
@@ -460,6 +498,8 @@ public class CombatTests
 
         Assert.Throws<InvalidDataException>(() => GameData.ParseUnitTypes("""{ "x": { "members": 1, "speed": 1, "memberHealth": 1, "weapon": "laser" } }""", weapons));
         Assert.Throws<InvalidDataException>(() => GameData.ParseWeapons("""{ "slow": { "kind": "shell", "damage": 1, "reload": 1, "range": 5 } }"""));
+        Assert.Throws<InvalidDataException>(() => GameData.ParseWeapons("""{ "blast": { "kind": "bullet", "hit": "splash", "damage": 1, "reload": 1, "range": 5 } }"""));
+        Assert.Equal(HitKind.Splash, GameData.ParseWeapons("""{ "m": { "kind": "shell", "hit": "splash", "splashRadius": 2, "damage": 1, "reload": 1, "range": 5, "shellSpeed": 20 } }""")["m"].Hit);
     }
 
     [Fact]
@@ -469,6 +509,7 @@ public class CombatTests
         var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(data, "weapons.json")));
         var types = GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(data, "units.json")), weapons);
         Assert.Equal(WeaponKind.Shell, types["tank"].Gun.Kind);
+        Assert.Equal(HitKind.Direct, types["tank"].Gun.Hit);
         Assert.All(types.Values, t => Assert.NotNull(t.Gun));
     }
 

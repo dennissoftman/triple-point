@@ -38,10 +38,19 @@ public enum Movement { Foot, Wheeled, Tracked }
 public enum WeaponKind { Bullet, Shell }
 
 /// <summary>
-/// A weapon type, as loaded from /data/weapons.json: Damage per shot (per member, for a squad), Reload
-/// seconds between shots, Range in m, and for shells their speed in m/s. Id is its key in the file.
+/// What a shot damages. Direct: only its target. Splash: every enemy within SplashRadius of where it
+/// lands, less toward the edge; a squad takes it on the share of its footprint the blast covers. No
+/// friendly fire, for now.
 /// </summary>
-public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0, string Id = "")
+public enum HitKind { Direct, Splash }
+
+/// <summary>
+/// A weapon type, as loaded from /data/weapons.json: Damage per shot (per member, for a squad), Reload
+/// seconds between shots, Range in m, for shells their speed in m/s, and for splash its radius in m. Id
+/// is its key in the file.
+/// </summary>
+public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
+    HitKind Hit = HitKind.Direct, float SplashRadius = 0, string Id = "")
 {
     public float Dps => Damage / Reload;
 }
@@ -94,6 +103,7 @@ public struct Unit
     // The weapon, copied from its type: every living member fires it, so a squad's shot does Damage per member.
     public WeaponKind WeaponKind;
     public float Damage, Range, ShellSpeed; // per shot per member; m; m/s
+    public float SplashRadius;             // m; 0 for a direct hit
     public int ReloadTicks, ReadyAtTick, LastShotTick;
     public bool Firing;                    // engaging something this tick (on target, in range), reloading or not
     public Vector3 FireAt;                 // what it's engaging
@@ -238,7 +248,7 @@ public struct Projectile
 {
     public int Id, Owner, TargetId, Line, Segment;
     public Vector3 Position, PrevPosition, Target;
-    public float Speed, Damage;
+    public float Speed, Damage, SplashRadius; // SplashRadius 0: a direct hit
 }
 
 public struct Package

@@ -20,8 +20,9 @@ public static class GameData
         var weapons = JsonSerializer.Deserialize<Dictionary<string, WeaponType>>(json, Options)
             ?? throw new InvalidDataException("weapons.json has no weapons.");
         foreach (var (id, w) in weapons)
-            if (w.Reload <= 0 || w.Range <= 0 || (w.Kind == WeaponKind.Shell && w.ShellSpeed <= 0))
-                throw new InvalidDataException($"Weapon '{id}' needs a reload and range above 0, and a shell a shellSpeed above 0.");
+            if (w.Reload <= 0 || w.Range <= 0 || (w.Kind == WeaponKind.Shell && w.ShellSpeed <= 0) || (w.Hit == HitKind.Splash) != (w.SplashRadius > 0))
+                throw new InvalidDataException(
+                    $"Weapon '{id}' needs a reload and range above 0, a shell a shellSpeed above 0, and a splashRadius above 0 exactly when its hit is splash.");
         return weapons.ToDictionary(w => w.Key, w => w.Value with { Id = w.Key });
     }
 

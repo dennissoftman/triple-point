@@ -26,12 +26,13 @@ public sealed class InstanceBatch
         _count = 0;
     }
 
-    /// <summary>An upright instance at `origin` facing `forward` (+Z of the mesh).</summary>
-    public void Add(Vector3 origin, Vector3 forward)
+    /// <summary>An upright instance at `origin` facing `forward` (+Z of the mesh), `scale` times its size.</summary>
+    public void Add(Vector3 origin, Vector3 forward, float scale = 1)
     {
         var z = forward;
         var x = Vector3.Up.Cross(z).Normalized();
         var y = z.Cross(x);
+        (x, y, z) = (x * scale, y * scale, z * scale);
 
         int o = _count++ * FloatsPerInstance;
         _buffer[o + 0] = x.X; _buffer[o + 1] = y.X; _buffer[o + 2] = z.X; _buffer[o + 3] = origin.X;
