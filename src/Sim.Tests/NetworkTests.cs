@@ -6,30 +6,28 @@ namespace Sim.Tests;
 /// <summary>Gatherer posts and junctions: how packages leave the belt and move between lines.</summary>
 public class NetworkTests
 {
-    const int T = Simulation.TicksPerSecond;
-
     [Fact]
     public void Gatherer_takes_one_package_per_work_cycle_and_lets_the_rest_pass()
     {
-        var sim = new Simulation();
+        var sim = NewSim();
         sim.AddBeltLine([Straight(Vector3.Zero, new(20, 0, 0))], Belt(0.5f)); // 2 packages/s
-        sim.AddGatherer(new Vector3(10, 0, 2), maxDistance: 3);
+        sim.AddGatherer(Blue, new Vector3(10, 0, 2), maxDistance: 3);
 
         Run(sim, 60 * T);
 
         // One per 2 s over the ~55 s after the first package reaches 10 m.
-        Assert.InRange(sim.State.Gathered, 26, 29);
-        Assert.Equal(sim.State.Gathered, sim.State.Resources);
-        Assert.True(sim.State.Belts[0].Lost > sim.State.Gathered); // most of 2/s passes a 0.5/s post
+        Assert.InRange(sim.State.Players[Blue].Gathered, 26, 29);
+        Assert.Equal(sim.State.Players[Blue].Gathered, sim.State.Players[Blue].Resources);
+        Assert.True(sim.State.Belts[0].Lost > sim.State.Players[Blue].Gathered); // most of 2/s passes a 0.5/s post
     }
 
     [Fact]
     public void Upstream_gatherer_starves_a_downstream_one_when_flow_matches_its_rate()
     {
-        var sim = new Simulation();
+        var sim = NewSim();
         sim.AddBeltLine([Straight(Vector3.Zero, new(20, 0, 0))], Belt(Simulation.GatherSeconds)); // 1 per work cycle
-        sim.AddGatherer(new Vector3(5, 0, 2), maxDistance: 3);
-        sim.AddGatherer(new Vector3(15, 0, 2), maxDistance: 3);
+        sim.AddGatherer(Blue, new Vector3(5, 0, 2), maxDistance: 3);
+        sim.AddGatherer(Blue, new Vector3(15, 0, 2), maxDistance: 3);
 
         Run(sim, 60 * T);
 
@@ -41,7 +39,7 @@ public class NetworkTests
     // Two 10 m inputs meeting at (10, 0, 0), then one output to (20, 0, 0).
     static Simulation Merge(float spawnIntervalSeconds)
     {
-        var sim = new Simulation();
+        var sim = NewSim();
         sim.AddBeltLine([Straight(new(0, 0, -5), new(10, 0, 0))], Belt(spawnIntervalSeconds));
         sim.AddBeltLine([Straight(new(0, 0, 5), new(10, 0, 0))], Belt(spawnIntervalSeconds));
         sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, 0))], Belt(spawnIntervalSeconds));
@@ -78,35 +76,93 @@ public class NetworkTests
             Assert.True(output.Packages[i - 1].Distance - output.Packages[i].Distance >= 1 - 2e-3f);
     }
 
-    [Fact]
-    public void Switch_feeds_only_the_selected_output_and_a_unit_flips_it()
+    // One input into a switch at (10, 0, 0), with a left output (toward -z) and a right one (+z).
+    static (Simulation sim, int junction) Switch()
     {
-        var sim = new Simulation();
+        var sim = NewSim();
         sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], Belt(1));
         sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, -5))], Belt(1));
         sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, 5))], Belt(1));
-        int j = sim.AddJunction(new Vector3(10, 0, 0), attachRadius: 0.5f);
+        return (sim, sim.AddJunction(new Vector3(10, 0, 0), attachRadius: 0.5f));
+    }
+
+    [Fact]
+    public void Neutral_switch_is_closed_and_backs_up_its_input()
+    {
+        var (sim, j) = Switch();
+        var (input, left, right) = (sim.State.Belts[0], sim.State.Belts[1], sim.State.Belts[2]);
+
+        Run(sim, 20 * T);
+
+        Assert.Equal(-1, sim.State.Junctions[j].Selected);
+        Assert.Equal(Player.None, sim.State.Junctions[j].Owner);
+        Assert.Empty(left.Packages);
+        Assert.Empty(right.Packages);
+        Assert.Equal(0, input.Lost);
+        Assert.True(input.BlockedSpawns > 0); // held at the switch all the way back to the source
+    }
+
+    [Fact]
+    public void Holding_a_switch_captures_it_and_only_the_owner_routes_it()
+    {
+        var (sim, j) = Switch();
+        var junction = sim.State.Junctions[j];
         var (left, right) = (sim.State.Belts[1], sim.State.Belts[2]);
-        int unit = sim.AddUnit(new Vector3(10, 0, 8), speed: 5); // 8 m away: walks 5.5 m to get in range
+        int unit = sim.AddUnit(Blue, new Vector3(10, 0, 8), speed: 5);
+
+        sim.Tick([new SetJunctionCommand(Blue, j, 0)]);
+        Assert.Equal(-1, junction.Selected); // not Blue's yet
+
+        // 4 m to walk into the 4 m capture radius (16 ticks), then 5 s uncontested (100 ticks).
+        int capturedAt = TicksUntil(sim, new SimEvent(SimEventKind.JunctionCaptured, j, Blue), 200,
+            [new MoveCommand(Blue, unit, new Vector3(10, 0, 0))]);
+        Assert.InRange(capturedAt, 115, 118);
+        Assert.Equal(Blue, junction.Owner);
+
+        sim.Tick([new SetJunctionCommand(Red, j, 1)]);
+        Assert.Equal(-1, junction.Selected); // Red doesn't own it
+        sim.Tick([new SetJunctionCommand(Blue, j, 0)]);
+        Assert.Equal(0, junction.Selected);
 
         Run(sim, 20 * T);
         Assert.True(left.Lost > 0);
-        Assert.Equal(0, right.Lost + right.Packages.Count);
+        Assert.Empty(right.Packages);
 
-        var events = sim.Tick([new SwitchJunctionCommand(unit, j, Output: 1)]);
-        int switchedAt = -1;
-        for (int tick = 1; tick <= 100 && switchedAt < 0; tick++)
-        {
-            if (events.Contains(new SimEvent(SimEventKind.JunctionSwitched, j, 1))) switchedAt = tick;
-            else events = sim.Tick(NoCommands);
-        }
-        Assert.InRange(switchedAt, 22, 24); // 5.5 m at 5 m/s
-        Assert.Equal(1, sim.State.Junctions[j].Selected);
-
+        sim.Tick([new SetJunctionCommand(Blue, j, 1)]);
         var (leftLost, leftCarrying) = (left.Lost, left.Packages.Count);
         Run(sim, 20 * T);
         Assert.True(right.Lost > 0);
         Assert.Equal(leftCarrying, left.Lost - leftLost); // only what was already on it
-        Assert.Empty(left.Packages);
+    }
+
+    [Fact]
+    public void Contested_switch_does_not_change_hands()
+    {
+        var (sim, j) = Switch();
+        // Both at the switch; unarmed, so neither side wins the spot.
+        sim.AddUnit(Blue, new Vector3(10, 0, 1), dps: 0);
+        sim.AddUnit(Red, new Vector3(10, 0, -1), dps: 0);
+
+        Run(sim, 20 * T);
+
+        Assert.Equal(Player.None, sim.State.Junctions[j].Owner);
+        Assert.Equal(0f, sim.State.Junctions[j].CaptureProgress);
+    }
+
+    [Fact]
+    public void Capture_progress_drains_when_the_capturer_leaves()
+    {
+        var (sim, j) = Switch();
+        var junction = sim.State.Junctions[j];
+        int unit = sim.AddUnit(Blue, new Vector3(10, 0, 1));
+
+        Run(sim, 3 * T);
+        Assert.Equal(0.6f, junction.CaptureProgress, 0.02f);
+        Assert.Equal(Blue, junction.Capturer);
+
+        sim.Tick([new MoveCommand(Blue, unit, new Vector3(10, 0, 20))]);
+        Run(sim, 5 * T);
+        Assert.Equal(0f, junction.CaptureProgress);
+        Assert.Equal(Player.None, junction.Owner);
     }
 }

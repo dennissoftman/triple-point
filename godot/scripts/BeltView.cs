@@ -6,12 +6,13 @@ using static SimConvert;
 
 /// <summary>
 /// Draws the belt network: segments as flat ribbons colored by state, packages, spilled pickups,
-/// junctions (with an arrow at switches pointing to the live output), and gatherer posts.
+/// junctions (switches get an arrow to the live output and a capture ring), and gatherer posts.
 /// </summary>
 public partial class BeltView : Node3D
 {
     const float RibbonStep = 0.25f; // meters between ribbon cross-sections
     const float FlashTicks = 6;     // a gatherer glows this long after a grab
+    const float RingHeight = 0.24f; // capture rings sit just above the belt surface
     static readonly Vector3 PostSize = new(1.6f, 1.2f, 1.6f);
 
     [Export] public StandardMaterial3D BeltMaterial = null!;
@@ -20,14 +21,19 @@ public partial class BeltView : Node3D
     [Export] public Color DamagedColor = new(0.55f, 0.35f, 0.1f); // a working segment near 0 health
     [Export] public float BeltWidth = 1.2f;
     [Export] public float PackageSize = 0.6f;
-    [Export] public Material? JunctionMaterial;
+    [Export] public StandardMaterial3D JunctionMaterial = null!;
     [Export] public Material? IndicatorMaterial;
     [Export] public StandardMaterial3D GathererMaterial = null!;
 
+    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D Arrow, CaptureRing? Ring);
+    sealed record PostView(Node3D Root, StandardMaterial3D Material, HealthBar Health);
+
     // One material per segment, indexed [line][segment], so each can show its own state.
     readonly List<StandardMaterial3D[]> _segmentMaterials = [];
-    readonly List<MeshInstance3D> _switchArrows = [];         // per junction
-    readonly List<StandardMaterial3D> _gathererMaterials = []; // per gatherer, for the grab flash
+    readonly List<JunctionView> _junctions = [];
+    readonly Dictionary<int, PostView> _posts = []; // by gatherer id; destroyed posts go away
+    readonly HashSet<int> _seen = [];
+    readonly List<int> _gone = [];
     InstanceBatch _packages = null!, _pickups = null!;
 
     public void Build(SimState state)
@@ -43,44 +49,7 @@ public partial class BeltView : Node3D
             _segmentMaterials.Add(materials);
         }
 
-        foreach (var junction in state.Junctions)
-        {
-            AddChild(new MeshInstance3D
-            {
-                Mesh = new CylinderMesh { TopRadius = 0.9f, BottomRadius = 0.9f, Height = 0.3f, Material = JunctionMaterial },
-                Position = ToGodot(junction.Position),
-            });
-            var arrow = new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 1f), Material = IndicatorMaterial },
-                Visible = junction.Outputs.Count > 1, // only switches have a choice to show
-            };
-            AddChild(arrow);
-            _switchArrows.Add(arrow);
-        }
-
-        foreach (var gatherer in state.Gatherers)
-        {
-            var material = (StandardMaterial3D)GathererMaterial.Duplicate();
-            _gathererMaterials.Add(material);
-            var post = ToGodot(gatherer.Position);
-            AddChild(new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = PostSize },
-                MaterialOverride = material,
-                Position = post + new Vector3(0, PostSize.Y / 2, 0),
-            });
-            // An arm from the post to its pull point on the belt.
-            var pull = ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance));
-            var from = post with { Y = pull.Y + 0.1f };
-            var reach = pull - from;
-            AddChild(new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = new Vector3(0.2f, 0.12f, reach.Length()) },
-                MaterialOverride = material,
-                Transform = new Transform3D(Basis.LookingAt(reach, Vector3.Up), from + reach / 2),
-            });
-        }
+        foreach (var junction in state.Junctions) _junctions.Add(BuildJunction(junction));
 
         var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
         _packages = new InstanceBatch(this, box);
@@ -104,7 +73,7 @@ public partial class BeltView : Node3D
         _packages.End();
 
         SyncJunctions(state);
-        SyncGatherers(state);
+        SyncPosts(state);
 
         _pickups.Begin(state.Pickups.Count);
         foreach (var p in state.Pickups)
@@ -115,27 +84,115 @@ public partial class BeltView : Node3D
         _pickups.End();
     }
 
-    // A switch's arrow sits just past the junction, along the live output.
+    JunctionView BuildJunction(Junction junction)
+    {
+        var disc = (StandardMaterial3D)JunctionMaterial.Duplicate();
+        AddChild(new MeshInstance3D
+        {
+            Mesh = new CylinderMesh { TopRadius = 0.9f, BottomRadius = 0.9f, Height = 0.3f },
+            MaterialOverride = disc,
+            Position = ToGodot(junction.Position),
+        });
+        var arrow = new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 1f), Material = IndicatorMaterial },
+            Visible = false,
+        };
+        AddChild(arrow);
+
+        CaptureRing? ring = null;
+        if (junction.IsSwitch) // only switches can be captured
+        {
+            ring = new CaptureRing { Radius = Simulation.CaptureRadius, Position = ToGodot(junction.Position) with { Y = RingHeight } };
+            AddChild(ring);
+        }
+        return new JunctionView(disc, arrow, ring);
+    }
+
+    // Discs take the owner's color. A switch's arrow sits just past it, along the live output (none while
+    // closed), and its ring fills with the capturer's color.
     void SyncJunctions(SimState state)
     {
         for (int j = 0; j < state.Junctions.Count; j++)
         {
             var junction = state.Junctions[j];
-            if (junction.Outputs.Count < 2) continue;
-            var output = state.Belts[junction.Outputs[junction.Selected]];
-            var direction = (ToGodot(output.DirectionAt(1f)) with { Y = 0 }).Normalized();
-            var at = ToGodot(junction.Position) + direction * 1.5f + new Vector3(0, 0.25f, 0);
-            _switchArrows[j].Transform = new Transform3D(Basis.LookingAt(direction, Vector3.Up), at);
+            var view = _junctions[j];
+            var owned = junction.Owner == Player.None
+                ? JunctionMaterial.AlbedoColor
+                : JunctionMaterial.AlbedoColor.Lerp(PlayerPalette.Color(junction.Owner), 0.75f);
+            if (view.Disc.AlbedoColor != owned) view.Disc.AlbedoColor = owned;
+            if (!junction.IsSwitch) continue;
+
+            bool open = junction.Selected >= 0;
+            if (view.Arrow.Visible != open) view.Arrow.Visible = open;
+            if (open)
+            {
+                var output = state.Belts[junction.Outputs[junction.Selected]];
+                var direction = (ToGodot(output.DirectionAt(1f)) with { Y = 0 }).Normalized();
+                var at = ToGodot(junction.Position) + direction * 1.5f + new Vector3(0, 0.25f, 0);
+                view.Arrow.Transform = new Transform3D(Basis.LookingAt(direction, Vector3.Up), at);
+            }
+
+            var zone = PlayerPalette.Color(junction.Owner) with { A = 0.45f };
+            var progress = PlayerPalette.Color(junction.Capturer) with { A = 0.95f };
+            view.Ring!.Set(junction.CaptureProgress, zone, progress);
         }
     }
 
-    void SyncGatherers(SimState state)
+    void SyncPosts(SimState state)
     {
-        for (int g = 0; g < state.Gatherers.Count; g++)
+        _seen.Clear();
+        foreach (var gatherer in state.Gatherers)
         {
-            float energy = state.Tick - state.Gatherers[g].LastGrabTick < FlashTicks ? 1.5f : 0f;
-            if (_gathererMaterials[g].EmissionEnergyMultiplier != energy) _gathererMaterials[g].EmissionEnergyMultiplier = energy;
+            _seen.Add(gatherer.Id);
+            if (!_posts.TryGetValue(gatherer.Id, out var post)) _posts[gatherer.Id] = post = BuildPost(state, gatherer);
+
+            float energy = state.Tick - gatherer.LastGrabTick < FlashTicks ? 1.5f : 0f;
+            if (post.Material.EmissionEnergyMultiplier != energy) post.Material.EmissionEnergyMultiplier = energy;
+            float health = gatherer.Health / gatherer.MaxHealth;
+            post.Health.Set(health, HealthBar.HealthColor(health));
+            post.Health.Visible = health < 1;
         }
+
+        if (_posts.Count == _seen.Count) return;
+        _gone.Clear();
+        foreach (int id in _posts.Keys)
+            if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (int id in _gone)
+        {
+            _posts[id].Root.QueueFree();
+            _posts.Remove(id);
+        }
+    }
+
+    // A box in the owner's colors, with an arm reaching to its pull point on the belt.
+    PostView BuildPost(SimState state, in Gatherer gatherer)
+    {
+        var material = (StandardMaterial3D)GathererMaterial.Duplicate();
+        material.AlbedoColor = GathererMaterial.AlbedoColor.Lerp(PlayerPalette.Color(gatherer.Owner), 0.55f);
+
+        var root = new Node3D { Position = ToGodot(gatherer.Position) };
+        AddChild(root);
+        root.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = PostSize },
+            MaterialOverride = material,
+            Position = new Vector3(0, PostSize.Y / 2, 0),
+        });
+
+        var pull = ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance)) - root.Position;
+        var from = new Vector3(0, pull.Y + 0.1f, 0);
+        var reach = pull - from;
+        root.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(0.2f, 0.12f, reach.Length()) },
+            MaterialOverride = material,
+            Transform = new Transform3D(Basis.LookingAt(reach, Vector3.Up), from + reach / 2),
+        });
+
+        var health = new HealthBar { Position = new Vector3(0, PostSize.Y + 0.6f, 0), Visible = false };
+        root.AddChild(health);
+        return new PostView(root, material, health);
     }
 
     // Working segments shift toward DamagedColor as health drops. Broken ones are red,

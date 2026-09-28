@@ -4,7 +4,18 @@ namespace Sim.Tests;
 
 static class TestHelpers
 {
+    public const int Blue = 0, Red = 1;
+    public const int T = Simulation.TicksPerSecond;
     public static readonly Command[] NoCommands = [];
+
+    /// <summary>A simulation with two players, Blue and Red.</summary>
+    public static Simulation NewSim()
+    {
+        var sim = new Simulation();
+        sim.AddPlayer();
+        sim.AddPlayer();
+        return sim;
+    }
 
     // Evenly spaced control points on a line: t advances uniformly with distance.
     public static BezierSegment Straight(Vector3 from, Vector3 to) =>
@@ -22,4 +33,18 @@ static class TestHelpers
     {
         for (int i = 0; i < ticks; i++) sim.Tick(NoCommands);
     }
+
+    /// <summary>Ticks until `event` happens (the first tick counts as 1); -1 if it doesn't within `maxTicks`.</summary>
+    public static int TicksUntil(Simulation sim, SimEvent expected, int maxTicks, IReadOnlyList<Command>? first = null)
+    {
+        var events = sim.Tick(first ?? NoCommands);
+        for (int tick = 1; tick <= maxTicks; tick++)
+        {
+            if (events.Contains(expected)) return tick;
+            events = sim.Tick(NoCommands);
+        }
+        return -1;
+    }
+
+    public static Unit UnitById(Simulation sim, int id) => sim.State.Units.Single(u => u.Id == id);
 }

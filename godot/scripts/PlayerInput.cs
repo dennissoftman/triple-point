@@ -6,31 +6,49 @@ using static SimConvert;
 using SVector3 = System.Numerics.Vector3;
 
 /// <summary>
-/// Turns player input into selection and commands. Selection is local UI state: the sim never sees it,
-/// only the commands issued to the selected units.
+/// Turns player input into selection and commands for the local player. Selection is local UI state:
+/// the sim never sees it, only the commands issued to the selected units.
 /// Input goes through Input Map actions (Project Settings), never literal keys.
 /// </summary>
 public partial class PlayerInput : Node
 {
-    const float DragThreshold = 6f;     // px before a click becomes a box
-    const float ClickPickRadius = 28f;  // px around a unit's screen position
-    const float UnitCenterHeight = 0.5f;
-    const float PickTolerance = 0.5f;   // m beyond the belt edge that still counts as clicking it
-    const float FormationSpacing = 2f;  // m between units of a group move
-    const float JunctionPickRadius = 1.5f; // m
+    const float DragThreshold = 6f;       // px before a click becomes a box
+    const float VehiclePickRadius = 30f;  // px around a unit's screen position
+    const float SquadPickRadius = 44f;    // squads are spread out
+    const float UnitCenterHeight = 0.6f;
+    const float PostPickRadius = 1.3f;    // m on the ground
+    const float JunctionPickRadius = 1.5f; // m; right-clicking this close to a switch holds it
+    const float SwitchDiscRadius = 1.1f;   // m; left-clicking the disc of your switch flips it
+    const float PickTolerance = 0.5f;     // m beyond the belt edge that still counts as clicking it
+    const float FormationSpacing = 3f;    // m between units of a group move
 
     [Export] public SimHost Host = null!;
-    [Export] public Camera3D Camera = null!;
+    [Export] public RtsCamera Camera = null!;
     [Export] public BeltView BeltView = null!;
     [Export] public Control SelectionBox = null!;
+    [Export] public int LocalPlayer; // the player you control; debug_swap_player cycles it
 
     public IReadOnlyList<int> Selection => _selection;
 
     readonly List<int> _selection = []; // unit ids, in selection order (sets formation slots)
     Vector2? _dragStart;
 
+    public override void _Process(double delta)
+    {
+        // Drop units that died.
+        for (int i = _selection.Count - 1; i >= 0; i--)
+            if (!Host.Sim.TryGetTarget(_selection[i], out _, out _)) _selection.RemoveAt(i);
+    }
+
     public override void _UnhandledInput(InputEvent e)
     {
+        if (e.IsActionPressed("debug_swap_player"))
+        {
+            // Hotseat for testing both sides before the AI exists.
+            LocalPlayer = (LocalPlayer + 1) % Host.Sim.State.Players.Count;
+            _selection.Clear();
+            return;
+        }
         if (e is not InputEventMouse mouse) return;
 
         if (e.IsActionPressed("select")) _dragStart = mouse.Position;
@@ -41,7 +59,8 @@ public partial class PlayerInput : Node
             SelectionBox.Visible = false;
             Select(from, mouse.Position);
         }
-        else if (e.IsActionPressed("act") && GroundPoint(mouse.Position) is SVector3 point) Act(point);
+        else if (e.IsActionPressed("act") && Camera.GroundPoint(mouse.Position) is Vector3 ground)
+            Act(mouse.Position, ToSim(ground));
     }
 
     void ShowBox(Vector2 from, Vector2 to)
@@ -53,13 +72,17 @@ public partial class PlayerInput : Node
         SelectionBox.Visible = true;
     }
 
-    // A click picks one unit (select_add toggles it); a drag picks everything in the box (select_add adds).
-    // Clicking empty ground without select_add clears the selection.
+    // A click on the disc of a switch you own flips it (even with your units standing around it);
+    // otherwise a click picks one of your units (select_add toggles it). A drag picks all your units in
+    // the box (select_add adds). Clicking empty ground without select_add clears.
     void Select(Vector2 from, Vector2 to)
     {
         bool add = Input.IsActionPressed("select_add");
         bool click = from.DistanceTo(to) < DragThreshold;
-        if (click && add && UnitAt(to) is int toggled)
+        if (click && FlipSwitchAt(to)) return;
+
+        int? unit = click ? UnitAt(to, mine: true) : null;
+        if (click && add && unit is int toggled)
         {
             if (!_selection.Remove(toggled)) _selection.Add(toggled);
             return;
@@ -68,25 +91,85 @@ public partial class PlayerInput : Node
         if (!add) _selection.Clear();
         if (click)
         {
-            if (UnitAt(to) is int id) _selection.Add(id);
+            if (unit is int id) _selection.Add(id);
             return;
         }
 
         var box = new Rect2(from, to - from).Abs();
-        foreach (var unit in Host.Sim.State.Units)
-            if (ScreenPosition(unit) is Vector2 p && box.HasPoint(p) && !_selection.Contains(unit.Id))
-                _selection.Add(unit.Id);
+        foreach (var u in Host.Sim.State.Units)
+            if (u.Owner == LocalPlayer && ScreenPosition(u) is Vector2 p && box.HasPoint(p) && !_selection.Contains(u.Id))
+                _selection.Add(u.Id);
     }
 
-    int? UnitAt(Vector2 screen)
+    // Clicking a switch you own sets it to its next output; the owner can do this from anywhere.
+    bool FlipSwitchAt(Vector2 screen)
+    {
+        if (Camera.GroundPoint(screen) is not Vector3 ground) return false;
+        var sim = Host.Sim;
+        if (!sim.FindJunction(ToSim(ground), SwitchDiscRadius, out int j)) return false;
+        var junction = sim.State.Junctions[j];
+        if (!junction.IsSwitch || junction.Owner != LocalPlayer) return false;
+        Host.Issue(new SetJunctionCommand(LocalPlayer, j, (junction.Selected + 1) % junction.Outputs.Count));
+        return true;
+    }
+
+    // The context order at a ground point for every selected unit: attack an enemy, hold a switch
+    // (capturing is automatic), force-attack a segment, repair a damaged one, otherwise move.
+    void Act(Vector2 screen, SVector3 point)
+    {
+        if (_selection.Count == 0) return;
+        bool queued = Input.IsActionPressed("queue_order");
+        var sim = Host.Sim;
+
+        if (EnemyAt(screen, point) is int target)
+        {
+            foreach (int id in _selection) Host.Issue(new AttackCommand(LocalPlayer, id, target, queued));
+            return;
+        }
+        if (sim.FindJunction(point, JunctionPickRadius, out int j) && sim.State.Junctions[j].IsSwitch)
+        {
+            MoveGroup(sim.State.Junctions[j].Position with { Y = 0 }, queued);
+            return;
+        }
+
+        bool onBelt = sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
+        if (onBelt && Input.IsActionPressed("force_attack"))
+            foreach (int id in _selection) Host.Issue(new AttackSegmentCommand(LocalPlayer, id, line, segment, queued));
+        else if (onBelt && sim.State.Belts[line].Segments[segment] is { } s && s.Health < s.MaxHealth)
+            foreach (int id in _selection) Host.Issue(new RepairSegmentCommand(LocalPlayer, id, line, segment, queued));
+        else
+            MoveGroup(point, queued);
+    }
+
+    // Spread into a grid so the group doesn't stack on one point.
+    void MoveGroup(SVector3 point, bool queued)
+    {
+        for (int i = 0; i < _selection.Count; i++)
+            Host.Issue(new MoveCommand(LocalPlayer, _selection[i], point + FormationOffset(i, _selection.Count), queued));
+    }
+
+    int? EnemyAt(Vector2 screen, SVector3 ground)
+    {
+        if (UnitAt(screen, mine: false) is int unit) return unit;
+        foreach (var post in Host.Sim.State.Gatherers)
+        {
+            float dx = post.Position.X - ground.X, dz = post.Position.Z - ground.Z;
+            if (post.Owner != LocalPlayer && dx * dx + dz * dz <= PostPickRadius * PostPickRadius) return post.Id;
+        }
+        return null;
+    }
+
+    // The nearest unit (yours, or anyone else's) whose screen position is close to `screen`.
+    int? UnitAt(Vector2 screen, bool mine)
     {
         int? best = null;
-        float bestDistance = ClickPickRadius;
+        float bestDistance = float.MaxValue;
         foreach (var unit in Host.Sim.State.Units)
         {
-            if (ScreenPosition(unit) is not Vector2 p) continue;
+            if ((unit.Owner == LocalPlayer) != mine || ScreenPosition(unit) is not Vector2 p) continue;
             float d = p.DistanceTo(screen);
-            if (d <= bestDistance) (best, bestDistance) = (unit.Id, d);
+            float radius = unit.MaxMembers > 1 ? SquadPickRadius : VehiclePickRadius;
+            if (d <= radius && d < bestDistance) (best, bestDistance) = (unit.Id, d);
         }
         return best;
     }
@@ -97,36 +180,6 @@ public partial class PlayerInput : Node
         return Camera.IsPositionBehind(world) ? null : Camera.UnprojectPosition(world);
     }
 
-    // The context order at a ground point for every selected unit: flip a switch to its next output,
-    // force-attack a segment, repair a damaged one, otherwise move (spread into a grid so the group
-    // doesn't stack on one point).
-    void Act(SVector3 point)
-    {
-        if (_selection.Count == 0) return;
-        bool queued = Input.IsActionPressed("queue_order");
-        var sim = Host.Sim;
-
-        if (sim.FindJunction(point, JunctionPickRadius, out int j) && sim.State.Junctions[j] is { Outputs.Count: > 1 } junction)
-        {
-            // Everyone gets the same target output, so several units don't flip it back and forth.
-            int next = (junction.Selected + 1) % junction.Outputs.Count;
-            foreach (int id in _selection) Host.Issue(new SwitchJunctionCommand(id, j, next, queued));
-            return;
-        }
-
-        bool onBelt = sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
-        bool attack = onBelt && Input.IsActionPressed("force_attack");
-        bool repair = onBelt && !attack && sim.State.Belts[line].Segments[segment] is { } s && s.Health < s.MaxHealth;
-
-        for (int i = 0; i < _selection.Count; i++)
-        {
-            int id = _selection[i];
-            Host.Issue(attack ? new AttackSegmentCommand(id, line, segment, queued)
-                     : repair ? new RepairSegmentCommand(id, line, segment, queued)
-                     : new MoveCommand(id, point + FormationOffset(i, _selection.Count), queued));
-        }
-    }
-
     // Slot `index` of a square grid of `count` slots, centered on the target.
     static SVector3 FormationOffset(int index, int count)
     {
@@ -135,11 +188,5 @@ public partial class PlayerInput : Node
         float x = index % columns - (columns - 1) / 2f;
         float z = index / columns - (rows - 1) / 2f;
         return new SVector3(x, 0, z) * FormationSpacing;
-    }
-
-    SVector3? GroundPoint(Vector2 screen)
-    {
-        var hit = new Plane(Vector3.Up, 0).IntersectsRay(Camera.ProjectRayOrigin(screen), Camera.ProjectRayNormal(screen));
-        return hit is Vector3 p ? ToSim(p) : null;
     }
 }

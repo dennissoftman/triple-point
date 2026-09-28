@@ -62,6 +62,46 @@ speed_down={
 "events": [Object(InputEventKey,"device":-1,"keycode":45), Object(InputEventKey,"device":-1,"keycode":4194435)
 ]
 }
+camera_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":65), Object(InputEventKey,"device":-1,"keycode":4194319)
+]
+}
+camera_right={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":68), Object(InputEventKey,"device":-1,"keycode":4194321)
+]
+}
+camera_forward={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":87), Object(InputEventKey,"device":-1,"keycode":4194320)
+]
+}
+camera_back={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":83), Object(InputEventKey,"device":-1,"keycode":4194322)
+]
+}
+camera_zoom_in={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":4,"pressed":true)
+]
+}
+camera_zoom_out={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":5,"pressed":true)
+]
+}
+camera_grab={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":3,"pressed":true)
+]
+}
+debug_swap_player={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":4194333)
+]
+}
 
 [physics]
 

@@ -2,9 +2,12 @@
 
 [ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
-[ext_resource type="PackedScene" path="res://views/unit_cube.tscn" id="3_unit"]
+[ext_resource type="PackedScene" path="res://views/unit.tscn" id="3_unit"]
 [ext_resource type="Script" path="res://scripts/UnitsView.cs" id="4_unitsview"]
 [ext_resource type="Script" path="res://scripts/PlayerInput.cs" id="5_playerinput"]
+[ext_resource type="Script" path="res://scripts/RtsCamera.cs" id="6_camera"]
+[ext_resource type="Script" path="res://scripts/OwnedMarker.cs" id="7_owned"]
+[ext_resource type="Script" path="res://scripts/UnitSpawn.cs" id="8_spawn"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -103,9 +106,10 @@ shadow_enabled = true
 directional_shadow_max_distance = 80.0
 
 [node name="Camera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 0, 34.4, 23.1)
+transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 6, 34.4, 23.6)
 current = true
 fov = 38.0
+script = ExtResource("6_camera")
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")
@@ -137,11 +141,49 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0.2, 0)
 
 [node name="Gatherers" type="Node3D" parent="."]
 
-[node name="TrunkPost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 2.2)
+[node name="BluePost" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18.5, 0, -9.6)
+script = ExtResource("7_owned")
 
-[node name="NorthPost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.5, 0, -6.4)
+[node name="RedPost" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16.8, 0, 8.6)
+script = ExtResource("7_owned")
+Player = 1
+
+[node name="Units" type="Node3D" parent="."]
+
+[node name="BlueSquad1" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, -12)
+script = ExtResource("8_spawn")
+UnitType = "rifle_squad"
+
+[node name="BlueSquad2" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0, -13)
+script = ExtResource("8_spawn")
+UnitType = "rifle_squad"
+
+[node name="BlueVehicle" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, -15)
+script = ExtResource("8_spawn")
+UnitType = "vehicle"
+
+[node name="RedSquad1" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 12)
+script = ExtResource("8_spawn")
+Player = 1
+UnitType = "rifle_squad"
+
+[node name="RedSquad2" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, 12)
+script = ExtResource("8_spawn")
+Player = 1
+UnitType = "rifle_squad"
+
+[node name="RedVehicle" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 0, 12.5)
+script = ExtResource("8_spawn")
+Player = 1
+UnitType = "vehicle"
 
 [node name="BeltView" type="Node3D" parent="."]
 script = ExtResource("2_beltview")
@@ -164,20 +206,22 @@ offset_left = 16.0
 offset_top = 12.0
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 13
 
 [node name="SelectionBox" type="ColorRect" parent="Ui"]
 visible = false
 mouse_filter = 2
 color = Color(0.55, 1, 0.6, 0.18)
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "BeltView", "UnitsView", "Player", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "BeltView", "UnitsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 Belts = NodePath("../Belts")
 Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")
+Units = NodePath("../Units")
 BeltView = NodePath("../BeltView")
 UnitsView = NodePath("../UnitsView")
-Player = NodePath("../PlayerInput")
+PlayerInput = NodePath("../PlayerInput")
 Hud = NodePath("../Ui/Hud")
 
 [node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox")]

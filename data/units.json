@@ -1,0 +1,5 @@
+// Prototype unit types. Members is 1 for a vehicle; a squad's health and damage are per member.
+{
+  "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
+  "vehicle":     { "members": 1, "speed": 6,   "memberHealth": 180, "memberDps": 12, "range": 9 }
+}

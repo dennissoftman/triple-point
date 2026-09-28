@@ -19,8 +19,9 @@ The full design, decisions and MVP scope live in [docs/rts-handoff.md](docs/rts-
 - One seeded RNG owned by the sim, and all math routed through one place, so determinism stays possible later.
 - No allocations or LINQ inside the tick.
 - Batch calls across the C#/engine boundary. They cost far more than calls within C#.
-- Input goes through Input Map actions defined in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`), never literal keys or buttons in code.
-- Game data is JSON in `/data`, loaded by `Sim` with `System.Text.Json`, not Godot Resources. The Godot side resolves `res://` to a real path and passes it in.
+- Input goes through Input Map actions defined in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`), never literal keys or buttons in code.
+- Game data is JSON in `/data` (unit types in `data/units.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. The Godot side reads the file (`SimHost.DataDirectory`, relative to the Godot project) and passes the text in.
+- Selection, colors, names and the local player are UI state on the Godot side; the sim only sees commands, each carrying its issuing player.
 
 ## Layout
 
@@ -31,7 +32,15 @@ src/Sim.Tests/      xUnit, headless
 godot/              Godot project (project.godot, Game.csproj -> ../src/Sim)
 data/               unit and faction definitions (JSON)
 docs/               design notes (story documents are kept out of the repo)
+tools/              input smoke test
 ```
+
+## Map authoring (godot/scenes/main.tscn)
+
+- `Belts`: `Path3D` curves become belt lines (cut into 5 m breakable segments at load).
+- `Junctions`: markers; belt ends within 1 m attach (a line's end is an input, its start an output).
+- `Gatherers`: `OwnedMarker`s (with `Player`) beside a belt become that player's posts.
+- `Units`: `UnitSpawn`s (with `Player` and a `UnitType` id from `data/units.json`) are the starting units.
 
 ## Commands
 
@@ -53,4 +62,4 @@ Input smoke test (needs a window; headless drops input). Exits with the failure 
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 ```
 
-Unattended visual check: `-- --demo` runs a scripted attack, spill and repair at 3x. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 250` to capture frames.
+Unattended visual check: `-- --demo` plays a scripted two-player match at 3x (switch captures, a post destroyed, a fight), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames.

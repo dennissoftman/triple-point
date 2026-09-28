@@ -42,7 +42,7 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - **A broken segment spills.** Packages on it when it breaks, and every package that reaches it while broken, fall off beside it. A share of them is destroyed in the fall (spill loss, default 30%, tunable per belt); the rest become ground pickups. Any unit walking over a pickup collects it; uncollected pickups fade after 60 s. So a break redirects most of the flow to whoever holds the spot, its value grows the longer it's held, and downstream gets nothing until repair.
 - *Tuning note:* one repairer currently out-heals one attacker (20 health/s vs 10 dps). Fine while there's no combat between units; revisit with real unit types.
 - **Gatherer posts** (generic for now; faction gatherers later) stand beside a belt with a pull point on it. An idle post grabs a package passing its pull point, adds 1 Resource, and works for 2 s; packages passing meanwhile go on downstream. So upstream posts get first pick, and a post whose rate matches the flow starves everything below it.
-- **Junctions** are where lines meet; lines attach by their endpoints. Every input feeds the selected output. Several inputs make a merge (inputs take turns, one package per tick at most, only when the output's entry is clear, so an overloaded merge backs up both inputs evenly). Several outputs make a switch: a unit walks to it and sets the live output. Lines fed by a junction don't spawn; lines ending in one hand packages off instead of losing them. Breaking the segment just past a merge spills every input at once.
+- **Junctions** are where lines meet; lines attach by their endpoints. Every input feeds the selected output. Several inputs make a merge (inputs take turns, one package per tick at most, only when the output's entry is clear, so an overloaded merge backs up both inputs evenly). Several outputs make a switch. **Switches are captured, not flipped by presence:** a switch starts neutral and closed (its inputs back up); a side takes it by holding it with units and no enemy within 4 m for 5 s (both sides present freezes progress; leaving drains it). The owner sets the live output from anywhere; the enemy has to recapture it first. Shown as a ring at the capture radius that fills with the capturer's color. Lines fed by a junction don't spawn; lines ending in one hand packages off instead of losing them. Breaking the segment just past a merge spills every input at once.
 - Players can break segments and switch junctions to reroute flow. The belt layout itself is fixed by map design; players don't build new belt.
 - **Fighting jams only the segment it happens on** (a local slowdown), rather than pausing the whole belt. *Proposed, not yet confirmed; validate in playtest.*
 - Known risks to solve through map design and tuning: upstream advantage (loops, multiple belts, flow that can change direction) and snowballing (caps per gathering point, or catch-up rules).
@@ -83,6 +83,9 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - Every button must be a decision, not upkeep. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 - **Infantry fights in squads.** Fixed size per type (e.g. 5 riflemen, 3 engineers), indivisible (no splitting). One simulation entity per squad: one path, one order, one grid footprint. Members are visual formation slots with local steering and individual HP. Damage is distributed across members. Area damage uses a simple rule against the squad's area (e.g. the fraction of members hit follows the overlap between blast and squad footprint), not exact member positions. Member positions become sim state only if that looks wrong in play. Squads reinforce near base or relay points, which costs resources.
 - **Vehicles are single units.**
+- *Prototype squads (built):* a squad's members are slices of one health pool. They die one by one as it drops, each taking its share of the squad's damage with it, so a worn squad fights weaker. Drawn as capsules walking loosely in a wedge; vehicles are boxes with a turret. Unit types live in `data/units.json`.
+- **Ownership and combat (prototype, built):** players own units and gatherer posts; belts stay neutral. Orders carry their issuer and only reach that player's units. Posts pay their owner; pickups pay whoever's unit collects them. Right-click an enemy unit or post to attack it (chase into range, fire until destroyed). Idle units fire at the nearest enemy in range, units before posts, without chasing; units with orders don't stop to shoot ("move means move"). Destroyed units and posts are removed. Health shows as a bar when damaged or selected.
+- *Map lesson:* posts within weapon range of the contested switch die to whoever holds it. Keep structures out of range of capture points unless that's the intent.
 
 ### 3.4 Infrastructure: roads, bridges, repair
 
@@ -303,7 +306,7 @@ public partial class SimHost : Node
 
 ## 7. Open decisions (defaults to use until changed)
 
-1. **Camera:** perspective, pitch around 55-60 degrees, field of view around 35-40 degrees, zoom range to settle in the diorama. Lock before serious modeling.
+1. **Camera:** perspective, pitch around 55-60 degrees, field of view around 35-40 degrees, zoom range to settle in the diorama. Lock before serious modeling. *Prototype:* 55° pitch, 38° FOV, 15-60 m zoom, no rotation; pans with WASD/arrows, screen edges and middle-mouse drag; runs on real time, unaffected by game speed.
 2. **Grid and map:** 2 m cells; prototype map 128 x 128 cells (256 m square). Footprints: infantry squad 1x1 (members spread visually), light vehicle 2x2, heavy Asian vehicle 3x3. Buildings occupy whole cells.
 3. **Belt flow:** packages spawn at source nodes at a fixed rate; packages reaching an end are lost. Loop layouts as a map option.
 4. **Resources (decided):** one spendable currency, from belt packages (plus slow independent generators if sources become finite). The MVP uses only this.
@@ -327,11 +330,11 @@ public partial class SimHost : Node
 
 Milestones:
 0. Setup: solution and projects build, Godot references `Sim`, one passing test, and a cube that moves because the simulation says so.
-1. Camera, box selection, move orders. *Done except camera pan/zoom:* click and box selection, Shift add/toggle, group moves in a grid formation.
+1. Camera, box selection, move orders. *Done:* camera pan/zoom, click and box selection, Shift add/toggle, group moves in a grid formation.
 2. Belt with packages flowing, gatherers pulling from it, debug overlay. *Done* (gatherer posts are authored in the scene until construction exists; the overlay is the HUD counters).
 3. Infrastructure states: break, jam and repair segments; junction switches; two road states. *Done:* segment health, break, spill, repair, junction merges and switches. *Not yet:* jammed state (waits for unit-vs-unit fighting), roads.
 3.5. Symmetric belt test: a mirror match with generic units, to check the belt is fun before asymmetry is layered on. Western drones and Asian armored segments both blunt belt disruption, so a failed asymmetric test alone wouldn't say why.
-4. Two factions (Asian vs Western), 2-3 units each, including one infantry squad type.
+4. Two factions (Asian vs Western), 2-3 units each, including one infantry squad type. *Groundwork done:* two players with ownership, unit-vs-unit and unit-vs-post combat, a generic rifle squad and vehicle, switch capture, and an F2 hotseat swap for testing both sides before the AI. *Next:* spending Resources (production), then win/lose, then the AI.
 5. A basic commander AI that fights over the belt.
 
 Then play it with friends, against the AI. That's enough for the MVP; no multiplayer needed. If they ask to play again, build the vertical slice: the first 2-3 campaign missions of one faction.

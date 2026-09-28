@@ -5,14 +5,13 @@ using Sim;
 using static SimConvert;
 
 /// <summary>
-/// One scene instance per unit (with its selection ring), a ground line through each unit's current
-/// and queued orders, and a flickering line from each firing unit to its target.
+/// One scene instance per unit, a ground line through the local player's current and queued orders,
+/// and flickering tracer lines from everything that's firing.
 /// </summary>
 public partial class UnitsView : Node3D
 {
     const float PathHeight = 0.05f;  // just above the ground
-    const float MuzzleHeight = 0.5f; // unit cube center
-    const float TargetHeight = 0.2f; // belt surface
+    const float AimHeight = 0.5f;    // tracers end this far above what they hit
 
     [Export] public PackedScene UnitScene = null!;
     [Export] public Material? PathMaterial;
@@ -20,43 +19,62 @@ public partial class UnitsView : Node3D
 
     readonly Dictionary<int, UnitView> _views = [];
     readonly Dictionary<int, Vector3> _positions = []; // interpolated, this frame
+    readonly List<int> _gone = [];
     readonly ImmediateMesh _lines = new();
 
     public override void _Ready() =>
         AddChild(new MeshInstance3D { Mesh = _lines, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
 
-    public void Sync(Simulation sim, float alpha, IReadOnlyList<int> selection)
+    /// <summary>`delta` is the sim time this frame covers, for member movement.</summary>
+    public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection, int localPlayer)
     {
         _lines.ClearSurfaces();
-        var state = sim.State;
-        var positions = _positions;
-        positions.Clear();
-        foreach (var unit in state.Units)
+        _positions.Clear();
+        foreach (var unit in sim.State.Units)
         {
             if (!_views.TryGetValue(unit.Id, out var view))
             {
                 view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
+                view.Setup(unit.Owner, PlayerPalette.Color(unit.Owner), unit.MaxMembers);
                 _views[unit.Id] = view;
             }
-            view.GlobalPosition = positions[unit.Id] = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
+            var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
+            _positions[unit.Id] = position;
+            view.Sync(position, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt));
             view.Selected = selection.Contains(unit.Id);
         }
 
-        DrawOrderPaths(sim, positions);
-        DrawFire(state, positions);
+        RemoveGone();
+        DrawOrderPaths(sim, localPlayer);
+        DrawFire(sim.State);
     }
 
-    // Current target, then each queued order's point; a queued segment order's point depends on where the leg before it ends.
-    void DrawOrderPaths(Simulation sim, Dictionary<int, Vector3> positions)
+    void RemoveGone()
+    {
+        if (_views.Count == _positions.Count) return;
+        _gone.Clear();
+        foreach (int id in _views.Keys)
+            if (!_positions.ContainsKey(id)) _gone.Add(id);
+        foreach (int id in _gone)
+        {
+            _views[id].QueueFree();
+            _views.Remove(id);
+        }
+    }
+
+    // Only your own side's orders: you don't get to see where the enemy is going.
+    // Current target first, then each queued order's point; a queued segment order's point depends on
+    // where the leg before it ends.
+    void DrawOrderPaths(Simulation sim, int localPlayer)
     {
         bool drawing = false;
         foreach (var unit in sim.State.Units)
         {
-            if (unit.Current.Kind == UnitOrder.None) continue;
+            if (unit.Owner != localPlayer || unit.Current.Kind == UnitOrder.None) continue;
             if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, PathMaterial); drawing = true; }
 
-            var start = positions[unit.Id];
+            var start = _positions[unit.Id];
             var target = unit.Current.Target;
             Leg(ref start, ToGodot(target));
             foreach (var order in unit.Pending)
@@ -68,16 +86,22 @@ public partial class UnitsView : Node3D
         if (drawing) _lines.SurfaceEnd();
     }
 
-    void DrawFire(SimState state, Dictionary<int, Vector3> positions)
+    // Short bursts, staggered per member so a squad doesn't fire like one gun.
+    void DrawFire(SimState state)
     {
-        if (state.Tick % 4 >= 2) return; // bursts, not a solid beam
         bool drawing = false;
         foreach (var unit in state.Units)
         {
             if (!unit.Firing) continue;
-            if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, FireMaterial); drawing = true; }
-            _lines.SurfaceAddVertex(positions[unit.Id] + new Vector3(0, MuzzleHeight, 0));
-            _lines.SurfaceAddVertex(ToGodot(unit.Current.Target) with { Y = TargetHeight });
+            var muzzles = _views[unit.Id].Muzzles;
+            var at = ToGodot(unit.FireAt) + new Vector3(0, AimHeight, 0);
+            for (int i = 0; i < muzzles.Count; i++)
+            {
+                if ((state.Tick + i) % 4 >= 2) continue;
+                if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, FireMaterial); drawing = true; }
+                _lines.SurfaceAddVertex(muzzles[i]);
+                _lines.SurfaceAddVertex(at);
+            }
         }
         if (drawing) _lines.SurfaceEnd();
     }
