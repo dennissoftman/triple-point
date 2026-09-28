@@ -37,7 +37,7 @@ public partial class BeltView : Node3D
     }
 
     // One material per segment, indexed [line][segment], so each can show its own state, and the color
-    // each shows. (Dev-grade: a draw call per segment. See the rendering debt in docs/rts-handoff.md.)
+    // each shows. (Dev-grade: a draw call per segment. See the rendering debt in docs/architecture.md.)
     readonly List<StandardMaterial3D[]> _segmentMaterials = [];
     readonly List<Color[]> _segmentColors = [];
     readonly List<JunctionView> _junctions = [];
