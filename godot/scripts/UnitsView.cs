@@ -67,7 +67,7 @@ public partial class UnitsView : Node3D
             {
                 view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
-                view.Setup(unit.Owner, _materials, unit.MaxMembers, unit.Movement);
+                view.Setup(unit.Owner, _materials, unit.MaxMembers, unit.Movement, armed: unit.Damage > 0);
                 _views[unit.Id] = view;
             }
             var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);

@@ -17,6 +17,8 @@ config/icon="res://icon.svg"
 
 [display]
 
+window/size/window_width_override=1920
+window/size/window_height_override=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
@@ -112,24 +114,34 @@ debug_swap_player={
 "events": [Object(InputEventKey,"device":-1,"keycode":4194333)
 ]
 }
-produce_1={
+slot_1={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"keycode":81)
 ]
 }
-produce_2={
+slot_2={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"keycode":87)
 ]
 }
-produce_3={
+slot_3={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"keycode":69)
 ]
 }
-produce_repeat={
+slot_4={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"keycode":82)
+]
+}
+produce_repeat={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":84)
+]
+}
+rotate_building={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"keycode":90)
 ]
 }
 cancel_production={

@@ -8,7 +8,8 @@
 [ext_resource type="Script" path="res://scripts/RtsCamera.cs" id="6_camera"]
 [ext_resource type="Script" path="res://scripts/BuildingSpawn.cs" id="10_bspawn"]
 [ext_resource type="Script" path="res://scripts/BuildingsView.cs" id="11_bview"]
-[ext_resource type="Script" path="res://scripts/ProductionPanel.cs" id="12_panel"]
+[ext_resource type="Script" path="res://scripts/CommandCard.cs" id="12_panel"]
+[ext_resource type="Script" path="res://scripts/Minimap.cs" id="13_minimap"]
 [ext_resource type="Script" path="res://scripts/OwnedMarker.cs" id="7_owned"]
 [ext_resource type="Script" path="res://scripts/UnitSpawn.cs" id="8_spawn"]
 
@@ -158,78 +159,18 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 0.2, 0)
 
 [node name="Gatherers" type="Node3D" parent="."]
 
-[node name="BlueHomePost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.56, 0, -33)
-script = ExtResource("7_owned")
-
-[node name="RedHomePost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 75.56, 0, 33)
-script = ExtResource("7_owned")
-Player = 1
-
-[node name="BlueForwardWest" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.02, 0, -25.42)
-script = ExtResource("7_owned")
-
-[node name="RedForwardEast" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.02, 0, 25.42)
-script = ExtResource("7_owned")
-Player = 1
-
-[node name="BlueForwardEast" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.02, 0, -25.42)
-script = ExtResource("7_owned")
-
-[node name="RedForwardWest" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.02, 0, 25.42)
-script = ExtResource("7_owned")
-Player = 1
-
 [node name="Units" type="Node3D" parent="."]
 
-[node name="BlueSquad1" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -54, 0, -42)
+[node name="BlueBuilder" type="Marker3D" parent="Units"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -60, 0, -46)
 script = ExtResource("8_spawn")
-UnitType = "rifle_squad"
+UnitType = "builder"
 
-[node name="BlueSquad2" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -48, 0, -42)
-script = ExtResource("8_spawn")
-UnitType = "rifle_squad"
-
-[node name="BlueTank" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -54, 0, -47)
-script = ExtResource("8_spawn")
-UnitType = "tank"
-
-[node name="BlueCar" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -48, 0, -47)
-script = ExtResource("8_spawn")
-UnitType = "scout_car"
-
-[node name="RedSquad1" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 0, 42)
+[node name="RedBuilder" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 0, 46)
 script = ExtResource("8_spawn")
 Player = 1
-UnitType = "rifle_squad"
-
-[node name="RedSquad2" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 48, 0, 42)
-script = ExtResource("8_spawn")
-Player = 1
-UnitType = "rifle_squad"
-
-[node name="RedTank" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 0, 47)
-script = ExtResource("8_spawn")
-Player = 1
-UnitType = "tank"
-
-[node name="RedCar" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 48, 0, 47)
-script = ExtResource("8_spawn")
-Player = 1
-UnitType = "scout_car"
+UnitType = "builder"
 
 [node name="Buildings" type="Node3D" parent="."]
 
@@ -274,9 +215,15 @@ visible = false
 mouse_filter = 2
 color = Color(0.55, 1, 0.6, 0.18)
 
-[node name="ProductionPanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("PlayerInput")]
+[node name="CommandCard" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("PlayerInput")]
 script = ExtResource("12_panel")
 PlayerInput = NodePath("../../PlayerInput")
+
+[node name="Minimap" type="Control" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Camera")]
+script = ExtResource("13_minimap")
+Host = NodePath("../../SimHost")
+PlayerInput = NodePath("../../PlayerInput")
+Camera = NodePath("../../Camera")
 
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")

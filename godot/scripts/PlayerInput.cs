@@ -8,8 +8,9 @@ using SVector3 = System.Numerics.Vector3;
 /// <summary>
 /// Turns player input into selection and commands for the local player, and shows what a click would do
 /// as the cursor. Selection is local UI state: the sim never sees it, only the commands issued to the
-/// selected units, or to the one selected building (production, rally point). Input goes through Input
-/// Map actions (Project Settings), never literal keys.
+/// selected units, or to the one selected building (production, rally point). With builders selected, a
+/// build slot arms placement: a ghost follows the cursor until a click puts the building down. Input goes
+/// through Input Map actions (Project Settings), never literal keys.
 /// </summary>
 public partial class PlayerInput : Node
 {
@@ -31,13 +32,20 @@ public partial class PlayerInput : Node
     [Export] public string CursorName = nameof(CursorKind.Default); // what the cursor shows; for tools
     [Export] public int SelectedBuilding = -1;              // a building id, or -1; selected alone, never with units
 
-    static readonly string[] ProduceActions = ["produce_1", "produce_2", "produce_3"]; // the building's unit types, in order
+    /// <summary>The command card's slots, in order: a building's unit types, or what builders can build.</summary>
+    public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair, Rally }
+    enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair, Rally, Resume }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
+    /// <summary>A building about to be placed: snapped to the grid under the cursor, and whether it fits there.</summary>
+    public readonly record struct Placement(BuildingType Type, SVector3 At, float Heading, bool Valid);
+
     public IReadOnlyList<int> Selection => _selection;
+
+    /// <summary>The building being placed, while placement is armed and the cursor is over the ground.</summary>
+    public Placement? Placing { get; private set; }
 
     readonly List<int> _selection = []; // unit ids, in selection order (sets formation slots)
     readonly Dictionary<int, CameraView> _views = []; // each side's camera, saved when you swap away
@@ -45,6 +53,8 @@ public partial class PlayerInput : Node
     Vector2 _mouse;        // where the mouse is, from its own events
     bool _attackMoveArmed; // by attack_move: the next left click attack-moves
     bool _skipRelease;     // the release after a double-click isn't a click of its own
+    string? _placingType;  // a building type id, while placement is armed
+    float _placingHeading; // radians, in 90° steps
     CursorKind _cursor = CursorKind.Default;
 
     public override void _Process(double delta)
@@ -54,6 +64,7 @@ public partial class PlayerInput : Node
             if (!Host.Sim.TryGetTarget(_selection[i], out _, out _)) _selection.RemoveAt(i);
         if (_selection.Count == 0) _attackMoveArmed = false;
         if (Building is null) SelectedBuilding = -1;
+        UpdatePlacement();
         UpdateCursor(_mouse); // every frame: units move under a still mouse too
     }
 
@@ -68,9 +79,17 @@ public partial class PlayerInput : Node
     {
         if (e.IsActionPressed("debug_swap_player")) { SwapPlayer(); return; }
         if (e.IsActionPressed("attack_move")) { _attackMoveArmed = _selection.Count > 0; return; }
-        if (e.IsActionPressed("cancel")) { _attackMoveArmed = false; return; }
+        if (e.IsActionPressed("cancel")) { (_attackMoveArmed, _placingType) = (false, null); return; }
         if (Building is Building building && ProductionKey(e, building)) return;
+        if (BuildKey(e)) return;
         if (e is not InputEventMouse mouse) return;
+
+        if (_placingType is not null)
+        {
+            if (e.IsActionPressed("select")) Place(Input.IsActionPressed("queue_order"));
+            else if (e.IsActionPressed("act")) _placingType = null; // right click cancels
+            if (e is InputEventMouseButton) return;
+        }
 
         if (_attackMoveArmed)
         {
@@ -134,12 +153,95 @@ public partial class PlayerInput : Node
     bool ProductionKey(InputEvent e, Building building)
     {
         var types = building.Type.Units;
-        for (int i = 0; i < ProduceActions.Length && i < types.Length; i++)
-            if (e.IsActionPressed(ProduceActions[i])) { Produce(types[i].Id); return true; }
+        for (int i = 0; i < SlotActions.Length && i < types.Length; i++)
+            if (e.IsActionPressed(SlotActions[i])) { Produce(types[i].Id); return true; }
         if (e.IsActionPressed("produce_repeat")) { ToggleRepeat(); return true; }
         if (e.IsActionPressed("cancel_production")) { CancelLast(null); return true; }
         return false;
     }
+
+    // ---- Construction ----
+
+    /// <summary>What the selected builders can build (the first builder's list), in slot order; empty without one.</summary>
+    public IReadOnlyList<BuildingType> Buildable
+    {
+        get
+        {
+            foreach (int id in _selection)
+            {
+                var unit = Host.Sim.State.Units.Find(u => u.Id == id);
+                if (unit.Builds is null) continue;
+                var types = new List<BuildingType>();
+                foreach (string b in unit.Builds)
+                    if (Host.Sim.BuildingTypes.TryGetValue(b, out var type)) types.Add(type);
+                return types;
+            }
+            return [];
+        }
+    }
+
+    /// <summary>The building type being placed, if placement is armed.</summary>
+    public string? PlacingType => _placingType;
+
+    /// <summary>Arms placement of a building type, facing the map's middle (the nearest 90° step).</summary>
+    public void StartPlacement(string buildingType)
+    {
+        _attackMoveArmed = false;
+        _placingType = buildingType;
+        var from = Host.HomeOf(LocalPlayer);
+        _placingHeading = MathF.Round(MathF.Atan2(-from.X, -from.Y) / (MathF.PI / 2)) * (MathF.PI / 2);
+    }
+
+    // The build keys, while builders are selected: one per building type, and rotating the one being placed.
+    bool BuildKey(InputEvent e)
+    {
+        if (_placingType is not null && e.IsActionPressed("rotate_building"))
+        {
+            _placingHeading = (_placingHeading + MathF.PI / 2) % MathF.Tau;
+            return true;
+        }
+        var types = Buildable;
+        for (int i = 0; i < SlotActions.Length && i < types.Count; i++)
+            if (e.IsActionPressed(SlotActions[i])) { StartPlacement(types[i].Id); return true; }
+        return false;
+    }
+
+    // Where the armed building would go: under the cursor, snapped to the grid. Placement ends when no
+    // builder is selected any more.
+    void UpdatePlacement()
+    {
+        Placing = null;
+        if (_placingType is null) return;
+        if (!Host.Sim.BuildingTypes.TryGetValue(_placingType, out var type) || Buildable.Count == 0)
+        {
+            _placingType = null;
+            return;
+        }
+        if (Camera.GroundPoint(_mouse) is not Vector3 ground) return;
+        var at = Simulation.SnapToGrid(ToSim(ground) with { Y = 0 }, type.Size);
+        Placing = new Placement(type, at, _placingHeading, Host.Sim.CanPlace(type, at));
+    }
+
+    // Sends the nearest selected builder to put the building down (queued: after what it's doing, and
+    // placement stays armed for the next one).
+    void Place(bool queued)
+    {
+        if (Placing is not { Valid: true } placing) return;
+        int builder = -1;
+        float best = float.MaxValue;
+        foreach (var unit in Host.Sim.State.Units)
+        {
+            if (unit.Builds is null || Array.IndexOf(unit.Builds, placing.Type.Id) < 0 || !_selection.Contains(unit.Id)) continue;
+            float d = SVector3.DistanceSquared(unit.Position, placing.At);
+            if (d < best) (best, builder) = (d, unit.Id);
+        }
+        if (builder < 0) return;
+        Host.Issue(new BuildCommand(LocalPlayer, builder, placing.Type.Id, placing.At, placing.Heading, queued));
+        if (!queued) _placingType = null;
+    }
+
+    /// <summary>Orders the selection to move to a ground point, in formation (the minimap's right click).</summary>
+    public void MoveSelectionTo(SVector3 point, bool queued) => Issue(new Intent(Act.Move, point), queued);
 
     // ---- What a click would do ----
 
@@ -151,6 +253,8 @@ public partial class PlayerInput : Node
         if (SelectedBuilding >= 0) return new(Act.Rally, point);
         if (_selection.Count == 0) return default;
         var sim = Host.Sim;
+        if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
+            return new(Act.Resume, point, site);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
         if (sim.FindJunction(point, JunctionPickRadius, out int j) && sim.State.Junctions[j].IsSwitch)
             return new(Act.Capture, sim.State.Junctions[j].Position with { Y = 0 });
@@ -178,8 +282,11 @@ public partial class PlayerInput : Node
         {
             int id = _selection[i];
             var spread = intent.Point + FormationOffset(i, _selection.Count); // a grid, so the group doesn't stack
+            bool builder = Host.Sim.State.Units.Find(u => u.Id == id).Builds is not null;
             Command? command = intent.Kind switch
             {
+                Act.Resume when builder => new ResumeBuildCommand(LocalPlayer, id, intent.Target, queued),
+                Act.Resume => new MoveCommand(LocalPlayer, id, spread, queued),
                 Act.Move or Act.Capture => new MoveCommand(LocalPlayer, id, spread, queued),
                 Act.AttackMove => new AttackMoveCommand(LocalPlayer, id, spread, queued),
                 Act.Attack => new AttackCommand(LocalPlayer, id, intent.Target, queued),
@@ -195,8 +302,8 @@ public partial class PlayerInput : Node
     // of your units it selects it, and otherwise it's whatever a right-click would order.
     void UpdateCursor(Vector2 screen)
     {
-        var kind = CursorKind.Default;
-        if (Camera.GroundPoint(screen) is Vector3 ground)
+        var kind = CursorKind.Default; // also while placing a building: the ghost shows what a click does
+        if (_placingType is null && Camera.GroundPoint(screen) is Vector3 ground)
         {
             var point = ToSim(ground);
             if (_attackMoveArmed)
@@ -208,7 +315,7 @@ public partial class PlayerInput : Node
                     Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
                     Act.Capture => CursorKind.Capture,
-                    Act.Repair => CursorKind.Repair,
+                    Act.Repair or Act.Resume => CursorKind.Repair,
                     _ => CursorKind.Default,
                 };
         }
@@ -228,7 +335,7 @@ public partial class PlayerInput : Node
         LocalPlayer = (LocalPlayer + 1) % Host.Sim.State.Players.Count;
         _selection.Clear();
         SelectedBuilding = -1;
-        _attackMoveArmed = false;
+        (_attackMoveArmed, _placingType) = (false, null);
         Camera.FlyTo(_views.TryGetValue(LocalPlayer, out var last) ? last : new CameraView(Host.HomeOf(LocalPlayer), Camera.HomeDistance));
     }
 

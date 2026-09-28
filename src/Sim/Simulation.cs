@@ -406,7 +406,10 @@ public sealed class Simulation
         float reach = type.Size / 2 + BuildReach;
         if (GroundDistanceSq(unit.Position, at) > reach * reach)
         {
-            Move(ref unit, at with { Y = unit.Position.Y });
+            // Head for the footprint's edge on this side, not its middle, so it doesn't end up on top of it.
+            var away = (unit.Position - at) with { Y = 0 };
+            var stand = at + away / away.Length() * (type.Size / 2 + BuildReach / 2);
+            Move(ref unit, stand with { Y = unit.Position.Y });
             return;
         }
         if (site is null)

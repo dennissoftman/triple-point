@@ -31,7 +31,7 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters).
 3. [built] Break, spill and repair segments; junction merges and switches. Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, HQ production, F2 hotseat. **Next:** win/lose, then the AI.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat. **Next:** win/lose, then the AI.
 5. [decided] A basic commander AI that fights over the belt.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
@@ -84,12 +84,13 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Reversing:** a stopped vehicle backs up to a close target behind it.
   - **Turrets:** turrets are sim state. They turn at their own rate and fire only once on target. An attack order swings the turret onto its target while the vehicle drives there. Otherwise turrets only turn to enemies already in range, or to whoever just hit them.
   - **Lean:** the view leans the hull on its suspension (look only).
-- [built] **Production (MVP):** each player starts with one HQ, authored on the map, that trains every unit type, and with a little starting money. There's no construction yet.
+- [built] **Start:** each player starts with an HQ, one builder and a little money: no army, no posts. Everything else gets built. (The small test map keeps starting units for its tests.)
+- [built] **Production:** buildings train units. The HQ trains builders, the barracks squads, the factory cars and tanks.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
-  - **Queue:** one per HQ, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
-  - **Repeat:** one toggle per HQ. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
-  - **Rally point:** finished units leave the HQ by its exit and spread out around its rally point.
-  - **HQ targeting:** the HQ is a target like a post. Destroying it stops that player's production; losing comes with `CanStillRecover`.
+  - **Queue:** one per building, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
+  - **Repeat:** one toggle per building. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
+  - **Rally point:** finished units leave by the building's exit and spread out around its rally point.
+  - **Targets:** buildings and foundations are targets like posts. Losing comes with `CanStillRecover`.
   - **Not yet:** Energy (it comes with several building types), squad reinforcement, and collision with buildings (units drive through them until navigation exists).
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
@@ -104,7 +105,12 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] A then left-click attack-moves: left-clicking an enemy attacks it, Shift chains waypoints, and right-click or Esc cancels.
 - [built] Left-click your own switch to flip it.
 - [built] Double-click a unit to select every unit of its type on screen.
-- [built] Click your HQ to select it (alone): a production bar shows a button per unit type. Q, W, E queue them (a left-click on the button does the same), R toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
+- [built] **Command card** (bottom of the screen), for what's selected; its four slots are Q, W, E, R.
+  - A building (selected alone, by clicking it): a button per unit type. A slot key or left-click queues one, T toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
+  - A foundation: how far along it is, and whether a builder is on it.
+  - Builders: a button per building type. A slot key or click arms placement: a ghost follows the cursor, snapped to the grid, green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
+- [built] **Minimap** (bottom-left): the whole map, with belts and their packages, switch owners, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
+- [built] The game opens at 1920×1080; the interface scales with the window.
 - [built] Order paths show only for selected units, colored by what the order does: green move, orange attack-move, red attack (a unit or a segment), blue repair.
 - [built] The cursor shows what a click will do, computed by the same code that issues the order. Round cursors click at their center; tool cursors point up-left, as on Windows.
 - [built] The camera pans with the arrow keys (A is taken by attack-move), screen edges and middle-drag, and zooms with the wheel. It runs on real time, unaffected by game speed.
@@ -117,18 +123,19 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - **"Asian" bloc: heavy, slow, sturdy.**
   - Heavily armored, powerful, slow units; structures build slowly but are very sturdy.
   - Builds and upgrades roads. Fastest repairs.
-  - Construction: Generals-style dozers.
+  - Construction: Generals-style dozers. [decided in principle] Foundations must be reinforced before they're built on.
   - Gathering: heavy trucks, slow but big loads (high-value raid targets).
   - Belt: armored segments and fast repairs [decided in principle].
   - [idea] Artillery and area weapons as its counter to infantry.
 - **"Western" bloc: fast, technological, expensive.**
   - Mostly aerial plus a basic ground army (like Generals' Air Force General). Anti-air silences it; it depends on money, with paid, limited special powers.
-  - Construction: Red Alert-style influence zones from relay points.
+  - Construction: Red Alert-style influence zones from relay points: it builds only where relays extend its area.
   - Gathering: no posts; aerial carriers take packages from the belt to base, with a stealth upgrade.
   - Belt: drones pull packages mid-route and fly over breaks [decided in principle].
   - Rebuild fallback: see open decisions.
 - **"Eastern" bloc: partisan, stealthy, opportunistic.** Added last, as a layer on the other two.
   - Taxes captured belt-side civilian buildings instead of using posts; must have base income in every matchup.
+  - Construction: occupies civilian buildings, which can't be put down anywhere: only near a supply route, or in the rural areas the map already has.
   - An intermediary between the other two blocs, leaning one way but never acting against itself.
   - Salvages wrecks for reuse or scrap. Captures and converts buildings, or peasants build cheap civilian-style structures, so razing never locks it out.
   - Belt: hidden taps and hijacked junctions [decided in principle].
@@ -139,11 +146,19 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [decided] One system: infrastructure objects with states (intact, damaged, broken) that can be repaired or improved. Belt segments are the first user [built]; roads and bridges reuse it.
 - [decided] Roads come in two states, worn and improved, which set movement cost. Bridges only over impassable terrain, never over roads, so navigation stays single-layer.
 - [decided] Engineers repair: it costs money and time, they're unarmed, auto-repair works in a limited radius, and the player sets priorities. Prototype repair is any unit, free.
-- [decided] Buildings snap to the navigation grid, rotated in 90° steps.
+- [decided] Buildings snap to the navigation grid, rotated in 90° steps. [built] with a 2 m grid, before navigation exists.
+- [built] **Construction prototype** (generic, before factions):
+  - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
+  - Cost is paid as it grows and it stalls while broke, like production. A foundation starts at a tenth of its health and is a target.
+  - Types: barracks, factory, gatherer post (it must stand beside a belt, and becomes a post), turret (it becomes a gun that can't move; tanks outrange it).
+  - Placement: anywhere on the map that's clear of buildings, posts, defenses, junctions and belts.
+  - Known risk of "anywhere": a post on the enemy's home stretch upstream of theirs, or a turret beside a switch in minute one. Acceptable for the prototype.
+- [decided] **Factions replace "anywhere" with their own build-area rules** (see Factions): Western relays extend the build area, Asian foundations need reinforcing, Eastern civilian buildings go only near supply routes or in existing rural areas. This removes minute-one exploits and makes players plan their way out of the start.
 - [proposed] Belt buildings (posts, relays) snap to sockets beside segments.
 - [built] **Playable map** (`main.tscn`): 200×140 m, point-symmetric (Blue's half turned 180° is Red's), so it's fair by construction.
-  - Two belts, one from each side. Each passes its own side's **home post** first, deep in that side's half: safe income from the first seconds, without fighting.
-  - Each belt then reaches a **switch on the center line**, which splits it between one branch toward each side's **forward posts**. The home post takes about half of its belt, so the fight is over the other half: holding both switches is worth three times the enemy's share of the middle.
+  - No prebuilt posts: players build them.
+  - Two belts, one from each side. Each runs along its own side's **home stretch** first, deep in that side's half: the safe place for the first post, and income without fighting.
+  - Each belt then reaches a **switch on the center line**, which splits it between one branch toward each side's half of the middle, where forward posts go. A post takes about half of a belt's flow, so the fight is over the other half: holding both switches is worth three times the enemy's share of the middle.
   - Raiding the enemy's home stretch (breaking segments) is the way to hurt their safe income.
   - [decided] Flat until navigation exists: hills and obstacles would be decoration units drive through.
 - [proposed] **Income vs spending:** full production of the dearest unit costs more than a side's income with both switches neutral, so extra belt income always buys something. Costs live in `data/units.json`.

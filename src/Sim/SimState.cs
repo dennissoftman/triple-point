@@ -124,7 +124,7 @@ public sealed class Building
     public bool Built;
     public int BuildProgress, BuildPaid; // ticks of a builder's work so far, and Resources paid for them
     public bool BuildStalled;           // a builder was there but its owner couldn't pay this tick
-    internal int WorkedTick = -1;       // the last tick a builder worked on it; more builders don't add up
+    public int WorkedTick { get; internal set; } = -1; // the last tick a builder worked on it; more builders don't add up
 
     public Building(int id, int owner, BuildingType type, Vector3 position, float heading, bool built = true) =>
         (Id, Owner, Type, Position, Heading, Built, Health) = (id, owner, type, position, heading, built, built ? type.Health : type.Health / 10);

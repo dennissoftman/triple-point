@@ -30,7 +30,7 @@ public partial class SimHost : Node3D
     [Export] public Label Hud = null!;
 
     [Export] public int PlayerCount = 2;
-    [Export] public int StartingResources = 10;
+    [Export] public int StartingResources = 20;
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -96,6 +96,7 @@ public partial class SimHost : Node3D
                 GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
 
         var (types, buildingTypes) = LoadData();
+        _sim.BuildingTypes = buildingTypes;
         foreach (var spawn in Buildings.GetChildren().OfType<BuildingSpawn>())
         {
             if (!buildingTypes.TryGetValue(spawn.BuildingType, out var type))
@@ -173,7 +174,7 @@ public partial class SimHost : Node3D
         float alpha = (float)(_accumulator / TickSeconds);
         UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection);
         BeltView.Sync(_sim.State, alpha);
-        BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding);
+        BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding, PlayerInput.Placing);
         UpdatePerf(delta);
         UpdateHud();
     }
@@ -255,6 +256,9 @@ public partial class SimHost : Node3D
             case SimEventKind.GathererDestroyed: GD.Print($"[{t}] gatherer {e.Id} destroyed"); break;
             case SimEventKind.UnitProduced: GD.Print($"[{t}] unit {e.Id} produced at building {e.Index}"); break;
             case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] building {e.Id} destroyed"); break;
+            case SimEventKind.BuildingPlaced: GD.Print($"[{t}] building {e.Id} placed by unit {e.Index}"); break;
+            case SimEventKind.BuildingCompleted: GD.Print($"[{t}] building {e.Id} completed" + (e.Index != e.Id ? $", now {e.Index}" : "")); break;
+            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: the site is taken"); break;
             case SimEventKind.SegmentBroken: GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken"); break;
             case SimEventKind.SegmentRepaired: GD.Print($"[{t}] belt {e.Id} segment {e.Index} repaired"); break;
             case SimEventKind.JunctionCaptured: GD.Print($"[{t}] junction {e.Id} captured by {PlayerPalette.Name(e.Index)}"); break;
@@ -266,24 +270,34 @@ public partial class SimHost : Node3D
     // Blue takes it, which turns it to Blue's post; Blue pulls back (its vehicles back up, then turn
     // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
     // on the way; then Blue attack-moves into Red's side and they fight it out. Meanwhile each HQ trains
-    // a squad and a car on repeat, as income allows; they gather at the rally point.
+    // a builder, which puts up a barracks beside the HQ, and the barracks trains squads on repeat, as
+    // income allows; they gather at its rally point.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
         const int Blue = 0, Red = 1;
-        if (tick == 1)
-            foreach (var hq in _sim.State.Buildings)
-            {
-                _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "rifle_squad"));
-                _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "scout_car"));
-                _commands.Add(new SetRepeatCommand(hq.Owner, hq.Id, true));
-                if (hq.Owner == PlayerInput.LocalPlayer) PlayerInput.SelectedBuilding = hq.Id; // shows the production bar
-            }
         if (!_sim.FindJunction(new SVector3(9, 0, 0), 2, out int sw))
         {
             if (tick == 0) GD.PushWarning("--demo is scripted for scenes/prototype.tscn; this map has no switch at (9, 0).");
             return;
         }
+        if (tick == 1)
+            foreach (var hq in _sim.State.Buildings)
+            {
+                _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "builder"));
+                if (hq.Owner == PlayerInput.LocalPlayer) PlayerInput.SelectedBuilding = hq.Id; // shows the command card
+            }
+        if (tick == 12 * T)
+            foreach (var unit in _sim.State.Units)
+                if (unit.Builds is not null && _sim.State.Buildings.Find(b => b.Owner == unit.Owner) is { } hq)
+                    _commands.Add(new BuildCommand(unit.Owner, unit.Id, "barracks", hq.Position + new SVector3(-8, 0, 0), hq.Heading));
+        if (tick % T == 0) // a barracks just finished: train squads there
+            foreach (var barracks in _sim.State.Buildings)
+                if (barracks is { Built: true, Type.Id: "barracks", Repeat: false })
+                {
+                    _commands.Add(new ProduceCommand(barracks.Owner, barracks.Id, "rifle_squad"));
+                    _commands.Add(new SetRepeatCommand(barracks.Owner, barracks.Id, true));
+                }
         var switchAt = _sim.State.Junctions[sw].Position with { Y = 0 };
 
         if (tick == 2 * T) MoveAll(Blue, switchAt);

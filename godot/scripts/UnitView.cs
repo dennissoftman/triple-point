@@ -7,7 +7,8 @@ using Sim;
 /// The look of one unit. A squad is a capsule per member, walking loosely in a wedge behind the squad's
 /// sim position (visual only: the sim has one position per squad). A vehicle is a hull on wheels or
 /// tracks that follows the sim's heading and leans on its suspension as it speeds up, brakes and turns,
-/// with a turret that follows the sim's turret. Tinted by
+/// with a turret that follows the sim's turret; an unarmed one (a builder) carries a blade instead, and a
+/// static one (a defense) sits on a squat base. Tinted by
 /// owner, with a selection ring and a health bar. UnitsView positions it.
 /// </summary>
 public partial class UnitView : Node3D
@@ -55,12 +56,12 @@ public partial class UnitView : Node3D
         }
     }
 
-    public void Setup(int player, UnitMaterials materials, int members, Movement movement)
+    public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed)
     {
         PlayerIndex = player;
         var (body, turret) = materials.For(player);
         if (members > 1) BuildSquad(members, body);
-        else BuildVehicle(movement, body, turret, materials.Dark);
+        else BuildVehicle(movement, armed, body, turret, materials.Dark);
 
         float ringRadius = members > 1 ? 2.1f : 1.9f;
         SelectionRing.Scale = new Vector3(ringRadius / 0.9f, 0.2f, ringRadius / 0.9f); // the ring mesh is 0.9 m
@@ -82,17 +83,18 @@ public partial class UnitView : Node3D
     }
 
     // Forward is -Z throughout, as Basis.LookingAt expects.
-    void BuildVehicle(Movement movement, Material body, Material turretBody, Material dark)
+    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark)
     {
-        bool tracked = movement == Movement.Tracked;
+        bool tracked = movement == Movement.Tracked, fixedBase = movement == Movement.Static;
         (_pitchPerAccel, _rollPerAccel) = tracked ? (0.9f, 0.3f) : (0.7f, 0.45f);
-        var hull = tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
-        float hullBottom = tracked ? 0.35f : WheelRadius + 0.1f;
+        var hull = fixedBase ? new Vector3(1.8f, 0.8f, 1.8f) : tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
+        float hullBottom = fixedBase ? 0 : tracked ? 0.35f : WheelRadius + 0.1f;
 
         _hull = new Node3D();
         AddChild(_hull);
         AddBox(_hull, hull, body, new Vector3(0, hullBottom + hull.Y / 2, 0));
-        for (int side = -1; side <= 1; side += 2)
+        if (!armed) AddBox(_hull, new Vector3(hull.X + 0.5f, 0.55f, 0.18f), dark, new Vector3(0, 0.3f, -(hull.Z / 2 + 0.35f))); // a dozer blade
+        for (int side = -1; side <= 1 && !fixedBase; side += 2)
         {
             if (tracked)
             {
@@ -115,6 +117,7 @@ public partial class UnitView : Node3D
 
         // The turret isn't parented to the hull: it aims on its own.
         _turretHeight = hullBottom + hull.Y;
+        if (!armed) return;
         _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
         AddChild(_turret);
         var turret = tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
@@ -158,10 +161,11 @@ public partial class UnitView : Node3D
         _wheelSpin -= moved / WheelRadius; // rolls forward, or backward when reversing
         foreach (var wheel in _wheels) wheel.Rotation = new Vector3(_wheelSpin, 0, 0);
 
+        if (_turret is null) return;
         // The turret sits on the hull, so it leans with it (the lean taken into world space).
         var tilt = yaw * lean * yaw.Inverse();
         var aim = Direction(turret);
-        _turret!.Basis = tilt * Basis.LookingAt(aim, Vector3.Up);
+        _turret.Basis = tilt * Basis.LookingAt(aim, Vector3.Up);
         _turret.Position = tilt * new Vector3(0, _turretHeight, 0);
         _muzzles.Add(position + new Vector3(0, _turretHeight + 0.2f, 0) + aim * (_barrelLength + 0.5f));
     }

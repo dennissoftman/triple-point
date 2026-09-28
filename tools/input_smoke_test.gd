@@ -2,7 +2,8 @@
 # checks selection (only your own units), group moves, the switch (splitting while neutral, turning to
 # your post when you capture it, flipping when you click it), the hotseat swap with its per-side camera,
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
-# order), camera pan and zoom, and production (select the HQ, queue by hotkey, rally point, cancel).
+# order), camera pan and zoom, production (select the HQ, queue by hotkey, rally point, cancel),
+# construction (a builder's build key arms a ghost, a click lays the foundation), and the minimap.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -136,12 +137,12 @@ func _process(_delta) -> bool:
 		1610:
 			click(cam.unproject_position(BLUE_HQ))
 		1615:
-			var panel = root.get_node("Main/Ui/ProductionPanel")
+			var panel = root.get_node("Main/Ui/CommandCard")
 			check("clicking your HQ selects it and shows production", [player.get("SelectedBuilding") != -1, panel.visible], [true, true])
 			key(KEY_Q, true)
 			key(KEY_Q, false)
 		1620:
-			check("Q queues the first unit type", root.get_node("Main/Ui/ProductionPanel").get("QueueLength"), 1)
+			check("Q queues the first unit type", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 1)
 			right_click(cam.unproject_position(RALLY))
 		1625:
 			var flag: Vector3 = root.get_node("Main/BuildingsView/Rally").global_position
@@ -149,15 +150,46 @@ func _process(_delta) -> bool:
 			key(KEY_BACKSPACE, true)
 			key(KEY_BACKSPACE, false)
 		1630:
-			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/ProductionPanel").get("QueueLength"), 0)
+			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 0)
 			click(cam.unproject_position(Vector3(-20, 0, -8))) # empty ground
 		1635:
-			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/ProductionPanel").visible], [-1, false])
+			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/CommandCard").visible], [-1, false])
+			click(cam.unproject_position(BLUE_HQ))
+		1640:
+			key(KEY_Q, true) # a builder: the HQ's first slot
+			key(KEY_Q, false)
+		2400:
+			# 10 s to train, then it drives to the rally point.
+			builder = new_blue_unit()
+			check("the HQ trained a builder", builder != null, true)
+			click(screen(builder))
+		2405:
+			check("selecting a builder shows its build card", root.get_node("Main/Ui/CommandCard").visible, true)
+			key(KEY_Q, true) # the first thing it builds: a barracks
+			key(KEY_Q, false)
+			motion(cam.unproject_position(SITE))
+		2410:
+			check("its build key arms a ghost under the cursor", ghost().visible, true)
+			check("the ghost snaps to the grid over the site", (ghost().global_position * Vector3(1, 0, 1)).distance_to(SITE) < 0.5, true)
+			click(cam.unproject_position(SITE))
+		2415:
+			check("clicking places it and disarms the ghost", ghost().visible, false)
+		3200:
+			# ~16 m from the rally point, at a tracked builder's pace.
+			check("the builder laid a foundation", building_count(), 3)
+			var map := root.get_node("Main/Ui/Minimap") as Control
+			var bounds: Rect2 = cam.get("Bounds")
+			var target := Vector2(20, 10)
+			click(map.global_position + (target - bounds.position) / bounds.size * map.size)
+		3205:
+			check("clicking the minimap moves the camera there", (cam.get("Focus") as Vector2).distance_to(Vector2(20, 10)) < 1, true)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
 
 const RED_HOME := Vector2(2.75, 17.875) # the middle of Red's four unit spawns
+const SITE := Vector3(-20, 0, -18)       # clear ground beside Blue's HQ
+var builder: Node3D
 const BLUE_HQ := Vector3(-10, 1.5, -22)
 const RALLY := Vector3(-4, 0, -14)
 const ORANGE := Color(1, 0.6, 0.15)
@@ -180,6 +212,20 @@ func hurt(v: Node) -> bool:
 		if script != null and str(script.resource_path).ends_with("HealthBar.cs") and c.visible:
 			return true
 	return false
+
+# A Blue unit view that wasn't there at the start (produced since).
+func new_blue_unit() -> Node3D:
+	for v in root.get_node("Main/UnitsView").get_children():
+		if v.has_node("SelectionRing") and v.get("PlayerIndex") == 0 and not blue.has(v):
+			return v
+	return null
+
+func ghost() -> Node3D:
+	return root.get_node("Main/BuildingsView/Ghost")
+
+# Buildings and foundations drawn: BuildingsView's children besides its rally flag and ghost.
+func building_count() -> int:
+	return root.get_node("Main/BuildingsView").get_child_count() - 2
 
 # The colors of the order path lines UnitsView draws this frame (its path surface uses vertex colors;
 # tracers don't).
@@ -215,26 +261,31 @@ func box(views: Array):
 	motion(hi + Vector2(40, 40))
 	mouse(MOUSE_BUTTON_LEFT, hi + Vector2(40, 40), false)
 
+# Positions here are in the viewport's 2D space (what unproject_position gives). Injected events, like the
+# OS's, are in window pixels, which the canvas_items stretch scales down again: scale them up first.
+func to_window(pos: Vector2) -> Vector2:
+	return pos * Vector2(DisplayServer.window_get_size()) / root.get_visible_rect().size
+
 func mouse(button: int, pos: Vector2, pressed: bool):
 	var e := InputEventMouseButton.new()
 	e.button_index = button
-	e.position = pos
-	e.global_position = pos
+	e.position = to_window(pos)
+	e.global_position = to_window(pos)
 	e.pressed = pressed
 	Input.parse_input_event(e)
 
 func motion(pos: Vector2):
 	var m := InputEventMouseMotion.new()
-	m.position = pos
-	m.global_position = pos
+	m.position = to_window(pos)
+	m.global_position = to_window(pos)
 	Input.parse_input_event(m)
 
 func double_click(pos: Vector2):
 	click(pos)
 	var e := InputEventMouseButton.new()
 	e.button_index = MOUSE_BUTTON_LEFT
-	e.position = pos
-	e.global_position = pos
+	e.position = to_window(pos)
+	e.global_position = to_window(pos)
 	e.pressed = true
 	e.double_click = true
 	Input.parse_input_event(e)
