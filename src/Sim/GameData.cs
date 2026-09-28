@@ -36,14 +36,17 @@ public static class GameData
             ?? throw new InvalidDataException("units.json has no unit types.");
         foreach (var (id, t) in types)
             if (t.Cost < 0 || t.BuildTime < 0) throw new InvalidDataException($"Unit type '{id}' needs a cost and buildTime of at least 0.");
-        return types.ToDictionary(t => t.Key, t => weapons.TryGetValue(t.Value.Weapon ?? "", out var gun)
-            ? t.Value with { Id = t.Key, Gun = gun }
-            : throw new InvalidDataException($"Unit type '{t.Key}' has unknown weapon '{t.Value.Weapon}'."));
+        return types.ToDictionary(t => t.Key, t => string.IsNullOrEmpty(t.Value.Weapon)
+            ? t.Value with { Id = t.Key, Gun = WeaponType.Unarmed }
+            : weapons.TryGetValue(t.Value.Weapon, out var gun)
+                ? t.Value with { Id = t.Key, Gun = gun }
+                : throw new InvalidDataException($"Unit type '{t.Key}' has unknown weapon '{t.Value.Weapon}'."));
     }
 
     /// <summary>
-    /// Building types by id, from the contents of buildings.json, with the unit types each produces looked
-    /// up in `units`. Each type knows its own id.
+    /// Building types by id, from the contents of buildings.json, with the unit types each produces (and a
+    /// defense becomes) looked up in `units`. Each type knows its own id. Also checks that what the unit
+    /// types build exists.
     /// </summary>
     public static Dictionary<string, BuildingType> ParseBuildingTypes(string json, IReadOnlyDictionary<string, UnitType> units)
     {
@@ -52,12 +55,20 @@ public static class GameData
         var parsed = new Dictionary<string, BuildingType>();
         foreach (var (id, t) in types)
         {
-            if (t.Health <= 0 || t.Size <= 0 || t.QueueLimit <= 0)
-                throw new InvalidDataException($"Building type '{id}' needs a health, size and queueLimit above 0.");
+            if (t.Health <= 0 || t.Size <= 0 || t.QueueLimit <= 0 || t.Cost < 0 || t.BuildTime < 0)
+                throw new InvalidDataException($"Building type '{id}' needs a health, size and queueLimit above 0, and a cost and buildTime of at least 0.");
             var produces = (t.Produces ?? []).Select(u => units.TryGetValue(u, out var type) ? type
                 : throw new InvalidDataException($"Building type '{id}' produces unknown unit type '{u}'.")).ToArray();
-            parsed[id] = t with { Id = id, Produces = t.Produces ?? [], Units = produces };
+            UnitType? defense = null;
+            if (t.Kind == BuildingKind.Defense && (t.Unit is null || !units.TryGetValue(t.Unit, out defense)))
+                throw new InvalidDataException($"Defense '{id}' needs a unit, an id in units.json (got '{t.Unit}').");
+            if (t.Kind != BuildingKind.Building && produces.Length > 0)
+                throw new InvalidDataException($"Building type '{id}' becomes a {t.Kind} when finished, so it can't produce units.");
+            parsed[id] = t with { Id = id, Produces = t.Produces ?? [], Units = produces, Defense = defense };
         }
+        foreach (var unit in units.Values)
+            foreach (string b in unit.Builds ?? [])
+                if (!parsed.ContainsKey(b)) throw new InvalidDataException($"Unit type '{unit.Id}' builds unknown building type '{b}'.");
         return parsed;
     }
 }

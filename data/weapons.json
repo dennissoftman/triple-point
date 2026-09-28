@@ -7,5 +7,6 @@
 {
   "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8 },                      // 2 dps a member
   "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12 },           // 9 dps
+  "turret_gun": { "kind": "bullet", "damage": 2, "reload": 0.2, "range": 13 },                // 10 dps; tanks outrange it
   "tank_cannon": { "kind": "shell", "hit": "direct", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40 }, // 14 dps, in big hits
 }

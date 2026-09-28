@@ -14,21 +14,23 @@ public sealed class Player
     public Player(int index) => Index = index;
 }
 
-public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove }
+public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove, Build }
 
 /// <summary>
-/// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit or gatherer post).
+/// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit, post or building).
 /// Target is where the unit heads: for segment orders it's filled in when the order starts, and for
-/// Attack it follows the target.
+/// Attack it follows the target. Build puts up a Structure (a building type id) at Target facing Facing,
+/// or, with a TargetId, works on that foundation; TargetId is filled in once the foundation is laid.
 /// </summary>
-public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -1, int Segment = -1, int TargetId = -1);
+public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -1, int Segment = -1, int TargetId = -1,
+    string? Structure = null, float Facing = 0);
 
 /// <summary>
 /// How a unit gets around. Foot units walk straight at full speed and turn instantly. Vehicles have a
 /// heading, accelerate and brake, and turn at a limited rate: tracked ones pivot almost on the spot,
-/// wheeled ones need speed to steer, so they arc.
+/// wheeled ones need speed to steer, so they arc. Static ones never move: defenses, built in place.
 /// </summary>
-public enum Movement { Foot, Wheeled, Tracked }
+public enum Movement { Foot, Wheeled, Tracked, Static }
 
 /// <summary>
 /// How a weapon's shots reach the target. A bullet hits the moment it's fired (drawn as a tracer); a
@@ -52,6 +54,9 @@ public enum HitKind { Direct, Splash }
 public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
     HitKind Hit = HitKind.Direct, float SplashRadius = 0, string Id = "")
 {
+    /// <summary>No weapon: builders and the like. It never finds anything in range to shoot.</summary>
+    public static readonly WeaponType Unarmed = new(WeaponKind.Bullet, 0, 1, 0, Id: "");
+
     public float Dps => Damage / Reload;
 }
 
@@ -62,33 +67,46 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// seconds, how long speeding up, braking and turning take to build up to full and to settle (0:
 /// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
 /// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in Resources, paid over BuildTime seconds of
-/// production. Id is the type's key in the file, filled in when parsed.
+/// production. Builds lists the building types (ids in buildings.json) it can construct: builders only.
+/// No Weapon: unarmed. Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
-    int Members, float Speed, float MemberHealth, string Weapon,
+    int Members, float Speed, float MemberHealth, string? Weapon = null,
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
     float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true,
-    int Cost = 0, float BuildTime = 0, string Id = "")
+    int Cost = 0, float BuildTime = 0, string[]? Builds = null, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
     public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
 }
 
 /// <summary>
-/// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
-/// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), and how
-/// many units its queue holds. Id is its key in the file.
+/// What a finished building becomes. A Building stays one (and may produce units); a Post turns into a
+/// gatherer post, and must be built beside a belt; a Defense turns into a unit that can't move, of the
+/// type named by the building type's Unit.
 /// </summary>
-public sealed record BuildingType(float Health, float Size, string[] Produces, int QueueLimit = 5, string Id = "")
+public enum BuildingKind { Building, Post, Defense }
+
+/// <summary>
+/// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
+/// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), how many
+/// units its queue holds, and for building it, its Cost in Resources paid over BuildTime seconds of a
+/// builder's work. Kind and Unit: what it becomes when finished. Id is its key in the file.
+/// </summary>
+public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int QueueLimit = 5, int Cost = 0,
+    float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore] public UnitType? Defense { get; init; } // Kind Defense: the unit it becomes
+    public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
 }
 
 /// <summary>
-/// A player's building. One that produces trains the unit at the front of its Queue: each tick of
-/// Progress pays its share of the cost, and production stalls while its owner can't pay. A finished unit
-/// leaves by the Exit and heads for the Rally point; with Repeat on, its type goes back to the end of the
-/// queue.
+/// A player's building. Until Built it's a foundation: it grows only on ticks a builder works on it
+/// (BuildProgress, paying its cost as it goes), from a tenth of its health to full. One that produces
+/// trains the unit at the front of its Queue: each tick of Progress pays its share of the cost, and
+/// production stalls while its owner can't pay. A finished unit leaves by the Exit and heads for the
+/// Rally point; with Repeat on, its type goes back to the end of the queue.
 /// </summary>
 public sealed class Building
 {
@@ -103,9 +121,13 @@ public sealed class Building
     public bool Repeat;
     public Vector3 Rally;
     internal int Produced;              // spreads units out around the rally point
+    public bool Built;
+    public int BuildProgress, BuildPaid; // ticks of a builder's work so far, and Resources paid for them
+    public bool BuildStalled;           // a builder was there but its owner couldn't pay this tick
+    internal int WorkedTick = -1;       // the last tick a builder worked on it; more builders don't add up
 
-    public Building(int id, int owner, BuildingType type, Vector3 position, float heading) =>
-        (Id, Owner, Type, Position, Heading, Health) = (id, owner, type, position, heading, type.Health);
+    public Building(int id, int owner, BuildingType type, Vector3 position, float heading, bool built = true) =>
+        (Id, Owner, Type, Position, Heading, Built, Health) = (id, owner, type, position, heading, built, built ? type.Health : type.Health / 10);
 
     public float MaxHealth => Type.Health;
     public Vector3 Exit => Position + new Vector3(MathF.Sin(Heading), 0, MathF.Cos(Heading)) * (Type.Size / 2 + 1.5f);
@@ -152,6 +174,7 @@ public struct Unit
     // Returning, an idle unit walking back there. GaveUpOn is an attacker it left at the leash, so it
     // doesn't bounce on the leash under that attacker's fire; a new order clears it.
     public int LastAttacker, LastHitTick, RespondTo, GaveUpOn;
+    public string[]? Builds;               // building type ids it can construct; null: not a builder
     public Vector3 Anchor;
     public bool Returning;
     public Order Current;

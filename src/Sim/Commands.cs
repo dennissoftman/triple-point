@@ -38,6 +38,16 @@ public sealed record SetRepeatCommand(int Player, int BuildingId, bool Repeat) :
 /// <summary>Where a building's finished units go.</summary>
 public sealed record SetRallyCommand(int Player, int BuildingId, Vector3 Rally) : Command(Player);
 
+/// <summary>
+/// Walk to `Position` and put up a building of `BuildingType` (an id in buildings.json) there, its exit
+/// facing `Heading` (radians). Builders only, and only types they can build. The foundation is laid on
+/// arrival, if the spot is still clear, and grows while a builder works on it.
+/// </summary>
+public sealed record BuildCommand(int Player, int UnitId, string BuildingType, Vector3 Position, float Heading = 0, bool Queued = false) : Command(Player);
+
+/// <summary>Walk to one of your unfinished buildings and work on it. Builders only.</summary>
+public sealed record ResumeBuildCommand(int Player, int UnitId, int BuildingId, bool Queued = false) : Command(Player);
+
 /// <summary>Breaks a segment instantly. For tests and scripted events; players break segments by attacking them.</summary>
 public sealed record BreakSegmentCommand(int Line, int Segment) : Command(Sim.Player.None);
 
@@ -45,14 +55,15 @@ public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, GathererDestroyed,
     SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched, ShellHit,
-    UnitProduced, BuildingDestroyed,
+    UnitProduced, BuildingDestroyed, BuildingPlaced, BuildingCompleted, BuildBlocked,
 }
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced); the line index for segment events; the junction index for junction
+/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked); the line index for segment events; the junction index for junction
 /// events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
 /// Index: the segment for segment events, the gatherer id for PackageGathered, the new owner for
-/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced.
+/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced, the builder for BuildingPlaced, and for
+/// BuildingCompleted what the building became: itself, or the gatherer post or defense unit that replaced it.
 /// </summary>
 public readonly record struct SimEvent(SimEventKind Kind, int Id, int Index = -1);

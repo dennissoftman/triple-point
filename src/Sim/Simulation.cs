@@ -32,6 +32,13 @@ public sealed class Simulation
     const float AssistRadius = 8f;                  // m; idle allies this close to a unit under fire answer it too
     const int HitAttentionTicks = 3 * TicksPerSecond; // a unit with nothing in range keeps its turret on whoever hit it this long
     const float RallySpread = 2.5f;                 // m; produced units stand around the rally point, not on it
+    public const float GridCell = 2f;               // m; buildings snap to this grid (SnapToGrid)
+    public const float PostReach = 4f;              // m; a post must stand this close to a belt, and pulls from it
+    const float BuildReach = 2f;                    // m beyond a footprint's edge that a builder works from
+    const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
+    const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
+    const float JunctionClearance = 1.5f;           // m around a junction's disc
+    const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
     const float StopMargin = 0.3f;                  // m short of the target that a vehicle eases to a stop
@@ -45,6 +52,9 @@ public sealed class Simulation
     const float ReverseKeepAngle = 1.75f;           // rad (100°); keeps backing up while the target is within this of its rear
 
     public SimState State { get; } = new();
+
+    /// <summary>Building types by id, from buildings.json: what BuildCommand can put up. Set at setup.</summary>
+    public IReadOnlyDictionary<string, BuildingType> BuildingTypes { get; set; } = new Dictionary<string, BuildingType>();
 
     readonly SimRandom _random;
     readonly List<SimEvent> _events = [];
@@ -61,10 +71,14 @@ public sealed class Simulation
     }
 
     /// <summary>A unit of a type from /data, facing `heading` (radians, facing (sin h, 0, cos h)).</summary>
-    public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0) =>
-        AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, 0, 0,
+    public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0)
+    {
+        int id = AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, 0, 0,
             type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id,
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
+        CollectionsMarshal.AsSpan(State.Units)[^1].Builds = type.Builds;
+        return id;
+    }
 
     /// <summary>
     /// A unit with explicit stats; health is for the whole squad, turn rates are in degrees per second, and
@@ -157,7 +171,7 @@ public sealed class Simulation
     /// Adds a gatherer post for `owner` at `position`, pulling from the nearest belt point within
     /// `maxDistance`. Returns its id, or -1 if no belt is that close.
     /// </summary>
-    public int AddGatherer(int owner, Vector3 position, float maxDistance)
+    public int AddGatherer(int owner, Vector3 position, float maxDistance, float health = GathererHealth)
     {
         if (!FindSegment(position, maxDistance, out int line, out int segment)) return -1;
         var s = State.Belts[line].Segments[segment];
@@ -169,23 +183,63 @@ public sealed class Simulation
             Position = position,
             Line = line,
             Distance = s.Start + s.Curve.ClosestDistanceAlong(position, out _),
-            Health = GathererHealth,
-            MaxHealth = GathererHealth,
+            Health = health,
+            MaxHealth = health,
             LastGrabTick = int.MinValue / 2,
         });
         return id;
     }
 
-    /// <summary>A building for `owner`, its exit facing `heading`. Its rally point starts at the exit. Returns its id.</summary>
-    public int AddBuilding(int owner, Vector3 position, BuildingType type, float heading = 0)
+    /// <summary>
+    /// A building for `owner`, its exit facing `heading`, finished or (not `built`) a foundation. Its rally
+    /// point starts at the exit. Returns its id.
+    /// </summary>
+    public int AddBuilding(int owner, Vector3 position, BuildingType type, float heading = 0, bool built = true)
     {
-        var building = new Building(_nextId++, owner, type, position, heading);
+        var building = new Building(_nextId++, owner, type, position, heading, built);
         building.Rally = building.Exit;
         State.Buildings.Add(building);
         return building.Id;
     }
 
     // ---- Queries ----
+
+    /// <summary>
+    /// Where a building of this size goes near `at`: its footprint's edges on the grid lines, so an even
+    /// number of cells across centers on a grid line and an odd number on a cell's middle.
+    /// </summary>
+    public static Vector3 SnapToGrid(Vector3 at, float size)
+    {
+        int cells = Math.Max(1, (int)MathF.Round(size / GridCell));
+        float offset = cells % 2 == 0 ? 0 : GridCell / 2;
+        return new Vector3(MathF.Round((at.X - offset) / GridCell) * GridCell + offset, at.Y,
+            MathF.Round((at.Z - offset) / GridCell) * GridCell + offset);
+    }
+
+    /// <summary>
+    /// Whether a building of this type fits at `at`: its footprint clear of other buildings and
+    /// foundations, posts, defenses, junctions and belts. A post must also stand within PostReach of a belt.
+    /// Anywhere on the map, for now; factions bring their own rules for where they may build.
+    /// </summary>
+    public bool CanPlace(BuildingType type, Vector3 at)
+    {
+        float half = type.Size / 2;
+        foreach (var b in State.Buildings)
+            if (Overlap(at, half, b.Position, b.Type.Size / 2)) return false;
+        foreach (var g in State.Gatherers)
+            if (Overlap(at, half, g.Position, PostHalfSize)) return false;
+        foreach (var u in State.Units)
+            if (u.Movement == Movement.Static && Overlap(at, half, u.Position, GridCell / 2)) return false;
+        float corner = half * MathF.Sqrt(2); // the footprint's corners, whichever way it faces
+        foreach (var j in State.Junctions)
+            if (GroundDistanceSq(j.Position, at) < (corner + JunctionClearance) * (corner + JunctionClearance)) return false;
+        if (type.Kind == BuildingKind.Post)
+            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && FindSegment(at, PostReach, out _, out _);
+        return !FindSegment(at, corner + BeltHalfWidth, out _, out _);
+    }
+
+    static bool Overlap(Vector3 a, float aHalf, Vector3 b, float bHalf) =>
+        MathF.Abs(a.X - b.X) < aHalf + bHalf && MathF.Abs(a.Z - b.Z) < aHalf + bHalf;
 
     /// <summary>The junction nearest to a ground point, if one is within `maxDistance`.</summary>
     public bool FindJunction(Vector3 point, float maxDistance, out int junction)
@@ -242,6 +296,7 @@ public sealed class Simulation
     {
         UnitOrder.Repair or UnitOrder.AttackSegment => SegmentPoint(order.Line, order.Segment, from),
         UnitOrder.Attack => TryGetTarget(order.TargetId, out var at, out _) ? at with { Y = from.Y } : from,
+        UnitOrder.Build when order.TargetId >= 0 => TryGetTarget(order.TargetId, out var site, out _) ? site with { Y = from.Y } : from,
         _ => order.Target,
     };
 
@@ -259,6 +314,7 @@ public sealed class Simulation
         foreach (var line in State.Belts) MovePackages(line);
         foreach (var junction in State.Junctions) Transfer(junction);
         UpdateGatherers();
+        UpdateConstruction();
         foreach (var building in State.Buildings) UpdateProduction(building);
         foreach (var line in State.Belts) SpawnPackage(line);
         UpdatePickups();
@@ -291,7 +347,13 @@ public sealed class Simulation
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
                 break;
-            case ProduceCommand p when OwnBuilding(p.Player, p.BuildingId) is { } building:
+            case BuildCommand b:
+                Issue(b.Player, b.UnitId, new Order(UnitOrder.Build, b.Position, Structure: b.BuildingType, Facing: b.Heading), b.Queued);
+                break;
+            case ResumeBuildCommand r when OwnBuilding(r.Player, r.BuildingId) is { Built: false }:
+                Issue(r.Player, r.UnitId, new Order(UnitOrder.Build, default, TargetId: r.BuildingId), r.Queued);
+                break;
+            case ProduceCommand p when OwnBuilding(p.Player, p.BuildingId) is { Built: true } building:
                 if (building.Queue.Count >= building.Type.QueueLimit) break;
                 foreach (var type in building.Type.Units)
                     if (type.Id == p.UnitType) { building.Queue.Add(type); break; }
@@ -322,16 +384,109 @@ public sealed class Simulation
         return null;
     }
 
+    // Walks to the site and works on it. The foundation is laid on arrival, if the spot is still clear
+    // (otherwise the order ends: BuildBlocked). It grows only on ticks a builder works on it
+    // (UpdateConstruction), and the order ends once it's finished or gone.
+    void Construct(ref Unit unit)
+    {
+        var order = unit.Current;
+        Building? site = null;
+        if (order.TargetId >= 0 && ((site = FindBuilding(order.TargetId)) is null || site.Built))
+        {
+            Complete(ref unit);
+            return;
+        }
+        var type = site?.Type ?? BuildingTypes.GetValueOrDefault(order.Structure ?? "");
+        if (type is null)
+        {
+            Complete(ref unit);
+            return;
+        }
+        var at = site?.Position ?? order.Target;
+        float reach = type.Size / 2 + BuildReach;
+        if (GroundDistanceSq(unit.Position, at) > reach * reach)
+        {
+            Move(ref unit, at with { Y = unit.Position.Y });
+            return;
+        }
+        if (site is null)
+        {
+            if (!CanPlace(type, at))
+            {
+                _events.Add(new SimEvent(SimEventKind.BuildBlocked, unit.Id));
+                Complete(ref unit);
+                return;
+            }
+            int id = AddBuilding(unit.Owner, at, type, order.Facing, built: false);
+            unit.Current = order with { TargetId = id };
+            site = State.Buildings[^1];
+            _events.Add(new SimEvent(SimEventKind.BuildingPlaced, id, unit.Id));
+        }
+        site.WorkedTick = State.Tick;
+    }
+
+    Building? FindBuilding(int id)
+    {
+        foreach (var building in State.Buildings)
+            if (building.Id == id) return building;
+        return null;
+    }
+
+    // Foundations a builder worked on this tick grow a tick, paying the share of the cost due by then
+    // (or stalling while the owner can't), and gain health toward full. A finished post or defense is
+    // replaced by what it becomes: a gatherer post, or a unit that can't move.
+    void UpdateConstruction()
+    {
+        for (int i = State.Buildings.Count - 1; i >= 0; i--)
+        {
+            var site = State.Buildings[i];
+            site.BuildStalled = false;
+            if (site.Built || site.WorkedTick != State.Tick) continue;
+            var owner = State.Players[site.Owner];
+            int ticks = site.Type.BuildTicks, due = Due(site.Type.Cost, site.BuildProgress, ticks) - site.BuildPaid;
+            if (owner.Resources < due)
+            {
+                site.BuildStalled = true;
+                continue;
+            }
+            (owner.Resources, site.BuildPaid) = (owner.Resources - due, site.BuildPaid + due);
+            site.Health = MathF.Min(site.MaxHealth, site.Health + site.MaxHealth * (1 - FoundationHealth) / ticks);
+            if (++site.BuildProgress < ticks) continue;
+
+            site.Built = true;
+            int became = site.Id;
+            if (site.Type.Kind == BuildingKind.Post)
+            {
+                State.Buildings.RemoveAt(i);
+                became = AddGatherer(site.Owner, site.Position, PostReach, site.MaxHealth);
+                if (became >= 0) CollectionsMarshal.AsSpan(State.Gatherers)[^1].Health = site.Health;
+            }
+            else if (site.Type is { Kind: BuildingKind.Defense, Defense: { } defense })
+            {
+                State.Buildings.RemoveAt(i);
+                became = AddUnit(site.Owner, site.Position, defense, site.Heading);
+                ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
+                unit.Health = unit.MaxHealth * site.Health / site.MaxHealth; // damage taken while building stays
+            }
+            _events.Add(new SimEvent(SimEventKind.BuildingCompleted, site.Id, became));
+        }
+    }
+
+    // What's due in all, in whole Resources, after `progress + 1` of `ticks` ticks of work on something
+    // costing `cost`: paid a share a tick, the total comes out exact.
+    static int Due(int cost, int progress, int ticks) => (cost * (progress + 1) + ticks - 1) / ticks;
+
     // Trains the front unit of the queue: each tick pays the share of the cost due by then (in whole
     // Resources, so the total comes out exact), or stalls until the owner can. A finished unit leaves by
     // the exit for its spot around the rally point; with Repeat on, its type rejoins the back of the queue.
+    // Foundations don't produce.
     void UpdateProduction(Building building)
     {
         building.Stalled = false;
-        if (building.Queue.Count == 0) return;
+        if (!building.Built || building.Queue.Count == 0) return;
         var type = building.Queue[0];
         var owner = State.Players[building.Owner];
-        int ticks = type.BuildTicks, due = (type.Cost * (building.Progress + 1) + ticks - 1) / ticks - building.Paid;
+        int ticks = type.BuildTicks, due = Due(type.Cost, building.Progress, ticks) - building.Paid;
         if (owner.Resources < due)
         {
             building.Stalled = true;
@@ -359,6 +514,8 @@ public sealed class Simulation
         int i = FindUnit(unitId);
         if (i < 0 || State.Units[i].Owner != player) return;
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[i];
+        if (unit.Movement == Movement.Static && order.Kind != UnitOrder.Attack) return; // defenses only aim
+        if (order.Kind == UnitOrder.Build && (unit.Builds is null || (order.Structure is not null && Array.IndexOf(unit.Builds, order.Structure) < 0))) return;
         if (!queued)
         {
             unit.Pending.Clear();
@@ -465,6 +622,10 @@ public sealed class Simulation
 
                 case UnitOrder.Attack:
                     UpdateAttack(ref unit);
+                    break;
+
+                case UnitOrder.Build:
+                    Construct(ref unit);
                     break;
 
                 case UnitOrder.AttackMove:
@@ -784,6 +945,7 @@ public sealed class Simulation
     // Moves the unit toward `target` this tick, by its kind of movement; true on arrival.
     static bool Move(ref Unit unit, Vector3 target)
     {
+        if (unit.Movement == Movement.Static) return false;
         unit.Driving = true;
         return unit.Movement == Movement.Foot ? Walk(ref unit, target) : Drive(ref unit, target);
     }

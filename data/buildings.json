@@ -1,6 +1,13 @@
-// Prototype building types, placed on the map by BuildingSpawn markers.
-// health; size (m): the side of its square footprint; produces: unit type ids from units.json, in the
-// order the production panel shows them; queueLimit: how many units its queue holds (default 5).
+// Prototype building types. The HQ is placed on the map (BuildingSpawn markers); builders put up the rest.
+// health; size (m): the side of its square footprint, snapped to the 2 m grid; produces: unit type ids from
+// units.json, in the order the command card shows them; queueLimit: how many units its queue holds (default 5).
+// cost (Resources) is paid bit by bit over buildTime (s) while a builder works on the foundation; it stalls while broke.
+// kind: "building" (default) stays one; "post" becomes a gatherer post and must stand beside a belt;
+// "defense" becomes the unit named by unit (a static one, from units.json).
 {
-  "hq": { "health": 1200, "size": 5, "produces": ["rifle_squad", "scout_car", "tank"], "queueLimit": 5 },
+  "hq": { "health": 1200, "size": 5, "produces": ["builder"] },
+  "barracks": { "health": 600, "size": 4, "cost": 16, "buildTime": 20, "produces": ["rifle_squad"] },
+  "factory": { "health": 800, "size": 6, "cost": 24, "buildTime": 25, "produces": ["scout_car", "tank"] },
+  "gatherer_post": { "kind": "post", "health": 300, "size": 2, "cost": 10, "buildTime": 10 },
+  "turret": { "kind": "defense", "unit": "turret", "health": 400, "size": 2, "cost": 14, "buildTime": 12 },
 }
