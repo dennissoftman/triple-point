@@ -66,9 +66,18 @@ script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView")]
+[node name="Ui" type="CanvasLayer" parent="."]
+
+[node name="Hud" type="Label" parent="Ui"]
+offset_left = 16.0
+offset_top = 12.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView", "Hud")]
 script = ExtResource("1_simhost")
 Camera = NodePath("../Camera")
 Belts = NodePath("../Belts")
 BeltView = NodePath("../BeltView")
 UnitScene = ExtResource("3_unit")
+Hud = NodePath("../Ui/Hud")

@@ -35,6 +35,8 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - One or more conveyor belts cross the map as a fixed network of **segments** and **junctions**. Packages move along segments.
 - Players collect packages with faction-specific gatherers (3.2). Collected packages leave the belt. More or upgraded gatherers collect faster.
 - Segment states: **normal**, **jammed** (slowed), **broken** (stopped until repaired).
+- Segments are cubic Bezier curves; packages move by arc length at constant speed. Maps author belts as Godot `Path3D` curves, converted to plain sim data at load.
+- Packages keep a minimum spacing and queue when held. A broken segment freezes the packages on it and holds upstream ones at its start. When the queue reaches the source, spawns are skipped (those packages never exist). *Prototype behavior:* a break doesn't destroy packages, it delays them and blocks the source, and the backlog leaves as a dense burst after repair.
 - Players can break segments and switch junctions to reroute flow. The belt layout itself is fixed by map design; players don't build new belt.
 - **Fighting jams only the segment it happens on** (a local slowdown), rather than pausing the whole belt. *Proposed, not yet confirmed; validate in playtest.*
 - Known risks to solve through map design and tuning: upstream advantage (loops, multiple belts, flow that can change direction) and snowballing (caps per gathering point, or catch-up rules).
@@ -184,6 +186,7 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
   - **Commands** are order objects (move, attack, guard segment, raid segment, escort, repair, build...). Player input and AI issue the same orders.
   - **Events** are what happened this tick (unit died, segment broke, building finished), consumed by the presentation layer for effects, sound and UI.
 - Fixed tick at **20 Hz**, driven by our own accumulator in `_Process` (not `_PhysicsProcess`). Views interpolate between ticks.
+- **Game speed** (default 1x, presets 1x / 1.5x / 2x / 3x, any value up to 3x) scales sim time per real second in the host. The sim always ticks at 20 Hz of sim time, so speed never changes simulation results.
 - No gameplay physics. Units move in the simulation; physics is for visual effects at most.
 - Determinism isn't required now, but don't rule it out: one seeded RNG owned by the simulation, and all math routed through one place so fixed-point math (e.g. FixedMath.Net) can be swapped in later for lockstep multiplayer.
 - `System.Numerics` (or our own types) inside `Sim`. Conversion to Godot types happens in one place at the boundary.

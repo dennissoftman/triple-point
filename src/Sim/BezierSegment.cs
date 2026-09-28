@@ -40,6 +40,23 @@ public sealed class BezierSegment
         return Vector3.Normalize(d);
     }
 
+    /// <summary>Distance along the segment of the point closest to `point` on the ground (XZ) plane.</summary>
+    public float ClosestDistanceAlong(Vector3 point, out float groundDistance)
+    {
+        const int Steps = 64;
+        float best = 0, bestSq = float.MaxValue;
+        for (int i = 0; i <= Steps; i++)
+        {
+            float d = Length * i / Steps;
+            var p = PositionAt(d);
+            float dx = p.X - point.X, dz = p.Z - point.Z;
+            float sq = dx * dx + dz * dz;
+            if (sq < bestSq) (best, bestSq) = (d, sq);
+        }
+        groundDistance = MathF.Sqrt(bestSq);
+        return best;
+    }
+
     Vector3 Evaluate(float t)
     {
         float u = 1 - t;

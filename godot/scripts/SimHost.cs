@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
@@ -12,56 +13,99 @@ using SVector3 = System.Numerics.Vector3;
 public partial class SimHost : Node3D
 {
     const double TickSeconds = 1.0 / Simulation.TicksPerSecond;
-    const int MaxTicksPerFrame = 5; // after a long stall, drop time instead of catching up forever
+    const int MaxTicksPerFrameAt1x = 5; // after a long stall, drop time instead of catching up forever
+    const float PickTolerance = 0.5f;   // m beyond the belt edge that still counts as clicking it
+    static readonly float[] SpeedSteps = [1f, 1.5f, 2f, 3f];
 
     [Export] public Camera3D Camera = null!;
     [Export] public Node3D Belts = null!; // each Path3D child becomes a belt line
     [Export] public BeltView BeltView = null!;
     [Export] public PackedScene UnitScene = null!;
+    [Export] public Label Hud = null!;
+
+    // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
+    [Export(PropertyHint.Range, "0.25,3,0.05")] public float GameSpeed = 1f;
+    [Export] public float BeltSpeed = 1f;      // m/s
+    [Export] public float PackageSpacing = 1f; // m
+    [Export] public float SpawnInterval = 1.5f; // s
 
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
     readonly Dictionary<int, Node3D> _unitViews = [];
     double _accumulator;
     int _unit;
+    bool _demo;
 
     public override void _Ready()
     {
         foreach (var path in Belts.GetChildren().OfType<Path3D>())
             if (path.Curve.PointCount >= 2)
-                _sim.AddBeltLine(ToSegments(path), speed: 2f, spawnIntervalSeconds: 0.5f);
+                _sim.AddBeltLine(ToSegments(path), BeltSpeed, PackageSpacing, SpawnInterval);
         BeltView.Build(_sim.State);
 
         _unit = _sim.AddUnit(new SVector3(-10, 0, 9), speed: 5f);
         _commands.Add(new MoveCommand(_unit, new SVector3(10, 0, -8)));
+
+        _demo = OS.GetCmdlineUserArgs().Contains("--demo");
+        if (_demo) GameSpeed = 3f;
     }
 
     public override void _Process(double delta)
     {
-        _accumulator += delta;
+        _accumulator += delta * GameSpeed;
+        int maxTicks = (int)Math.Ceiling(MaxTicksPerFrameAt1x * GameSpeed);
         int ticks = 0;
         while (_accumulator >= TickSeconds)
         {
-            if (++ticks > MaxTicksPerFrame) { _accumulator = 0; break; }
+            if (++ticks > maxTicks) { _accumulator = 0; break; }
+            if (_demo) Demo(_sim.State.Tick);
             var events = _sim.Tick(_commands);
             _commands.Clear();
-            foreach (var e in events)
-                if (e.Kind == SimEventKind.UnitArrived) GD.Print($"Unit {e.Id} arrived at tick {_sim.State.Tick}");
+            foreach (var e in events) Log(e);
             _accumulator -= TickSeconds;
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
         SyncUnits(alpha);
         BeltView.Sync(_sim.State, alpha);
+        UpdateHud();
     }
 
-    // Right-click on the ground moves the unit. No selection yet (milestone 1).
     public override void _UnhandledInput(InputEvent e)
     {
-        if (e is not InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } click) return;
-        var hit = new Plane(Vector3.Up, 0).IntersectsRay(
-            Camera.ProjectRayOrigin(click.Position), Camera.ProjectRayNormal(click.Position));
-        if (hit is Vector3 point) _commands.Add(new MoveCommand(_unit, ToSim(point)));
+        switch (e)
+        {
+            case InputEventKey { Pressed: true, Echo: false } key:
+                if (key.Keycode is Key.Equal or Key.KpAdd) StepSpeed(+1);
+                else if (key.Keycode is Key.Minus or Key.KpSubtract) StepSpeed(-1);
+                break;
+
+            // No selection yet (milestone 1): orders always go to the one unit.
+            case InputEventMouseButton { Pressed: true } click when GroundPoint(click.Position) is SVector3 point:
+                bool onBelt = _sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
+                if (click.ButtonIndex == MouseButton.Left && onBelt)
+                    _commands.Add(new BreakSegmentCommand(line, segment));
+                else if (click.ButtonIndex == MouseButton.Right && onBelt
+                         && _sim.State.Belts[line].Segments[segment].State == SegmentState.Broken)
+                    _commands.Add(new RepairSegmentCommand(_unit, line, segment));
+                else if (click.ButtonIndex == MouseButton.Right)
+                    _commands.Add(new MoveCommand(_unit, point));
+                break;
+        }
+    }
+
+    // Snaps to the next preset up or down; a custom value from the inspector lands on the nearest one.
+    void StepSpeed(int direction)
+    {
+        GameSpeed = direction > 0
+            ? SpeedSteps.FirstOrDefault(s => s > GameSpeed + 0.01f, SpeedSteps[^1])
+            : SpeedSteps.LastOrDefault(s => s < GameSpeed - 0.01f, SpeedSteps[0]);
+    }
+
+    SVector3? GroundPoint(Vector2 screen)
+    {
+        var hit = new Plane(Vector3.Up, 0).IntersectsRay(Camera.ProjectRayOrigin(screen), Camera.ProjectRayNormal(screen));
+        return hit is Vector3 p ? ToSim(p) : null;
     }
 
     void SyncUnits(float alpha)
@@ -76,6 +120,34 @@ public partial class SimHost : Node3D
             }
             view.GlobalPosition = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
         }
+    }
+
+    void UpdateHud()
+    {
+        int onBelt = 0, spawned = 0, lost = 0, blocked = 0;
+        foreach (var line in _sim.State.Belts)
+            (onBelt, spawned, lost, blocked) = (onBelt + line.Packages.Count, spawned + line.Spawned, lost + line.Lost, blocked + line.BlockedSpawns);
+
+        Hud.Text = $"Speed {GameSpeed:0.##}x   [-] [+]      Time {_sim.State.Tick / Simulation.TicksPerSecond} s\n"
+                 + $"Packages on belt {onBelt}   spawned {spawned}   lost at end {lost}   blocked at source {blocked}\n"
+                 + "LMB belt: break   RMB broken belt: repair   RMB ground: move";
+    }
+
+    void Log(SimEvent e)
+    {
+        switch (e.Kind)
+        {
+            case SimEventKind.UnitArrived: GD.Print($"[{_sim.State.Tick}] unit {e.Id} arrived"); break;
+            case SimEventKind.SegmentBroken: GD.Print($"[{_sim.State.Tick}] belt {e.Id} segment {e.Segment} broken"); break;
+            case SimEventKind.SegmentRepaired: GD.Print($"[{_sim.State.Tick}] belt {e.Id} segment {e.Segment} repaired"); break;
+        }
+    }
+
+    // `godot -- --demo`: breaks a segment once packages reach it, then sends the unit to repair it.
+    void Demo(int tick)
+    {
+        if (tick == 25 * Simulation.TicksPerSecond) _commands.Add(new BreakSegmentCommand(0, 1));
+        if (tick == 45 * Simulation.TicksPerSecond) _commands.Add(new RepairSegmentCommand(_unit, 0, 1));
     }
 
     // Godot's Curve3D stores each point with in/out handles relative to it; consecutive points
