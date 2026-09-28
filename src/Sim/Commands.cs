@@ -19,10 +19,14 @@ public sealed record AttackSegmentCommand(int UnitId, int Line, int Segment, boo
 /// <summary>Walk to the segment and restore it to full health; a broken one works again once full.</summary>
 public sealed record RepairSegmentCommand(int UnitId, int Line, int Segment, bool Queued = false) : Command;
 
-public enum SimEventKind { UnitArrived, PackageLost, SegmentBroken, SegmentRepaired }
+/// <summary>Walk to the junction and set which output is live (an index into its Outputs).</summary>
+public sealed record SwitchJunctionCommand(int UnitId, int Junction, int Output, bool Queued = false) : Command;
+
+public enum SimEventKind { UnitArrived, PackageLost, PackageGathered, SegmentBroken, SegmentRepaired, JunctionSwitched }
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id is a unit or package id; for segment events it is the line index.
+/// Id is a unit or package id, or a line index for segment events, or a junction index for JunctionSwitched.
+/// Index is the segment for segment events, the output for JunctionSwitched, the gatherer id for PackageGathered.
 /// </summary>
-public readonly record struct SimEvent(SimEventKind Kind, int Id, int Segment = -1);
+public readonly record struct SimEvent(SimEventKind Kind, int Id, int Index = -1);

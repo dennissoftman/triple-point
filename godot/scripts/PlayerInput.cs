@@ -17,6 +17,7 @@ public partial class PlayerInput : Node
     const float UnitCenterHeight = 0.5f;
     const float PickTolerance = 0.5f;   // m beyond the belt edge that still counts as clicking it
     const float FormationSpacing = 2f;  // m between units of a group move
+    const float JunctionPickRadius = 1.5f; // m
 
     [Export] public SimHost Host = null!;
     [Export] public Camera3D Camera = null!;
@@ -96,13 +97,23 @@ public partial class PlayerInput : Node
         return Camera.IsPositionBehind(world) ? null : Camera.UnprojectPosition(world);
     }
 
-    // The context order at a ground point for every selected unit: force-attack a segment,
-    // repair a damaged one, otherwise move (spread into a grid so the group doesn't stack on one point).
+    // The context order at a ground point for every selected unit: flip a switch to its next output,
+    // force-attack a segment, repair a damaged one, otherwise move (spread into a grid so the group
+    // doesn't stack on one point).
     void Act(SVector3 point)
     {
         if (_selection.Count == 0) return;
         bool queued = Input.IsActionPressed("queue_order");
         var sim = Host.Sim;
+
+        if (sim.FindJunction(point, JunctionPickRadius, out int j) && sim.State.Junctions[j] is { Outputs.Count: > 1 } junction)
+        {
+            // Everyone gets the same target output, so several units don't flip it back and forth.
+            int next = (junction.Selected + 1) % junction.Outputs.Count;
+            foreach (int id in _selection) Host.Issue(new SwitchJunctionCommand(id, j, next, queued));
+            return;
+        }
+
         bool onBelt = sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
         bool attack = onBelt && Input.IsActionPressed("force_attack");
         bool repair = onBelt && !attack && sim.State.Belts[line].Segments[segment] is { } s && s.Health < s.MaxHealth;

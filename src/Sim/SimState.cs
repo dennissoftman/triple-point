@@ -2,10 +2,14 @@ using System.Numerics;
 
 namespace Sim;
 
-public enum UnitOrder { None, Move, Repair, Attack }
+public enum UnitOrder { None, Move, Repair, Attack, Switch }
 
-/// <summary>What a unit is doing. For segment orders, Target is filled in when the order starts.</summary>
-public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -1, int Segment = -1);
+/// <summary>
+/// What a unit is doing. Segment orders use Line/Segment, Switch uses Junction/Output.
+/// For segment and junction orders, Target is filled in when the order starts.
+/// </summary>
+public readonly record struct Order(
+    UnitOrder Kind, Vector3 Target, int Line = -1, int Segment = -1, int Junction = -1, int Output = -1);
 
 public struct Unit
 {
@@ -34,11 +38,6 @@ public sealed class BeltSegment
         (Curve, Start, MaxHealth, Health) = (curve, start, maxHealth, maxHealth);
 }
 
-/// <summary>
-/// A chain of segments. Packages spawn at the start and are lost at the end. The belt moves
-/// everything on it at once; packages only queue when something ahead of them is held.
-/// A broken segment carries nothing: packages on it, and any that reach it, spill as pickups.
-/// </summary>
 /// <summary>Tuning for one belt line.</summary>
 public readonly record struct BeltConfig(
     float Speed,                 // m/s
@@ -48,12 +47,21 @@ public readonly record struct BeltConfig(
     float SegmentHealth = 100,
     float SpillLoss = 0);        // 0..1: chance a spilled package is destroyed instead of becoming a pickup
 
+/// <summary>
+/// A chain of segments. A line not fed by a junction spawns packages at its start; a line not ending
+/// in a junction loses them at its end. The belt moves everything on it at once; packages only queue
+/// when something ahead of them is held. A broken segment carries nothing: packages on it, and any
+/// that reach it, spill.
+/// </summary>
 public sealed class BeltLine
 {
     public readonly BeltSegment[] Segments;
     public readonly float Length;
     public readonly float Speed, Spacing, SpillLoss;
     public readonly int SpawnIntervalTicks;
+
+    public int StartJunction { get; internal set; } = -1; // feeds this line; then it doesn't spawn
+    public int EndJunction { get; internal set; } = -1;   // this line hands packages to it
 
     public readonly List<Package> Packages = []; // ordered: index 0 is furthest along
     public int Spawned, Lost, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
@@ -71,6 +79,58 @@ public sealed class BeltLine
         (Speed, Spacing, SpillLoss) = (config.Speed, config.Spacing, config.SpillLoss);
         SpawnIntervalTicks = Math.Max(1, (int)MathF.Round(config.SpawnIntervalSeconds * ticksPerSecond));
     }
+
+    public Vector3 StartPosition => Segments[0].Curve.PositionAt(0);
+    public Vector3 EndPosition => Segments[^1].Curve.PositionAt(Segments[^1].Curve.Length);
+
+    /// <summary>Index of the segment containing a distance along the line.</summary>
+    public int SegmentAt(float distance)
+    {
+        for (int i = 0; i < Segments.Length - 1; i++)
+            if (distance < Segments[i].End) return i;
+        return Segments.Length - 1;
+    }
+
+    public Vector3 PositionAt(float distance)
+    {
+        var segment = Segments[SegmentAt(distance)];
+        return segment.Curve.PositionAt(distance - segment.Start);
+    }
+
+    public Vector3 DirectionAt(float distance)
+    {
+        var segment = Segments[SegmentAt(distance)];
+        return segment.Curve.DirectionAt(distance - segment.Start);
+    }
+}
+
+/// <summary>
+/// Where belt lines meet. Every input feeds whichever output is selected: several inputs make a merge
+/// (they take turns), several outputs make a switch (a unit flips which one is live).
+/// </summary>
+public sealed class Junction
+{
+    public readonly Vector3 Position;
+    public readonly List<int> Inputs = [], Outputs = []; // line indices
+    public int Selected; // index into Outputs
+    internal int NextInput; // round-robin, so a merge doesn't starve an input
+
+    public Junction(Vector3 position) => Position = position;
+}
+
+/// <summary>
+/// A post beside the belt with a pull point on it. When idle it grabs a package passing the pull point,
+/// then works for a while; packages passing meanwhile go on downstream.
+/// </summary>
+public struct Gatherer
+{
+    public int Id;
+    public Vector3 Position; // the post itself, beside the belt
+    public int Line;
+    public float Distance;   // pull point along the line
+    public int ReadyAtTick;  // idle from this tick on
+    public int LastGrabTick; // for effects
+    public int Gathered;
 }
 
 public struct Package
@@ -94,6 +154,11 @@ public sealed class SimState
     public int Tick;
     public readonly List<Unit> Units = [];
     public readonly List<BeltLine> Belts = [];
+    public readonly List<Junction> Junctions = [];
+    public readonly List<Gatherer> Gatherers = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last
-    public int Collected; // single player for now; becomes per-player income with the economy
+
+    // Single player for now; becomes per-player once there are players.
+    public int Resources;          // the one spendable currency: 1 per package
+    public int Gathered, Collected; // where Resources came from: gatherer posts, ground pickups
 }

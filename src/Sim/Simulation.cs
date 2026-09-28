@@ -12,6 +12,11 @@ public sealed class Simulation
     public const float RepairRange = 2.5f;          // m from the segment
     public const float RepairSeconds = 5f;          // for one unit, from 0 to full health
     public const float AttackRange = 8f;            // m from the segment
+    public const float SwitchRange = 2.5f;          // m from a junction
+    public const float GatherSeconds = 2f;          // a gatherer post's work per package
+    const float GrabReach = 0.5f;                   // m either side of a post's pull point
+    const float HoldGap = 0.001f;                   // m short of a line's end where packages wait for a junction
+    const float ArrivalSlack = 0.01f;               // m; a front package this close to the end is waiting
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float PickupLifetimeSeconds = 60f;
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
@@ -40,6 +45,63 @@ public sealed class Simulation
         State.Belts.Add(new BeltLine(segments, config, TicksPerSecond));
     }
 
+    /// <summary>
+    /// Adds a junction and attaches every line whose end (as an input) or start (as an output) lies
+    /// within `attachRadius`. Add all lines first. Returns the junction index.
+    /// </summary>
+    public int AddJunction(Vector3 position, float attachRadius)
+    {
+        int index = State.Junctions.Count;
+        var junction = new Junction(position);
+        for (int l = 0; l < State.Belts.Count; l++)
+        {
+            var line = State.Belts[l];
+            if (line.EndJunction < 0 && Vector3.Distance(line.EndPosition, position) <= attachRadius)
+            {
+                junction.Inputs.Add(l);
+                line.EndJunction = index;
+            }
+            if (line.StartJunction < 0 && Vector3.Distance(line.StartPosition, position) <= attachRadius)
+            {
+                junction.Outputs.Add(l);
+                line.StartJunction = index;
+            }
+        }
+        State.Junctions.Add(junction);
+        return index;
+    }
+
+    /// <summary>Adds a gatherer post at `position`, pulling from the nearest belt point within `maxDistance`. Returns its id, or -1.</summary>
+    public int AddGatherer(Vector3 position, float maxDistance)
+    {
+        if (!FindSegment(position, maxDistance, out int line, out int segment)) return -1;
+        var s = State.Belts[line].Segments[segment];
+        int id = _nextId++;
+        State.Gatherers.Add(new Gatherer
+        {
+            Id = id,
+            Position = position,
+            Line = line,
+            Distance = s.Start + s.Curve.ClosestDistanceAlong(position, out _),
+            LastGrabTick = int.MinValue / 2,
+        });
+        return id;
+    }
+
+    /// <summary>The junction nearest to a ground point, if one is within `maxDistance`.</summary>
+    public bool FindJunction(Vector3 point, float maxDistance, out int junction)
+    {
+        junction = -1;
+        float best = maxDistance;
+        for (int j = 0; j < State.Junctions.Count; j++)
+        {
+            var p = State.Junctions[j].Position;
+            float d = MathF.Sqrt((p.X - point.X) * (p.X - point.X) + (p.Z - point.Z) * (p.Z - point.Z));
+            if (d <= best) (best, junction) = (d, j);
+        }
+        return junction >= 0;
+    }
+
     /// <summary>The belt segment nearest to a ground point, if one is within `maxDistance`.</summary>
     public bool FindSegment(Vector3 point, float maxDistance, out int line, out int segment)
     {
@@ -64,6 +126,14 @@ public sealed class Simulation
         return curve.PositionAt(curve.ClosestDistanceAlong(from, out _)) with { Y = from.Y };
     }
 
+    /// <summary>Where a unit coming from `from` walks to for an order; for a plain move, the order's own target.</summary>
+    public Vector3 OrderPoint(in Order order, Vector3 from) => order.Kind switch
+    {
+        UnitOrder.Repair or UnitOrder.Attack => SegmentPoint(order.Line, order.Segment, from),
+        UnitOrder.Switch => State.Junctions[order.Junction].Position with { Y = from.Y },
+        _ => order.Target,
+    };
+
     /// <summary>Advances one tick. The returned list is reused and stays valid until the next call.</summary>
     public IReadOnlyList<SimEvent> Tick(IReadOnlyList<Command> commands)
     {
@@ -71,6 +141,8 @@ public sealed class Simulation
         foreach (var command in commands) Apply(command);
         UpdateUnits();
         foreach (var line in State.Belts) MovePackages(line);
+        foreach (var junction in State.Junctions) Transfer(junction);
+        UpdateGatherers();
         foreach (var line in State.Belts) SpawnPackage(line);
         UpdatePickups();
         State.Tick++;
@@ -89,6 +161,9 @@ public sealed class Simulation
                 break;
             case AttackSegmentCommand a:
                 Issue(a.UnitId, new Order(UnitOrder.Attack, default, a.Line, a.Segment), a.Queued);
+                break;
+            case SwitchJunctionCommand w:
+                Issue(w.UnitId, new Order(UnitOrder.Switch, default, Junction: w.Junction, Output: w.Output), w.Queued);
                 break;
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
@@ -113,9 +188,7 @@ public sealed class Simulation
     void Start(ref Unit unit, Order order)
     {
         // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
-        if (order.Kind is UnitOrder.Repair or UnitOrder.Attack)
-            order = order with { Target = SegmentPoint(order.Line, order.Segment, unit.Position) };
-        unit.Current = order;
+        unit.Current = order with { Target = OrderPoint(order, unit.Position) };
     }
 
     void Complete(ref Unit unit)
@@ -180,6 +253,20 @@ public sealed class Simulation
                     }
                     break;
                 }
+
+                case UnitOrder.Switch:
+                {
+                    if (!InRange(ref unit, SwitchRange)) break;
+                    var (j, output) = (unit.Current.Junction, unit.Current.Output);
+                    var junction = State.Junctions[j];
+                    if (junction.Selected != output && output < junction.Outputs.Count)
+                    {
+                        junction.Selected = output;
+                        _events.Add(new SimEvent(SimEventKind.JunctionSwitched, j, output));
+                    }
+                    Complete(ref unit);
+                    break;
+                }
             }
         }
     }
@@ -225,7 +312,9 @@ public sealed class Simulation
     {
         var segments = line.Segments;
         var packages = CollectionsMarshal.AsSpan(line.Packages);
-        float limit = float.MaxValue; // how far the package ahead lets this one go
+        // How far the package ahead lets this one go. A line ending in a junction holds its front
+        // package at the end until the junction takes it.
+        float limit = HandsOff(line) ? line.Length - HoldGap : float.MaxValue;
         int kept = 0;
 
         for (int i = 0; i < packages.Length; i++)
@@ -260,6 +349,63 @@ public sealed class Simulation
         line.Packages.RemoveRange(kept, packages.Length - kept);
     }
 
+    bool HandsOff(BeltLine line) => line.EndJunction >= 0 && State.Junctions[line.EndJunction].Outputs.Count > 0;
+
+    // Moves at most one waiting package per tick into the selected output, if its entry is clear.
+    // Inputs take turns, so a merge fed faster than its output can carry backs up evenly.
+    void Transfer(Junction junction)
+    {
+        if (junction.Outputs.Count == 0 || junction.Inputs.Count == 0) return;
+        var output = State.Belts[junction.Outputs[junction.Selected]];
+        if (output.Packages.Count > 0 && output.Packages[^1].Distance < output.Spacing - SpacingSlack) return;
+
+        for (int k = 0; k < junction.Inputs.Count; k++)
+        {
+            int i = (junction.NextInput + k) % junction.Inputs.Count;
+            var input = State.Belts[junction.Inputs[i]];
+            if (input.Packages.Count == 0 || input.Packages[0].Distance < input.Length - ArrivalSlack) continue;
+
+            var package = input.Packages[0];
+            input.Packages.RemoveAt(0);
+            output.Packages.Add(new Package
+            {
+                Id = package.Id,
+                Position = output.StartPosition,
+                PrevPosition = package.Position,
+                Direction = output.DirectionAt(0),
+            });
+            junction.NextInput = (i + 1) % junction.Inputs.Count;
+            return;
+        }
+    }
+
+    // An idle post grabs the package nearest its pull point, if one is within reach, then works.
+    void UpdateGatherers()
+    {
+        foreach (ref var g in CollectionsMarshal.AsSpan(State.Gatherers))
+        {
+            if (State.Tick < g.ReadyAtTick) continue;
+
+            var packages = State.Belts[g.Line].Packages;
+            int best = -1;
+            float bestDistance = GrabReach;
+            for (int i = 0; i < packages.Count; i++)
+            {
+                float d = MathF.Abs(packages[i].Distance - g.Distance);
+                if (d <= bestDistance) (best, bestDistance) = (i, d);
+            }
+            if (best < 0) continue;
+
+            int packageId = packages[best].Id;
+            packages.RemoveAt(best); // keeps the front-to-back order
+            (g.ReadyAtTick, g.LastGrabTick) = (State.Tick + (int)(GatherSeconds * TicksPerSecond), State.Tick);
+            g.Gathered++;
+            State.Gathered++;
+            State.Resources++;
+            _events.Add(new SimEvent(SimEventKind.PackageGathered, packageId, g.Id));
+        }
+    }
+
     void Spill(BeltLine line, Vector3 at, Vector3 direction)
     {
         line.Spilled++;
@@ -283,6 +429,7 @@ public sealed class Simulation
 
     void SpawnPackage(BeltLine line)
     {
+        if (line.StartJunction >= 0) return; // fed by a junction, not a source
         if (--line.TicksUntilSpawn > 0) return;
         line.TicksUntilSpawn = line.SpawnIntervalTicks;
 
@@ -313,7 +460,7 @@ public sealed class Simulation
         {
             var pickup = pickups[i];
             bool collected = AnyUnitWithin(pickup.Position, CollectRadius);
-            if (collected) State.Collected++;
+            if (collected) (State.Collected, State.Resources) = (State.Collected + 1, State.Resources + 1);
             if (!collected && State.Tick < pickup.ExpiresAtTick) continue;
             pickups[i] = pickups[^1];
             pickups.RemoveAt(pickups.Count - 1);

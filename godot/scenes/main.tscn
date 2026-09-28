@@ -33,6 +33,22 @@ emission_enabled = true
 emission = Color(1, 0.55, 0.1, 1)
 emission_energy_multiplier = 0.4
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_junction"]
+albedo_color = Color(0.22, 0.23, 0.25, 1)
+metallic = 0.6
+roughness = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_indicator"]
+shading_mode = 0
+albedo_color = Color(0.55, 1, 0.6, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gatherer"]
+albedo_color = Color(0.35, 0.42, 0.45, 1)
+roughness = 0.7
+emission_enabled = true
+emission = Color(1, 0.62, 0.1, 1)
+emission_energy_multiplier = 0.0
+
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
 shading_mode = 0
 albedo_color = Color(0.55, 1, 0.6, 1)
@@ -41,12 +57,40 @@ albedo_color = Color(0.55, 1, 0.6, 1)
 shading_mode = 0
 albedo_color = Color(1, 0.85, 0.4, 1)
 
-[sub_resource type="Curve3D" id="Curve3D_belt1"]
+[sub_resource type="Curve3D" id="Curve3D_source_a"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 6, 0, -6, -20, 0.2, 4, -5, 0, 0, 5, 0, 0, -4, 0.2, -3, -5, 0, 0, 5, 0, 0, 10, 0.2, 4, -5, 0, 3, 0, 0, 0, 20, 0.2, -2),
-"tilts": PackedFloat32Array(0, 0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, 8, 0, 0, -20, 0.2, -8, -5, 0, -2, 0, 0, 0, -1, 0.2, 0),
+"tilts": PackedFloat32Array(0, 0)
 }
-point_count = 4
+point_count = 2
+
+[sub_resource type="Curve3D" id="Curve3D_source_b"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 8, 0, 0, -18, 0.2, 8, -5, 0, 2, 0, 0, 0, -1, 0.2, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="Curve3D_trunk"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 3, 0, 0, -1, 0.2, 0, -3, 0, 0, 0, 0, 0, 9, 0.2, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="Curve3D_north"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -5, 0, 0, 0, 0, 0, 21, 0.2, -8),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="Curve3D_south"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -5, 0, 0, 0, 0, 0, 19, 0.2, 7),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
 
 [node name="Main" type="Node3D"]
 
@@ -59,7 +103,7 @@ shadow_enabled = true
 directional_shadow_max_distance = 80.0
 
 [node name="Camera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 0, 34.4, 26.1)
+transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 0, 34.4, 23.1)
 current = true
 fov = 38.0
 
@@ -68,13 +112,44 @@ mesh = SubResource("PlaneMesh_ground")
 
 [node name="Belts" type="Node3D" parent="."]
 
-[node name="Belt1" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_belt1")
+[node name="SourceA" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_source_a")
+
+[node name="SourceB" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_source_b")
+
+[node name="Trunk" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_trunk")
+
+[node name="North" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_north")
+
+[node name="South" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_south")
+
+[node name="Junctions" type="Node3D" parent="."]
+
+[node name="Merge" type="Marker3D" parent="Junctions"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.2, 0)
+
+[node name="Switch" type="Marker3D" parent="Junctions"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0.2, 0)
+
+[node name="Gatherers" type="Node3D" parent="."]
+
+[node name="TrunkPost" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 2.2)
+
+[node name="NorthPost" type="Marker3D" parent="Gatherers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.5, 0, -6.4)
 
 [node name="BeltView" type="Node3D" parent="."]
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
+JunctionMaterial = SubResource("StandardMaterial3D_junction")
+IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
+GathererMaterial = SubResource("StandardMaterial3D_gatherer")
 
 [node name="UnitsView" type="Node3D" parent="."]
 script = ExtResource("4_unitsview")
@@ -95,9 +170,11 @@ visible = false
 mouse_filter = 2
 color = Color(0.55, 1, 0.6, 0.18)
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "BeltView", "UnitsView", "Player", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "BeltView", "UnitsView", "Player", "Hud")]
 script = ExtResource("1_simhost")
 Belts = NodePath("../Belts")
+Junctions = NodePath("../Junctions")
+Gatherers = NodePath("../Gatherers")
 BeltView = NodePath("../BeltView")
 UnitsView = NodePath("../UnitsView")
 Player = NodePath("../PlayerInput")

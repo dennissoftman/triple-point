@@ -61,9 +61,7 @@ public partial class UnitsView : Node3D
             Leg(ref start, ToGodot(target));
             foreach (var order in unit.Pending)
             {
-                target = order.Kind is UnitOrder.Repair or UnitOrder.Attack
-                    ? sim.SegmentPoint(order.Line, order.Segment, target)
-                    : order.Target;
+                target = sim.OrderPoint(order, target);
                 Leg(ref start, ToGodot(target));
             }
         }

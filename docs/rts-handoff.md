@@ -41,6 +41,8 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - **Segments have health.** Units break a segment by shooting it from range (default 100 health, 10 dps: 10 s for one unit). A damaged segment keeps working. At 0 it breaks, and it stays broken until repaired back to full health (5 s for one unit from 0).
 - **A broken segment spills.** Packages on it when it breaks, and every package that reaches it while broken, fall off beside it. A share of them is destroyed in the fall (spill loss, default 30%, tunable per belt); the rest become ground pickups. Any unit walking over a pickup collects it; uncollected pickups fade after 60 s. So a break redirects most of the flow to whoever holds the spot, its value grows the longer it's held, and downstream gets nothing until repair.
 - *Tuning note:* one repairer currently out-heals one attacker (20 health/s vs 10 dps). Fine while there's no combat between units; revisit with real unit types.
+- **Gatherer posts** (generic for now; faction gatherers later) stand beside a belt with a pull point on it. An idle post grabs a package passing its pull point, adds 1 Resource, and works for 2 s; packages passing meanwhile go on downstream. So upstream posts get first pick, and a post whose rate matches the flow starves everything below it.
+- **Junctions** are where lines meet; lines attach by their endpoints. Every input feeds the selected output. Several inputs make a merge (inputs take turns, one package per tick at most, only when the output's entry is clear, so an overloaded merge backs up both inputs evenly). Several outputs make a switch: a unit walks to it and sets the live output. Lines fed by a junction don't spawn; lines ending in one hand packages off instead of losing them. Breaking the segment just past a merge spills every input at once.
 - Players can break segments and switch junctions to reroute flow. The belt layout itself is fixed by map design; players don't build new belt.
 - **Fighting jams only the segment it happens on** (a local slowdown), rather than pausing the whole belt. *Proposed, not yet confirmed; validate in playtest.*
 - Known risks to solve through map design and tuning: upstream advantage (loops, multiple belts, flow that can change direction) and snowballing (caps per gathering point, or catch-up rules).
@@ -326,8 +328,8 @@ public partial class SimHost : Node
 Milestones:
 0. Setup: solution and projects build, Godot references `Sim`, one passing test, and a cube that moves because the simulation says so.
 1. Camera, box selection, move orders. *Done except camera pan/zoom:* click and box selection, Shift add/toggle, group moves in a grid formation.
-2. Belt with packages flowing, gatherers pulling from it, debug overlay.
-3. Infrastructure states: break, jam and repair segments; junction switches; two road states.
+2. Belt with packages flowing, gatherers pulling from it, debug overlay. *Done* (gatherer posts are authored in the scene until construction exists; the overlay is the HUD counters).
+3. Infrastructure states: break, jam and repair segments; junction switches; two road states. *Done:* segment health, break, spill, repair, junction merges and switches. *Not yet:* jammed state (waits for unit-vs-unit fighting), roads.
 3.5. Symmetric belt test: a mirror match with generic units, to check the belt is fun before asymmetry is layered on. Western drones and Asian armored segments both blunt belt disruption, so a failed asymmetric test alone wouldn't say why.
 4. Two factions (Asian vs Western), 2-3 units each, including one infantry squad type.
 5. A basic commander AI that fights over the belt.
