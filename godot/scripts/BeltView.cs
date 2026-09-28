@@ -6,7 +6,7 @@ using static SimConvert;
 
 /// <summary>
 /// Draws the belt network: segments as flat ribbons colored by state, packages, spilled pickups,
-/// junctions (switches get an arrow to the live output and a capture ring), and gatherer posts.
+/// junctions (switches get arrows to where the stream goes, and a capture ring), and gatherer posts.
 /// </summary>
 public partial class BeltView : Node3D
 {
@@ -25,7 +25,7 @@ public partial class BeltView : Node3D
     [Export] public Material? IndicatorMaterial;
     [Export] public StandardMaterial3D GathererMaterial = null!;
 
-    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D Arrow, CaptureRing? Ring);
+    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D[] Arrows, CaptureRing? Ring);
     sealed record PostView(Node3D Root, StandardMaterial3D Material, HealthBar Health);
 
     // One material per segment, indexed [line][segment], so each can show its own state.
@@ -49,7 +49,7 @@ public partial class BeltView : Node3D
             _segmentMaterials.Add(materials);
         }
 
-        foreach (var junction in state.Junctions) _junctions.Add(BuildJunction(junction));
+        foreach (var junction in state.Junctions) _junctions.Add(BuildJunction(state, junction));
 
         var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
         _packages = new InstanceBatch(this, box);
@@ -84,7 +84,7 @@ public partial class BeltView : Node3D
         _pickups.End();
     }
 
-    JunctionView BuildJunction(Junction junction)
+    JunctionView BuildJunction(SimState state, Junction junction)
     {
         var disc = (StandardMaterial3D)JunctionMaterial.Duplicate();
         AddChild(new MeshInstance3D
@@ -93,24 +93,24 @@ public partial class BeltView : Node3D
             MaterialOverride = disc,
             Position = ToGodot(junction.Position),
         });
-        var arrow = new MeshInstance3D
-        {
-            Mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 1f), Material = IndicatorMaterial },
-            Visible = false,
-        };
-        AddChild(arrow);
+        if (!junction.IsSwitch) return new JunctionView(disc, [], null); // a merge has nothing to show
 
-        CaptureRing? ring = null;
-        if (junction.IsSwitch) // only switches can be captured
+        // An arrow just past the disc along each output, and a ring at the capture radius.
+        var mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 1f), Material = IndicatorMaterial };
+        var arrows = new MeshInstance3D[junction.Outputs.Count];
+        for (int o = 0; o < arrows.Length; o++)
         {
-            ring = new CaptureRing { Radius = Simulation.CaptureRadius, Position = ToGodot(junction.Position) with { Y = RingHeight } };
-            AddChild(ring);
+            var direction = (ToGodot(state.Belts[junction.Outputs[o]].DirectionAt(1f)) with { Y = 0 }).Normalized();
+            var at = ToGodot(junction.Position) + direction * 1.5f + new Vector3(0, 0.25f, 0);
+            AddChild(arrows[o] = new MeshInstance3D { Mesh = mesh, Transform = new Transform3D(Basis.LookingAt(direction, Vector3.Up), at) });
         }
-        return new JunctionView(disc, arrow, ring);
+        var ring = new CaptureRing { Radius = Simulation.CaptureRadius, Position = ToGodot(junction.Position) with { Y = RingHeight } };
+        AddChild(ring);
+        return new JunctionView(disc, arrows, ring);
     }
 
-    // Discs take the owner's color. A switch's arrow sits just past it, along the live output (none while
-    // closed), and its ring fills with the capturer's color.
+    // Discs take the owner's color. A switch shows an arrow on every output while it splits the stream
+    // (neutral), then only on the one it feeds; its ring fills with the capturer's color.
     void SyncJunctions(SimState state)
     {
         for (int j = 0; j < state.Junctions.Count; j++)
@@ -123,14 +123,10 @@ public partial class BeltView : Node3D
             if (view.Disc.AlbedoColor != owned) view.Disc.AlbedoColor = owned;
             if (!junction.IsSwitch) continue;
 
-            bool open = junction.Selected >= 0;
-            if (view.Arrow.Visible != open) view.Arrow.Visible = open;
-            if (open)
+            for (int o = 0; o < view.Arrows.Length; o++)
             {
-                var output = state.Belts[junction.Outputs[junction.Selected]];
-                var direction = (ToGodot(output.DirectionAt(1f)) with { Y = 0 }).Normalized();
-                var at = ToGodot(junction.Position) + direction * 1.5f + new Vector3(0, 0.25f, 0);
-                view.Arrow.Transform = new Transform3D(Basis.LookingAt(direction, Vector3.Up), at);
+                bool feeds = junction.Selected < 0 || junction.Selected == o;
+                if (view.Arrows[o].Visible != feeds) view.Arrows[o].Visible = feeds;
             }
 
             var zone = PlayerPalette.Color(junction.Owner) with { A = 0.45f };

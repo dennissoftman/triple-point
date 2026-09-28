@@ -87,14 +87,14 @@ point_count = 2
 
 [sub_resource type="Curve3D" id="Curve3D_north"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -5, 0, 0, 0, 0, 0, 21, 0.2, -8),
+"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -7, 0, 0, 0, 0, 0, 30, 0.2, -12),
 "tilts": PackedFloat32Array(0, 0)
 }
 point_count = 2
 
 [sub_resource type="Curve3D" id="Curve3D_south"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -5, 0, 0, 0, 0, 0, 19, 0.2, 7),
+"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -7, 0, 0, 0, 0, 0, 30, 0.2, 12),
 "tilts": PackedFloat32Array(0, 0)
 }
 point_count = 2
@@ -110,10 +110,12 @@ shadow_enabled = true
 directional_shadow_max_distance = 80.0
 
 [node name="Camera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 6, 34.4, 23.6)
+transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 6, 39.32, 32.53)
 current = true
 fov = 38.0
 script = ExtResource("6_camera")
+Focus = Vector2(6, 5)
+Distance = 48.0
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")
@@ -146,56 +148,56 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0.2, 0)
 [node name="Gatherers" type="Node3D" parent="."]
 
 [node name="BluePost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18.5, 0, -9.6)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, -12.7)
 script = ExtResource("7_owned")
 
 [node name="RedPost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16.8, 0, 8.6)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, 12.7)
 script = ExtResource("7_owned")
 Player = 1
 
 [node name="Units" type="Node3D" parent="."]
 
 [node name="BlueSquad1" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 10, 0, -12)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -1, 0, -16.5)
 script = ExtResource("8_spawn")
 UnitType = "rifle_squad"
 
 [node name="BlueSquad2" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 14, 0, -13)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 4, 0, -17)
 script = ExtResource("8_spawn")
 UnitType = "rifle_squad"
 
 [node name="BlueTank" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 12, 0, -15.5)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 1.5, 0, -19)
 script = ExtResource("8_spawn")
 UnitType = "tank"
 
 [node name="BlueCar" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 17.5, 0, -14)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 6.5, 0, -19)
 script = ExtResource("8_spawn")
 UnitType = "scout_car"
 
 [node name="RedSquad1" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 16.5)
 script = ExtResource("8_spawn")
 Player = 1
 UnitType = "rifle_squad"
 
 [node name="RedSquad2" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, 12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 17)
 script = ExtResource("8_spawn")
 Player = 1
 UnitType = "rifle_squad"
 
 [node name="RedTank" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 0, 12.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 0, 19)
 script = ExtResource("8_spawn")
 Player = 1
 UnitType = "tank"
 
 [node name="RedCar" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 13)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0, 19)
 script = ExtResource("8_spawn")
 Player = 1
 UnitType = "scout_car"

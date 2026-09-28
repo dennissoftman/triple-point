@@ -23,8 +23,13 @@ public sealed class Simulation
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
     const float SpillAlongJitter = 0.75f;                     // m along the belt
     const float SpacingSlack = 0.001f;                        // m
+    const float AimTolerance = 0.1f;                // rad (~6°); a turret this close to its target fires
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
-    const float BrakeFactor = 2f;                   // vehicles brake this much harder than they accelerate
+    const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
+    const float StopMargin = 0.3f;                  // m short of the target that a vehicle eases to a stop
+    const float StopHysteresis = 0.6f;              // m; once braking to stop, it only lets go if that would leave it this much further short
+    const float SpeedSnap = 0.01f, EffortSnap = 0.05f; // m/s, share; this close to the wanted speed with the effort nearly off is there
+    const int MaxStopTicks = 30 * TicksPerSecond;   // bounds the stopping-distance lookahead
     const float TrackedPivotAngle = 0.52f;          // rad (30°); sharper than this, tracks turn nearly on the spot
     const float WheeledSlowAngle = 1.05f;           // rad (60°); sharper than this, wheels slow down to turn
     const float ReverseMaxDistance = 12f;           // m; a stopped vehicle backs up to targets behind it closer than this
@@ -50,12 +55,17 @@ public sealed class Simulation
     /// <summary>A unit of a type from /data, facing `heading` (radians, facing (sin h, 0, cos h)).</summary>
     public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0) =>
         AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, type.MemberDps * type.Members, type.Range,
-            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id);
+            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id,
+            type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate);
 
-    /// <summary>A unit with explicit stats; health and damage are for the whole squad, turnRate is in degrees per second.</summary>
+    /// <summary>
+    /// A unit with explicit stats; health and damage are for the whole squad, turn rates are in degrees per
+    /// second, and braking 0 is twice the acceleration. See UnitType.
+    /// </summary>
     public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
-        float reverseSpeed = 0, bool canCapture = true, float heading = 0, string type = "")
+        float reverseSpeed = 0, bool canCapture = true, float heading = 0, string type = "",
+        float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0)
     {
         int id = _nextId++;
         State.Units.Add(new Unit
@@ -67,11 +77,17 @@ public sealed class Simulation
             PrevPosition = position,
             Heading = heading,
             PrevHeading = heading,
+            Turret = heading,
+            PrevTurret = heading,
             Speed = speed,
             Range = range,
             Movement = movement,
             Acceleration = acceleration,
+            Braking = braking > 0 ? braking : acceleration * 2,
+            EaseIn = easeIn,
+            EaseOut = easeOut,
             TurnRate = turnRate * MathF.PI / 180,
+            TurretTurnRate = turretTurnRate * MathF.PI / 180,
             ReverseSpeed = reverseSpeed,
             CanCapture = canCapture,
             MaxMembers = members,
@@ -112,7 +128,7 @@ public sealed class Simulation
                 line.StartJunction = index;
             }
         }
-        // A plain merge always feeds its one output; a switch starts closed until someone takes it.
+        // A plain merge always feeds its one output; a switch starts neutral, splitting between its outputs.
         junction.Selected = junction.Outputs.Count == 1 ? 0 : -1;
         State.Junctions.Add(junction);
         return index;
@@ -304,16 +320,18 @@ public sealed class Simulation
             ref var unit = ref units[i];
             unit.PrevPosition = unit.Position;
             unit.PrevHeading = unit.Heading;
+            unit.PrevTurret = unit.Turret;
             (unit.Firing, unit.Driving) = (false, false);
             if (unit.Health <= 0) continue; // killed earlier this tick; removed after the loop
 
             switch (unit.Current.Kind)
             {
                 case UnitOrder.None:
-                    AutoFire(ref unit);
+                    Engage(ref unit, fire: true);
                     break;
 
                 case UnitOrder.Move:
+                    Engage(ref unit, fire: false); // move means move, but the turret gets ready
                     if (Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
@@ -323,6 +341,7 @@ public sealed class Simulation
 
                 case UnitOrder.Repair:
                 {
+                    Engage(ref unit, fire: false);
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
                     if (segment.Health >= segment.MaxHealth) { Complete(ref unit); break; }
@@ -343,7 +362,8 @@ public sealed class Simulation
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
                     if (segment.State == SegmentState.Broken) { Complete(ref unit); break; }
-                    if (!InRange(ref unit, unit.Range)) break;
+                    bool onTarget = AimAt(ref unit, unit.Current.Target);
+                    if (!InRange(ref unit, unit.Range) || !onTarget) break;
 
                     (unit.Firing, unit.FireAt) = (true, unit.Current.Target);
                     segment.Health -= unit.Dps * Dt;
@@ -361,8 +381,7 @@ public sealed class Simulation
 
                 case UnitOrder.AttackMove:
                     // Head for the point, but stop to fight whatever comes into range; then carry on.
-                    if (FindTarget(unit, out int target, out var at)) Fire(ref unit, target, at);
-                    else if (Move(ref unit, unit.Current.Target))
+                    if (!Engage(ref unit, fire: true) && Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
@@ -373,7 +392,8 @@ public sealed class Simulation
         }
     }
 
-    // Chase the target into range, then fire until it's gone.
+    // Chase the target into range, then fire until it's gone. The turret swings onto it from the start,
+    // while the unit closes in, so it opens fire the moment it's in range rather than stopping to aim.
     void UpdateAttack(ref Unit unit)
     {
         int targetId = unit.Current.TargetId;
@@ -383,15 +403,26 @@ public sealed class Simulation
             return;
         }
         unit.Current = unit.Current with { Target = at with { Y = unit.Position.Y } };
+        bool onTarget = AimAt(ref unit, at);
         // The killing shot ends the order at once, so a queued one starts without a wasted tick.
-        if (InRange(ref unit, unit.Range) && Fire(ref unit, targetId, at)) Complete(ref unit);
+        if (InRange(ref unit, unit.Range) && onTarget && Fire(ref unit, targetId, at)) Complete(ref unit);
     }
 
-    // An idle unit fires at the weakest enemy in range. It doesn't chase, and units with orders don't
-    // stop to shoot (move means move); attack-move is the order that does.
-    void AutoFire(ref Unit unit)
+    // Turns the turret to the best enemy in range (FindTarget), or back over the nose if there's none, and
+    // fires once the turret is on it, if `fire`. Nothing out of range draws the turret: only an attack
+    // order aims ahead. Idle units fire without chasing, and units with orders don't stop to shoot (move
+    // means move); attack-move is the order that does. Returns whether an enemy is in range: what
+    // attack-move stops for.
+    bool Engage(ref Unit unit, bool fire)
     {
-        if (FindTarget(unit, out int target, out var at)) Fire(ref unit, target, at);
+        if (!fire && unit.TurretTurnRate <= 0) return false; // nothing to get ready
+        if (!FindTarget(unit, out int target, out var at))
+        {
+            TurnTurret(ref unit, unit.Heading);
+            return false;
+        }
+        if (AimAt(ref unit, at) && fire) Fire(ref unit, target, at);
+        return true;
     }
 
     // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
@@ -418,6 +449,23 @@ public sealed class Simulation
         }
         return target >= 0;
     }
+
+    // Turns the turret toward `yaw` at its turn rate; true once it's on target. Units without a turret
+    // (squads) aim instantly.
+    static bool TurnTurret(ref Unit unit, float yaw)
+    {
+        if (unit.TurretTurnRate <= 0)
+        {
+            unit.Turret = yaw;
+            return true;
+        }
+        float off = WrapAngle(yaw - unit.Turret), step = unit.TurretTurnRate * Dt;
+        unit.Turret = WrapAngle(unit.Turret + Math.Clamp(off, -step, step));
+        return MathF.Abs(off) - step <= AimTolerance;
+    }
+
+    static bool AimAt(ref Unit unit, Vector3 at) =>
+        TurnTurret(ref unit, MathF.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z));
 
     // Returns true if this shot destroyed the target.
     bool Fire(ref Unit unit, int targetId, Vector3 at)
@@ -469,10 +517,10 @@ public sealed class Simulation
         return false;
     }
 
-    // Steers toward the target at a limited turn rate, accelerating, and braking to stop near it.
-    // Tracked vehicles crawl while turning sharply, so they pivot almost on the spot; wheeled ones need
-    // speed to steer, so from a standstill they drive off in an arc. A vehicle standing still with a
-    // close target behind it backs up to it instead of turning around.
+    // Steers toward the target at a limited turn rate, speeding up, and braking to come to rest near it,
+    // all eased (EaseSpeed, Steer). Tracked vehicles crawl while turning sharply, so they pivot almost on
+    // the spot; wheeled ones need speed to steer, so from a standstill they drive off in an arc. A vehicle
+    // standing still with a close target behind it backs up to it instead of turning around.
     static bool Drive(ref Unit unit, Vector3 target)
     {
         float dx = target.X - unit.Position.X, dz = target.Z - unit.Position.Z;
@@ -488,8 +536,10 @@ public sealed class Simulation
         float turn = reverse ? turnBackward : turnForward;
         float sharpness = MathF.Abs(turn);
 
-        // Close enough, or so close that lining up would take a loop: stop here and coast to a halt.
-        if (distance <= VehicleArriveRadius || (distance < 2 && sharpness > MathF.PI * 0.6f))
+        // Close enough (a vehicle at rest a bit further off counts too, rather than creeping up), or so
+        // close that lining up would take a loop: stop here and coast to a halt.
+        if (distance <= VehicleArriveRadius || (speed < 0.05f && distance <= VehicleParkRadius)
+            || (distance < 2 && sharpness > MathF.PI * 0.6f))
         {
             unit.Driving = false;
             return true;
@@ -497,29 +547,110 @@ public sealed class Simulation
 
         float rate = unit.TurnRate;
         if (unit.Movement == Movement.Wheeled) rate *= Math.Clamp(speed / (0.3f * unit.Speed), 0.25f, 1f);
-        unit.Heading = WrapAngle(unit.Heading + Math.Clamp(turn, -rate * Dt, rate * Dt));
+        Steer(ref unit, turn, rate);
 
+        // Brake once the rest of the way is what easing to a stop from here takes, less a margin. Once
+        // braking, keep at it unless that would leave it well short: while it turns, the straight-line
+        // distance shrinks slower than it rolls, and letting go then would pump the pedals.
         float top = reverse ? unit.ReverseSpeed : unit.Speed;
-        float braking = unit.Acceleration * BrakeFactor;
-        float stopping = speed * speed / (2 * braking);
-        float want = distance - VehicleArriveRadius <= stopping ? 0 : top;
+        float slack = distance - MathF.Abs(StoppingDistance(unit));
+        bool braking = unit.Effort * unit.CurrentSpeed < 0;
+        float want = slack <= StopMargin + (braking ? StopHysteresis : 0) ? 0 : top;
         if (unit.Movement == Movement.Tracked && sharpness > TrackedPivotAngle) want = MathF.Min(want, top * 0.15f);
         else if (unit.Movement == Movement.Wheeled && sharpness > WheeledSlowAngle) want = MathF.Min(want, top * 0.5f);
         if (reverse) want = -want;
 
-        // Speed up toward `want`; brake, harder, when slowing down or changing direction.
-        bool speedingUp = want * unit.CurrentSpeed >= 0 && MathF.Abs(want) > speed;
-        unit.CurrentSpeed = MoveToward(unit.CurrentSpeed, want, (speedingUp ? unit.Acceleration : braking) * Dt);
+        EaseSpeed(ref unit, want);
         unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
         return false;
     }
 
-    // A vehicle that isn't driving this tick rolls on and brakes to a stop.
+    // A vehicle that isn't driving this tick rolls on and eases to a stop, and its turn winds down.
     static void Coast(ref Unit unit)
     {
-        if (unit.Movement == Movement.Foot || unit.CurrentSpeed == 0) return;
-        unit.CurrentSpeed = MoveToward(unit.CurrentSpeed, 0, unit.Acceleration * BrakeFactor * Dt);
-        unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
+        if (unit.Movement == Movement.Foot) return;
+        if (unit.CurrentSpeed != 0 || unit.Effort != 0)
+        {
+            EaseSpeed(ref unit, 0);
+            unit.Position += Forward(unit.Heading) * unit.CurrentSpeed * Dt;
+        }
+        if (unit.TurnSpeed != 0)
+        {
+            EaseTurnSpeed(ref unit, 0);
+            unit.Heading = WrapAngle(unit.Heading + unit.TurnSpeed * Dt);
+        }
+    }
+
+    // Moves the speed toward `want` through the effort, which builds up over EaseIn seconds and fades over
+    // EaseOut, fading so that it reaches zero just as the speed reaches `want`. So speed changes follow an
+    // S curve, gentle at both ends, like something heavy, instead of switching between flat-out rates.
+    // With both eases 0 it's plain constant acceleration and braking.
+    static void EaseSpeed(ref Unit unit, float want)
+    {
+        float speed = unit.CurrentSpeed, effort = unit.Effort, gap = want - speed;
+        if (MathF.Abs(gap) <= SpeedSnap && MathF.Abs(effort) <= EffortSnap)
+        {
+            (unit.CurrentSpeed, unit.Effort) = (want, 0);
+            return;
+        }
+        float push = MathF.Sign(gap), pull = Pull(unit, push, speed);
+        if (pull <= 0) return; // no engine or no brakes: nothing to do it with
+        // The most effort this tick that can still fade out onto `want`. Fading down from e, one step of
+        // Dt/EaseOut a tick, adds pull * EaseOut * e * (e + Dt/EaseOut) / 2 to the speed; this solves for e.
+        float landing = unit.EaseOut > 0
+            ? (MathF.Sqrt(Dt * Dt + 8 * unit.EaseOut * MathF.Abs(gap) / pull) - Dt) / (2 * unit.EaseOut)
+            : 1;
+        float goal = push * MathF.Min(1, landing);
+        if (effort * push > 0 && MathF.Abs(goal) <= MathF.Abs(effort)) effort = goal; // easing out onto it
+        else
+        {
+            bool building = goal * effort >= 0 && MathF.Abs(goal) > MathF.Abs(effort);
+            float seconds = building ? unit.EaseIn : unit.EaseOut;
+            effort = seconds > 0 ? MoveToward(effort, goal, Dt / seconds) : goal;
+        }
+        speed += effort * Pull(unit, effort, speed) * Dt;
+        if (MathF.Sign(want - speed) != push) (speed, effort) = (want, 0); // there, or about to pass it: hold it
+        (unit.CurrentSpeed, unit.Effort) = (speed, effort);
+    }
+
+    // The acceleration full effort gives: the engine when it pushes along the motion, the brakes against it.
+    static float Pull(in Unit unit, float effort, float speed) => effort * speed >= 0 ? unit.Acceleration : unit.Braking;
+
+    // How far easing to a stop from here would carry the vehicle, along its heading (negative when
+    // reversing). Runs the same easing forward, so the prediction is exactly what will happen.
+    static float StoppingDistance(in Unit unit)
+    {
+        var probe = unit;
+        float distance = 0;
+        for (int i = 0; i < MaxStopTicks && (probe.CurrentSpeed != 0 || probe.Effort != 0); i++)
+        {
+            EaseSpeed(ref probe, 0);
+            distance += probe.CurrentSpeed * Dt;
+        }
+        return distance;
+    }
+
+    // Turns toward a heading `turn` radians away, at up to `rate`. The turn builds up over EaseIn and winds
+    // down over EaseOut as the heading comes around, so it settles on it instead of stopping dead.
+    static void Steer(ref Unit unit, float turn, float rate)
+    {
+        // The fastest turn this tick that can still wind down onto the heading, a step of `slowing` a tick.
+        float slowing = unit.EaseOut > 0 ? unit.TurnRate / unit.EaseOut * Dt : 0;
+        float settle = slowing > 0
+            ? (MathF.Sqrt(slowing * slowing + 8 * slowing / Dt * MathF.Abs(turn)) - slowing) / 2
+            : float.MaxValue;
+        EaseTurnSpeed(ref unit, MathF.Sign(turn) * MathF.Min(rate, settle));
+        float step = unit.TurnSpeed * Dt;
+        if (step * turn > 0 && MathF.Abs(step) >= MathF.Abs(turn)) (step, unit.TurnSpeed) = (turn, 0); // lands on it
+        unit.Heading = WrapAngle(unit.Heading + step);
+    }
+
+    // Eases the turn speed toward `want` (rad/s): up over EaseIn, down over EaseOut.
+    static void EaseTurnSpeed(ref Unit unit, float want)
+    {
+        bool building = want * unit.TurnSpeed >= 0 && MathF.Abs(want) > MathF.Abs(unit.TurnSpeed);
+        float seconds = building ? unit.EaseIn : unit.EaseOut;
+        unit.TurnSpeed = seconds > 0 ? MoveToward(unit.TurnSpeed, want, unit.TurnRate / seconds * Dt) : want;
     }
 
     static float MoveToward(float from, float to, float step) =>
@@ -575,12 +706,44 @@ public sealed class Simulation
             if (junction.CaptureProgress < 1 - 1e-4f) return;
             (junction.Owner, junction.Capturer, junction.CaptureProgress) = (present, Player.None, 0);
             _events.Add(new SimEvent(SimEventKind.JunctionCaptured, index, present));
+            TurnToward(index, junction, present);
         }
         else if (junction.CaptureProgress > 0)
         {
             junction.CaptureProgress = MathF.Max(0, junction.CaptureProgress - step);
             if (junction.CaptureProgress == 0) junction.Capturer = Player.None;
         }
+    }
+
+    // A captured switch turns to its new owner's side: the first output whose stream reaches one of their
+    // posts, keeping the current one if it already does. With none of theirs downstream it keeps feeding
+    // what it fed, or its first output if it was splitting. Either way it feeds one side, never none.
+    void TurnToward(int index, Junction junction, int player)
+    {
+        int count = junction.Outputs.Count, from = Math.Max(0, junction.Selected), output = from;
+        for (int k = 0; k < count; k++)
+        {
+            int o = (from + k) % count;
+            if (!Feeds(junction.Outputs[o], player, State.Junctions.Count)) continue;
+            output = o;
+            break;
+        }
+        if (output == junction.Selected) return;
+        junction.Selected = output;
+        _events.Add(new SimEvent(SimEventKind.JunctionSwitched, index, output));
+    }
+
+    // Whether packages on a line can reach one of the player's posts: on it, or past junctions further down
+    // (whichever way those are set). `depth` bounds the search on looped networks.
+    bool Feeds(int line, int player, int depth)
+    {
+        foreach (var post in State.Gatherers)
+            if (post.Line == line && post.Owner == player) return true;
+        int next = State.Belts[line].EndJunction;
+        if (next < 0 || depth == 0) return false;
+        foreach (int output in State.Junctions[next].Outputs)
+            if (Feeds(output, player, depth - 1)) return true;
+        return false;
     }
 
     void Break(int lineIndex, int segmentIndex)
@@ -640,14 +803,16 @@ public sealed class Simulation
 
     bool HandsOff(BeltLine line) => line.EndJunction >= 0 && State.Junctions[line.EndJunction].Outputs.Count > 0;
 
-    // Moves at most one waiting package per tick into the selected output, if its entry is clear.
-    // Inputs take turns, so a merge fed faster than its output can carry backs up evenly.
-    // A closed switch takes nothing, so its inputs back up.
+    // Moves at most one waiting package per tick from an input to an output whose entry is clear. Inputs
+    // take turns, so a merge fed faster than its output can carry backs up evenly. A switch feeds the
+    // output its owner chose; a neutral one deals packages out to its outputs in turn (skipping one that's
+    // backed up), so the stream always flows somewhere.
     void Transfer(Junction junction)
     {
-        if (junction.Selected < 0 || junction.Inputs.Count == 0) return;
-        var output = State.Belts[junction.Outputs[junction.Selected]];
-        if (output.Packages.Count > 0 && output.Packages[^1].Distance < output.Spacing - SpacingSlack) return;
+        if (junction.Inputs.Count == 0) return;
+        int o = OpenOutput(junction);
+        if (o < 0) return;
+        var output = State.Belts[junction.Outputs[o]];
 
         for (int k = 0; k < junction.Inputs.Count; k++)
         {
@@ -665,9 +830,28 @@ public sealed class Simulation
                 Direction = output.DirectionAt(0),
             });
             junction.NextInput = (i + 1) % junction.Inputs.Count;
+            junction.NextOutput = (o + 1) % junction.Outputs.Count;
             return;
         }
     }
+
+    // The output the next package goes to, or -1 if its entry isn't clear yet.
+    int OpenOutput(Junction junction)
+    {
+        var outputs = junction.Outputs;
+        if (junction.Selected >= 0) return EntryClear(State.Belts[outputs[junction.Selected]]) ? junction.Selected : -1;
+        for (int k = 0; k < outputs.Count; k++)
+        {
+            int o = (junction.NextOutput + k) % outputs.Count;
+            if (EntryClear(State.Belts[outputs[o]])) return o;
+        }
+        return -1;
+    }
+
+    // Room for a package at the start of a line. The slack keeps float rounding from blocking a spawn
+    // interval that exactly matches the spacing.
+    static bool EntryClear(BeltLine line) =>
+        line.Packages.Count == 0 || line.Packages[^1].Distance >= line.Spacing - SpacingSlack;
 
     // An idle post grabs the package nearest its pull point, if one is within reach, then works.
     void UpdateGatherers()
@@ -724,8 +908,7 @@ public sealed class Simulation
         line.TicksUntilSpawn = line.SpawnIntervalTicks;
 
         // A queue reaching back to the source blocks it; that package never exists.
-        // The slack keeps float rounding from blocking a spawn interval that exactly matches the spacing.
-        if (line.Packages.Count > 0 && line.Packages[^1].Distance < line.Spacing - SpacingSlack)
+        if (!EntryClear(line))
         {
             line.BlockedSpawns++;
             return;

@@ -240,14 +240,132 @@ public class CombatTests
     }
 
     [Fact]
+    public void Eased_vehicle_speeds_up_and_slows_down_gently_at_both_ends()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, speed: 4.5f, movement: Movement.Tracked, acceleration: 2, braking: 4,
+            easeIn: 0.5f, easeOut: 0.5f, turnRate: 60);
+        var target = new Vector3(0, 0, 30); // straight ahead
+
+        var speeds = new List<float> { 0 };
+        var z = new List<float>();
+        sim.Tick([new MoveCommand(Blue, tank, target)]);
+        for (int i = 0; i < 20 * T; i++)
+        {
+            var now = UnitById(sim, tank);
+            speeds.Add(now.CurrentSpeed);
+            z.Add(now.Position.Z);
+            sim.Tick(NoCommands);
+        }
+        var changes = speeds.Zip(speeds.Skip(1), (a, b) => b - a).ToList(); // m/s per tick
+
+        // Pulling away, the push builds over 0.5 s to the full 2 m/s² (0.1 m/s per tick)...
+        Assert.True(changes[0] < 0.02f && changes[4] > changes[0] && changes[9] > 0.09f, string.Join(", ", changes.Take(12)));
+        // ...then fades as it reaches top speed, which it never passes.
+        int top = speeds.IndexOf(4.5f);
+        Assert.True(top > 0, $"never reached top speed: {speeds.Max()}");
+        Assert.True(changes[top - 1] < 0.03f && speeds.Max() <= 4.5f);
+
+        // Braking builds up and fades too: never harder than 4 m/s² (0.2 m/s per tick), gentle at the end,
+        // and it comes to rest just short of the target instead of overshooting.
+        int rest = speeds.FindIndex(top, s => s == 0);
+        Assert.True(rest > 0, "never came to rest");
+        Assert.True(changes.Min() >= -0.2f - 1e-4f && changes[rest - 1] > -0.05f, string.Join(", ", changes.Skip(rest - 12).Take(12)));
+        Assert.True(30 - z[^1] < 0.6f, $"stopped {30 - z[^1]} m short");
+        Assert.True(z.Max() <= 30.1f, $"overshot to {z.Max()}");
+    }
+
+    [Fact]
+    public void Eased_turn_builds_up_and_settles_on_the_heading_without_overshooting()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, speed: 4.5f, movement: Movement.Tracked, acceleration: 2,
+            easeIn: 0.5f, easeOut: 0.5f, turnRate: 60);
+
+        // Far off to the side: a 90 degree turn toward +x, whose bearing barely moves as the tank crawls.
+        var headings = new List<float> { 0 };
+        sim.Tick([new MoveCommand(Blue, tank, new Vector3(2000, 0, 0))]);
+        for (int i = 0; i < 4 * T; i++)
+        {
+            headings.Add(UnitById(sim, tank).Heading);
+            sim.Tick(NoCommands);
+        }
+        var steps = headings.Zip(headings.Skip(1), (a, b) => (b - a) * 180 / MathF.PI).ToList(); // degrees per tick
+
+        Assert.True(steps[0] < 1f && steps[9] > 2.9f, string.Join(", ", steps.Take(12))); // up to 60°/s over 0.5 s
+        Assert.True(steps.Max() <= 3.001f);
+        Assert.All(steps, s => Assert.True(s >= -0.05f, $"turned back {s}°: it overshot")); // settles, never swings past
+        Assert.Equal(90f, headings[^1] * 180 / MathF.PI, 1f);
+        int settled = steps.FindIndex(s => s < 0.1f && s > -0.1f);
+        Assert.True(steps[settled - 1] < 1f, "stopped turning dead instead of winding down");
+    }
+
+    [Fact]
+    public void Turret_swings_onto_an_attack_target_while_driving_there_and_fires_on_arrival()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, speed: 4.5f, dps: 20, range: 14, movement: Movement.Tracked,
+            acceleration: 3, turnRate: 60, turretTurnRate: 90);
+        int enemy = sim.AddUnit(Red, new Vector3(30, 0, 0), maxHealth: 1000, dps: 0); // off to the side, out of range
+
+        sim.Tick([new AttackCommand(Blue, tank, enemy)]);
+        Run(sim, T - 1);
+        var driving = UnitById(sim, tank);
+        Assert.Equal(MathF.PI / 2, driving.Turret, 0.05f);          // on target after 1 s at 90°/s...
+        Assert.True(driving.Heading < MathF.PI / 2 - 0.2f);         // ...while the hull, at 60°/s, is still coming round
+        Assert.False(driving.Firing);                               // out of range: no shooting yet
+
+        int inRange = -1, firstHit = -1;
+        for (int tick = 0; tick < 20 * T && firstHit < 0; tick++)
+        {
+            sim.Tick(NoCommands);
+            if (inRange < 0 && Vector3.Distance(UnitById(sim, tank).Position, new Vector3(30, 0, 0)) <= 14) inRange = tick;
+            if (UnitById(sim, enemy).Health < 1000) firstHit = tick;
+        }
+        Assert.True(inRange > 0 && firstHit > 0);
+        Assert.InRange(firstHit - inRange, 0, 1); // aimed already: fires as it comes into range
+    }
+
+    [Fact]
+    public void Turret_has_to_come_around_before_it_fires()
+    {
+        var sim = NewSim();
+        sim.AddUnit(Blue, Vector3.Zero, dps: 20, range: 14, movement: Movement.Tracked, acceleration: 3, turnRate: 60, turretTurnRate: 90);
+        int behind = sim.AddUnit(Red, new Vector3(0, 0, -8), maxHealth: 1000, dps: 0); // in range, straight behind
+
+        Run(sim, T); // 90 of the 180 degrees
+        Assert.Equal(1000f, UnitById(sim, behind).Health);
+        Run(sim, T); // round by 2 s (a little under, within the ~6° it fires at)
+        Assert.True(UnitById(sim, behind).Health < 1000f);
+    }
+
+    [Fact]
+    public void Turret_ignores_enemies_out_of_range_unless_ordered_to_attack()
+    {
+        var sim = NewSim();
+        int tank = sim.AddUnit(Blue, Vector3.Zero, dps: 20, range: 10, movement: Movement.Tracked, acceleration: 3, turnRate: 60, turretTurnRate: 90);
+        sim.AddUnit(Red, new Vector3(13, 0, 0), dps: 0); // just beyond its 10 m
+
+        Run(sim, 2 * T);
+        Assert.Equal(0f, UnitById(sim, tank).Turret); // idle: stays over the nose
+
+        sim.AddUnit(Red, new Vector3(-6, 0, 0), dps: 0); // in range, the other side
+        Run(sim, 2 * T);
+        Assert.Equal(-MathF.PI / 2, UnitById(sim, tank).Turret, 0.05f);
+    }
+
+    [Fact]
     public void Unit_types_load_from_json()
     {
         var types = GameData.ParseUnitTypes("""
             // comments and trailing commas are fine
             {
               "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
-              "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 3, "turnRate": 60,
-                        "reverseSpeed": 2.2, "memberHealth": 260, "memberDps": 14, "range": 9, "canCapture": false },
+              "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 2, "braking": 4,
+                        "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90, "reverseSpeed": 2.2,
+                        "memberHealth": 260, "memberDps": 14, "range": 14, "canCapture": false },
+              "car": { "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 4, "turnRate": 120,
+                       "memberHealth": 140, "memberDps": 9, "range": 12 },
             }
             """);
         Assert.Equal("tank", types["tank"].Id);
@@ -264,9 +382,14 @@ public class CombatTests
         var tank = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["tank"]));
         Assert.Equal(Movement.Tracked, tank.Movement);
         Assert.Equal(MathF.PI / 3, tank.TurnRate, 0.001f);
+        Assert.Equal(MathF.PI / 2, tank.TurretTurnRate, 0.001f);
+        Assert.Equal((2f, 4f, 0.5f, 0.7f), (tank.Acceleration, tank.Braking, tank.EaseIn, tank.EaseOut));
         Assert.Equal(2.2f, tank.ReverseSpeed);
         Assert.False(tank.CanCapture);
         Assert.Equal("tank", tank.Type);
         Assert.Equal("rifle_squad", squad.Type);
+
+        var car = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["car"]));
+        Assert.Equal((8f, 0f, 0f, 0f), (car.Braking, car.EaseIn, car.EaseOut, car.TurretTurnRate)); // braking: twice acceleration
     }
 }

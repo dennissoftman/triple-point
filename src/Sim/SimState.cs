@@ -31,14 +31,16 @@ public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -
 public enum Movement { Foot, Wheeled, Tracked }
 
 /// <summary>
-/// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle. TurnRate is in degrees per
-/// second; Acceleration, TurnRate and ReverseSpeed (0: can't reverse) only matter for vehicles. Id is the
-/// type's key in the file, filled in when parsed.
+/// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle. The rest only matter for
+/// vehicles: Acceleration and Braking in m/s² (Braking 0: twice Acceleration); EaseIn and EaseOut in
+/// seconds, how long speeding up, braking and turning take to build up to full and to settle (0:
+/// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
+/// instantly); ReverseSpeed in m/s (0: can't back up). Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
     int Members, float Speed, float MemberHealth, float MemberDps, float Range,
-    Movement Movement = Movement.Foot, float Acceleration = 0, float TurnRate = 0, float ReverseSpeed = 0,
-    bool CanCapture = true, string Id = "");
+    Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
+    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true, string Id = "");
 
 /// <summary>
 /// A vehicle, or an infantry squad. A squad is one sim entity (one position, one order); its members
@@ -51,11 +53,19 @@ public struct Unit
     public string Type;                    // unit type id, as in /data/units.json ("" for ad hoc units)
     public Vector3 Position, PrevPosition; // PrevPosition is last tick's, for view interpolation
     public float Heading, PrevHeading;     // radians; facing (sin h, 0, cos h)
+    public float Turret, PrevTurret;       // radians, world yaw like Heading; units without a turret aim instantly
     public float Speed, Range;             // top speed m/s, weapon range m
     public Movement Movement;
-    public float Acceleration, TurnRate;   // m/s², rad/s; vehicles only
+    // Vehicles only. Effort is the throttle, eased over EaseIn/EaseOut seconds: -1..1, positive pushing
+    // along the heading; it brakes (at Braking) when it opposes the motion, and drives (at Acceleration)
+    // otherwise. TurnSpeed eases the same way, up to TurnRate.
+    public float Acceleration, Braking;    // m/s² at full effort
+    public float EaseIn, EaseOut;          // s
+    public float TurnRate, TurretTurnRate; // rad/s; TurretTurnRate 0: no turret
     public float ReverseSpeed;             // m/s; 0 for units that can't back up
-    public float CurrentSpeed;             // vehicles only; negative while reversing
+    public float CurrentSpeed;             // m/s; negative while reversing
+    public float Effort;
+    public float TurnSpeed;                // rad/s, signed like Heading
     public bool CanCapture;                // squads take switches; vehicles only deny them
     public bool Driving;                   // moved under power this tick; otherwise a vehicle coasts to a stop
     public int MaxMembers;
@@ -154,19 +164,20 @@ public sealed class BeltLine
 }
 
 /// <summary>
-/// Where belt lines meet. Every input feeds whichever output is selected: several inputs make a merge
-/// (they take turns), several outputs make a switch. A switch starts neutral and closed; a side takes it
-/// by holding it uncontested, and only its owner sets the live output.
+/// Where belt lines meet. Several inputs make a merge (they take turns), several outputs make a switch.
+/// A switch never stops the stream, it only steers it: neutral, it deals packages out to its outputs in
+/// turn; a side takes it by holding it uncontested, which turns it toward that side, and from then on
+/// only its owner moves it between outputs.
 /// </summary>
 public sealed class Junction
 {
     public readonly Vector3 Position;
     public readonly List<int> Inputs = [], Outputs = []; // line indices
-    public int Selected = -1;          // index into Outputs; -1 is closed
+    public int Selected = -1;          // index into Outputs; -1 on a neutral switch, which splits between them
     public int Owner = Player.None;    // switches only
     public int Capturer = Player.None; // who CaptureProgress belongs to
     public float CaptureProgress;      // 0..1
-    internal int NextInput;            // round-robin, so a merge doesn't starve an input
+    internal int NextInput, NextOutput; // round-robin, so a merge doesn't starve an input, and a neutral switch splits evenly
 
     public Junction(Vector3 position) => Position = position;
 

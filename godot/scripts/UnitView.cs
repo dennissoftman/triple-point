@@ -6,13 +6,12 @@ using Sim;
 /// <summary>
 /// The look of one unit. A squad is a capsule per member, walking loosely in a wedge behind the squad's
 /// sim position (visual only: the sim has one position per squad). A vehicle is a hull on wheels or
-/// tracks that follows the sim's heading, with a turret that swings toward what it shoots. Tinted by
+/// tracks that follows the sim's heading, with a turret that follows the sim's turret. Tinted by
 /// owner, with a selection ring and a health bar. UnitsView positions it.
 /// </summary>
 public partial class UnitView : Node3D
 {
     const float TurnSharpness = 8f;    // squads turn toward their heading (1/s)
-    const float TurretSharpness = 6f;  // turrets swing toward their target (1/s)
     const float FollowSharpness = 5f;  // how tightly members keep to their wedge slots (1/s)
     const float MemberRadius = 0.28f, MemberHeight = 1.3f;
     const float SlotSpacing = 0.9f;    // m between members
@@ -28,7 +27,7 @@ public partial class UnitView : Node3D
     readonly HealthBar _health = new();
     Node3D? _hull, _turret;                        // vehicles only
     float _turretHeight, _barrelLength;
-    float _facing, _aim;                           // yaw (radians): squad facing, turret aim
+    float _facing;                                 // yaw (radians) a squad faces
     float _wheelSpin, _healthFraction = 1;
     Vector3 _lastPosition;
     bool _selected, _placed;
@@ -120,15 +119,15 @@ public partial class UnitView : Node3D
         parent.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = size }, MaterialOverride = material, Position = at });
 
     /// <summary>
-    /// Moves the unit to its interpolated sim position and heading (radians). `delta` is sim time for this
-    /// frame, so members and turrets keep pace at any game speed.
+    /// Moves the unit to its interpolated sim position, heading and turret yaw (radians). `delta` is sim
+    /// time for this frame, so squad members keep pace at any game speed.
     /// </summary>
-    public void Sync(Vector3 position, float heading, float delta, int members, float health, bool firing, Vector3 fireAt)
+    public void Sync(Vector3 position, float heading, float turret, float delta, int members, float health, bool firing, Vector3 fireAt)
     {
         float moved = _placed ? (position - _lastPosition).Dot(Direction(heading)) : 0; // negative when backing up
         GlobalPosition = position;
         _muzzles.Clear();
-        if (_hull is not null) SyncVehicle(position, heading, moved, delta, firing, fireAt);
+        if (_hull is not null) SyncVehicle(position, heading, turret, moved);
         else SyncSquad(position, delta, members, firing, fireAt);
         _lastPosition = position;
         _placed = true;
@@ -141,16 +140,15 @@ public partial class UnitView : Node3D
         }
     }
 
-    void SyncVehicle(Vector3 position, float heading, float moved, float delta, bool firing, Vector3 fireAt)
+    // The sim aims the turret (it tracks targets before they're in range, and fires once on them), so the
+    // view just follows it.
+    void SyncVehicle(Vector3 position, float heading, float turret, float moved)
     {
         _hull!.Basis = Basis.LookingAt(Direction(heading), Vector3.Up);
         _wheelSpin -= moved / WheelRadius; // rolls forward, or backward when reversing
         foreach (var wheel in _wheels) wheel.Rotation = new Vector3(_wheelSpin, 0, 0);
 
-        // The turret tracks its target while firing, and settles back over the nose otherwise.
-        float want = firing && Yaw(fireAt - position) is float toTarget ? toTarget : heading;
-        _aim = _placed ? Mathf.LerpAngle(_aim, want, 1 - MathF.Exp(-TurretSharpness * delta)) : want;
-        var aim = Direction(_aim);
+        var aim = Direction(turret);
         _turret!.Basis = Basis.LookingAt(aim, Vector3.Up);
         _muzzles.Add(position + new Vector3(0, _turretHeight + 0.2f, 0) + aim * (_barrelLength + 0.5f));
     }

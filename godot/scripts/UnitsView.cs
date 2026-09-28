@@ -43,8 +43,9 @@ public partial class UnitsView : Node3D
             }
             var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
             float heading = Mathf.LerpAngle(unit.PrevHeading, unit.Heading, alpha);
+            float turret = Mathf.LerpAngle(unit.PrevTurret, unit.Turret, alpha);
             _positions[unit.Id] = position;
-            view.Sync(position, heading, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt));
+            view.Sync(position, heading, turret, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt));
             view.Selected = selection.Contains(unit.Id);
         }
 

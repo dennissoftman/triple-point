@@ -186,7 +186,9 @@ public partial class SimHost : Node3D
 
     string DescribeSwitch(Junction j)
     {
-        string feeding = j.Selected < 0 ? "closed" : $"feeding {_lineNames[j.Outputs[j.Selected]]}";
+        string feeding = j.Selected < 0
+            ? $"splitting {string.Join("/", j.Outputs.Select(o => _lineNames[o]))}"
+            : $"feeding {_lineNames[j.Outputs[j.Selected]]}";
         string capture = j.CaptureProgress > 0 ? $", {PlayerPalette.Name(j.Capturer)} capturing {j.CaptureProgress:P0}" : "";
         return $"Switch: {PlayerPalette.Name(j.Owner)}, {feeding}{capture}";
     }
@@ -205,9 +207,10 @@ public partial class SimHost : Node3D
         }
     }
 
-    // `godot -- --demo`, on the prototype map, as a scripted match: Blue takes the switch and routes it
-    // to its post; Blue pulls back a short way (its vehicles back up) and Red takes the switch and routes
-    // it south; Red goes for Blue's post; then Blue attack-moves into Red's side and they fight it out.
+    // `godot -- --demo`, on the prototype map, as a scripted match. The neutral switch splits the stream;
+    // Blue takes it, which turns it to Blue's post; Blue pulls back (its vehicles back up, then turn
+    // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
+    // on the way; then Blue attack-moves into Red's side and they fight it out.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
@@ -216,25 +219,24 @@ public partial class SimHost : Node3D
         var switchAt = _sim.State.Junctions[sw].Position with { Y = 0 };
 
         if (tick == 2 * T) MoveAll(Blue, switchAt);
-        if (tick == 12 * T) _commands.Add(new SetJunctionCommand(Blue, sw, 0));
-        if (tick == 40 * T)
+        if (tick == 25 * T)
         {
-            MoveAll(Blue, switchAt + new SVector3(0, 0, -9)); // 9 m back north: close enough to reverse
-            MoveAll(Red, switchAt);
+            MoveAll(Blue, switchAt + new SVector3(0, 0, -8));                // close behind: vehicles back up...
+            MoveAll(Blue, switchAt + new SVector3(0, 0, -21), queued: true); // ...then far: they turn round
         }
-        if (tick == 52 * T) _commands.Add(new SetJunctionCommand(Red, sw, 1));
+        if (tick == 40 * T) MoveAll(Red, switchAt);
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
             foreach (int id in _unitsOf[Red]) _commands.Add(new AttackCommand(Red, id, post.Id));
         if (tick == 80 * T) MoveAll(Blue, ToSim(new Vector3(HomeOf(Red).X, 0, HomeOf(Red).Y)), attack: true);
     }
 
-    void MoveAll(int player, SVector3 at, bool attack = false)
+    void MoveAll(int player, SVector3 at, bool attack = false, bool queued = false)
     {
         for (int i = 0; i < _unitsOf[player].Count; i++)
         {
             int id = _unitsOf[player][i];
             var spot = at + new SVector3((i - 1) * 3f, 0, 0);
-            _commands.Add(attack ? new AttackMoveCommand(player, id, spot) : new MoveCommand(player, id, spot));
+            _commands.Add(attack ? new AttackMoveCommand(player, id, spot, queued) : new MoveCommand(player, id, spot, queued));
         }
     }
 

@@ -87,52 +87,85 @@ public class NetworkTests
     }
 
     [Fact]
-    public void Neutral_switch_is_closed_and_backs_up_its_input()
+    public void Neutral_switch_splits_the_stream_between_its_outputs()
     {
         var (sim, j) = Switch();
         var (input, left, right) = (sim.State.Belts[0], sim.State.Belts[1], sim.State.Belts[2]);
 
-        Run(sim, 20 * T);
+        Run(sim, 40 * T);
 
         Assert.Equal(-1, sim.State.Junctions[j].Selected);
         Assert.Equal(Player.None, sim.State.Junctions[j].Owner);
-        Assert.Empty(left.Packages);
-        Assert.Empty(right.Packages);
-        Assert.Equal(0, input.Lost);
-        Assert.True(input.BlockedSpawns > 0); // held at the switch all the way back to the source
+        Assert.True(left.Lost > 5 && right.Lost > 5, $"left {left.Lost}, right {right.Lost}");
+        Assert.InRange(left.Lost - right.Lost, -1, 1); // dealt out in turn
+        Assert.Equal(0, input.BlockedSpawns);           // it never holds the stream up
     }
 
     [Fact]
-    public void Holding_a_switch_captures_it_and_only_the_owner_routes_it()
+    public void Capturing_a_switch_turns_it_to_the_captors_side_and_only_the_owner_flips_it()
     {
         var (sim, j) = Switch();
         var junction = sim.State.Junctions[j];
         var (left, right) = (sim.State.Belts[1], sim.State.Belts[2]);
-        int unit = sim.AddUnit(Blue, new Vector3(10, 0, 8), speed: 5);
+        sim.AddGatherer(Red, new Vector3(17, 0, -6), maxDistance: 3); // on the left output
+        sim.AddGatherer(Blue, new Vector3(17, 0, 6), maxDistance: 3); // on the right one
+        int blue = sim.AddUnit(Blue, new Vector3(10, 0, 8), speed: 5, dps: 0);
 
         sim.Tick([new SetJunctionCommand(Blue, j, 0)]);
-        Assert.Equal(-1, junction.Selected); // not Blue's yet
+        Assert.Equal(-1, junction.Selected); // not Blue's yet: still splitting
 
-        // 4 m to walk into the 4 m capture radius (16 ticks), then 5 s uncontested (100 ticks).
-        int capturedAt = TicksUntil(sim, new SimEvent(SimEventKind.JunctionCaptured, j, Blue), 200,
-            [new MoveCommand(Blue, unit, new Vector3(10, 0, 0))]);
-        Assert.InRange(capturedAt, 115, 118);
-        Assert.Equal(Blue, junction.Owner);
+        // 4 m to walk into the 4 m capture radius (16 ticks), then 5 s uncontested (100 ticks). On the tick
+        // it's taken it turns toward Blue's post.
+        var captured = new SimEvent(SimEventKind.JunctionCaptured, j, Blue);
+        var events = sim.Tick([new MoveCommand(Blue, blue, new Vector3(10, 0, 0))]);
+        int ticks = 1;
+        for (; !events.Contains(captured) && ticks < 200; ticks++) events = sim.Tick(NoCommands);
+        Assert.InRange(ticks, 115, 118);
+        Assert.Contains(new SimEvent(SimEventKind.JunctionSwitched, j, 1), events);
+        Assert.Equal((Blue, 1), (junction.Owner, junction.Selected));
 
-        sim.Tick([new SetJunctionCommand(Red, j, 1)]);
-        Assert.Equal(-1, junction.Selected); // Red doesn't own it
+        sim.Tick([new SetJunctionCommand(Red, j, 0)]);
+        Assert.Equal(1, junction.Selected); // Red doesn't own it
         sim.Tick([new SetJunctionCommand(Blue, j, 0)]);
-        Assert.Equal(0, junction.Selected);
-
-        Run(sim, 20 * T);
-        Assert.True(left.Lost > 0);
-        Assert.Empty(right.Packages);
-
+        Assert.Equal(0, junction.Selected); // the owner flips it, from anywhere
+        Run(sim, 10 * T);
+        Assert.Empty(right.Packages); // all of it goes left now
+        Assert.NotEmpty(left.Packages);
         sim.Tick([new SetJunctionCommand(Blue, j, 1)]);
-        var (leftLost, leftCarrying) = (left.Lost, left.Packages.Count);
-        Run(sim, 20 * T);
-        Assert.True(right.Lost > 0);
-        Assert.Equal(leftCarrying, left.Lost - leftLost); // only what was already on it
+
+        // Blue walks off and Red takes it: it turns toward Red's post, on the left.
+        int red = sim.AddUnit(Red, new Vector3(10, 0, -8), speed: 5, dps: 0);
+        sim.Tick([new MoveCommand(Blue, blue, new Vector3(10, 0, 20))]);
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.JunctionCaptured, j, Red), 300,
+            [new MoveCommand(Red, red, new Vector3(10, 0, 0))]) > 0);
+        Assert.Equal((Red, 0), (junction.Owner, junction.Selected));
+    }
+
+    [Fact]
+    public void Captured_switch_with_none_of_the_captors_posts_downstream_still_feeds_a_side()
+    {
+        var (sim, j) = Switch();
+        sim.AddUnit(Blue, new Vector3(10, 0, 1), dps: 0);
+
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.JunctionCaptured, j, Blue), 150) > 0);
+        Assert.Equal(0, sim.State.Junctions[j].Selected);
+    }
+
+    [Fact]
+    public void Capture_looks_past_other_junctions_for_the_captors_posts()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], Belt(1));
+        sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, -5))], Belt(1));
+        sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, 5))], Belt(1));
+        sim.AddBeltLine([Straight(new(20, 0, 5), new(30, 0, 5))], Belt(1)); // past a junction at the right output's end
+        int j = sim.AddJunction(new Vector3(10, 0, 0), attachRadius: 0.5f);
+        sim.AddJunction(new Vector3(20, 0, 5), attachRadius: 0.5f);
+        sim.AddGatherer(Blue, new Vector3(25, 0, 7), maxDistance: 3);
+        sim.AddUnit(Blue, new Vector3(10, 0, 1), dps: 0);
+
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.JunctionCaptured, j, Blue), 150) > 0);
+        Assert.Equal(1, sim.State.Junctions[j].Selected);
     }
 
     [Fact]

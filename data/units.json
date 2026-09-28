@@ -1,15 +1,21 @@
 // Prototype unit types. Members is 1 for a vehicle; a squad's health and damage are per member.
-// Movement: foot (default), wheeled or tracked. Vehicles also need acceleration (m/s²) and turnRate (°/s),
-// and may back up at reverseSpeed (m/s; 0 or missing: they always turn around).
+// Movement: foot (default), wheeled or tracked. Vehicles also take:
+//   acceleration and braking (m/s² at full throttle or brake; braking defaults to twice acceleration),
+//   easeIn and easeOut (s): how long speeding up, braking and turning take to build up to full, and to
+//     settle again. This is what gives a vehicle weight; 0 is instant, and looks like a toy.
+//   turnRate (°/s), reverseSpeed (m/s; 0 or missing: it always turns around),
+//   turretTurnRate (°/s; 0 or missing: no turret, it aims instantly). A turret fires once it's on target.
 // canCapture defaults to true; vehicles can't capture switches, only deny them to the enemy.
 {
   "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
   "scout_car": {
-    "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 6, "turnRate": 120, "reverseSpeed": 4,
-    "memberHealth": 140, "memberDps": 9, "range": 8, "canCapture": false
+    "members": 1, "movement": "wheeled", "speed": 8, "reverseSpeed": 4,
+    "acceleration": 4, "braking": 8, "easeIn": 0.3, "easeOut": 0.5, "turnRate": 120, "turretTurnRate": 180,
+    "memberHealth": 140, "memberDps": 9, "range": 12, "canCapture": false
   },
   "tank": {
-    "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 3, "turnRate": 60, "reverseSpeed": 2.2,
-    "memberHealth": 260, "memberDps": 14, "range": 9, "canCapture": false
+    "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
+    "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,
+    "memberHealth": 260, "memberDps": 14, "range": 14, "canCapture": false
   },
 }

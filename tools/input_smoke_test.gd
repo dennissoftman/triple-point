@@ -1,7 +1,7 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
-# checks selection (only your own units), group moves, capturing and flipping the switch, the hotseat
-# swap with its per-side camera, double-click select by type, the cursor, attack-move, and camera
-# pan and zoom.
+# checks selection (only your own units), group moves, the switch (splitting while neutral, turning to
+# your post when you capture it, flipping when you click it), the hotseat swap with its per-side camera,
+# double-click select by type, the cursor, attack-move, and camera pan and zoom.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -15,8 +15,6 @@ var cam: Camera3D
 var player: Node
 var blue: Array
 var red: Array
-var arrow: Node3D
-var arrow_before: Vector3
 var cam_before: Vector3
 
 func _initialize():
@@ -37,42 +35,40 @@ func _process(_delta) -> bool:
 			box(blue)
 		25:
 			check("box selects all of your units", selected(blue), 4)
+			check("the neutral switch splits: arrows on both outputs", arrows_shown(), [true, true])
 			right_click(cam.unproject_position(Vector3.ZERO))
-		520:
+		560:
 			# Four units around (0, 0, 0) in a 2x2 grid with 3 m spacing. Squads stop exactly on their slot;
-			# vehicles brake to a stop within about 0.6 m of it.
+			# vehicles ease to a stop within about 0.6 m of it.
 			var slots := [Vector3(-1.5, 0, -1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, 1.5), Vector3(1.5, 0, 1.5)]
 			for i in blue.size():
 				check("unit %d at its formation slot" % i, blue[i].global_position.distance_to(slots[i]) < 1.0, true)
 			click(screen(blue[0]))
-		525:
+		565:
 			check("click selects one", selected(blue), 1)
 			key(KEY_SHIFT, true)
 			click(screen(blue[1]))
-		530:
+		570:
 			check("shift-click adds", selected(blue), 2)
 			click(screen(blue[1]))
-		535:
+		575:
 			check("shift-click toggles off", selected(blue), 1)
 			key(KEY_SHIFT, false)
 			click(screen(red[0]))
-		540:
+		580:
 			check("enemy units can't be selected", [selected(blue), selected(red)], [0, 0])
 			box(blue)
-		545:
+		585:
 			right_click(cam.unproject_position(SWITCH))
 		1120:
-			# Walked over (~2 s) and held it uncontested (5 s): it's Blue's, but still closed.
-			arrow = switch_arrow()
-			check("switch arrow exists and is hidden while closed", arrow != null and not arrow.visible, true)
+			# Walked over (~2 s) and held it uncontested (5 s): it's Blue's, and it turned to Blue's post.
+			check("capturing the switch turns it to your post (north)", arrows_shown(), [true, false])
 			click(cam.unproject_position(SWITCH))
 		1125:
-			check("clicking your switch opens it", arrow.visible, true)
-			arrow_before = arrow.global_position
+			check("clicking your switch flips it south", arrows_shown(), [false, true])
 			click(cam.unproject_position(SWITCH))
 		1130:
-			# Both outputs leave heading east; south bends toward +z, so the arrow moves that way.
-			check("clicking it again flips it north -> south", arrow.global_position.z > arrow_before.z + 0.01, true)
+			check("and back north", arrows_shown(), [true, false])
 			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
 			key(KEY_F2, false)
@@ -108,7 +104,7 @@ func _process(_delta) -> bool:
 			key(KEY_A, false)
 		1265:
 			check("A arms attack-move", player.get("CursorName"), "AttackMove")
-			click(cam.unproject_position(Vector3(10, 0, 6))) # short of Red's units
+			click(cam.unproject_position(Vector3(3, 0, 11))) # short of Red's units
 		1270:
 			check("the click attack-moves and disarms (back to the plain cursor over open ground)", player.get("CursorName"), "Move")
 			cam_before = cam.global_position
@@ -134,7 +130,7 @@ func _process(_delta) -> bool:
 			quit(failures)
 	return false
 
-const RED_HOME := Vector2(10, 12.375) # the middle of Red's four unit spawns
+const RED_HOME := Vector2(2.75, 17.875) # the middle of Red's four unit spawns
 var blue_view: Vector2
 
 func check(name: String, actual, expected):
@@ -161,15 +157,10 @@ func selected(views: Array) -> int:
 func screen(v: Node3D) -> Vector2:
 	return cam.unproject_position(v.global_position + Vector3(0, 0.6, 0))
 
-# BeltView draws each junction's arrow as a 0.35 x 0.15 x 1 box; only switches ever show it.
-func switch_arrow() -> Node3D:
-	var j := 0
-	for n in root.get_node("Main/BeltView").get_children():
-		if n is MeshInstance3D and n.mesh is BoxMesh and n.mesh.size.is_equal_approx(Vector3(0.35, 0.15, 1)):
-			j += 1
-			if j == 2: # junctions in scene order: Merge, then Switch
-				return n
-	return null
+# BeltView draws a 0.35 x 0.15 x 1 box arrow on each of a switch's outputs (the map's one switch: north,
+# then south), showing where the stream goes. Which of them show.
+func arrows_shown() -> Array:
+	return root.get_node("Main/BeltView").get_children() 		.filter(func(n): return n is MeshInstance3D and n.mesh is BoxMesh and n.mesh.size.is_equal_approx(Vector3(0.35, 0.15, 1))) 		.map(func(n): return n.visible)
 
 func box(views: Array):
 	var lo := Vector2(INF, INF)
