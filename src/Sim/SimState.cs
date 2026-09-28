@@ -76,6 +76,12 @@ public struct Unit
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
 
+    /// <summary>Along the heading, m/s² (positive speeds it up forward); what the effort gives right now.</summary>
+    public readonly float CurrentAcceleration =>
+        Movement == Movement.Foot ? 0 : Effort * (Effort * CurrentSpeed >= 0 ? Acceleration : Braking);
+    /// <summary>Sideways, m/s², toward the left of the heading (the turn's pull; a body leans the other way).</summary>
+    public readonly float LateralAcceleration => CurrentSpeed * TurnSpeed;
+
     public readonly float MaxHealth => MemberHealth * MaxMembers;
     public readonly int Members => Health <= 0 ? 0 : Math.Max(1, (int)MathF.Ceiling(Health / MemberHealth - 1e-4f));
     public readonly float Dps => MemberDps * Members;

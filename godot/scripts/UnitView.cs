@@ -6,7 +6,8 @@ using Sim;
 /// <summary>
 /// The look of one unit. A squad is a capsule per member, walking loosely in a wedge behind the squad's
 /// sim position (visual only: the sim has one position per squad). A vehicle is a hull on wheels or
-/// tracks that follows the sim's heading, with a turret that follows the sim's turret. Tinted by
+/// tracks that follows the sim's heading and leans on its suspension as it speeds up, brakes and turns,
+/// with a turret that follows the sim's turret. Tinted by
 /// owner, with a selection ring and a health bar. UnitsView positions it.
 /// </summary>
 public partial class UnitView : Node3D
@@ -16,6 +17,10 @@ public partial class UnitView : Node3D
     const float MemberRadius = 0.28f, MemberHeight = 1.3f;
     const float SlotSpacing = 0.9f;    // m between members
     const float WheelRadius = 0.35f;
+    // Suspension, for the look of weight only: the hull leans against acceleration (degrees per m/s²),
+    // on a spring that overshoots a little and settles.
+    const float SpringStiffness = 60f, SpringDamping = 9f; // 1/s², 1/s: a bit under critically damped
+    const float MaxLean = 4f;                               // degrees
 
     [Export] public Node3D SelectionRing = null!;
     [Export] public int PlayerIndex; // for tools and debugging
@@ -27,6 +32,8 @@ public partial class UnitView : Node3D
     readonly HealthBar _health = new();
     Node3D? _hull, _turret;                        // vehicles only
     float _turretHeight, _barrelLength;
+    float _pitchPerAccel, _rollPerAccel;           // degrees per m/s²: tracks pitch more, wheels roll more
+    Vector2 _lean, _leanSpeed;                     // (pitch, roll) in degrees, and how fast it's changing
     float _facing;                                 // yaw (radians) a squad faces
     float _wheelSpin, _healthFraction = 1;
     int _shownMembers = -1;
@@ -78,6 +85,7 @@ public partial class UnitView : Node3D
     void BuildVehicle(Movement movement, Material body, Material turretBody, Material dark)
     {
         bool tracked = movement == Movement.Tracked;
+        (_pitchPerAccel, _rollPerAccel) = tracked ? (0.9f, 0.3f) : (0.7f, 0.45f);
         var hull = tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
         float hullBottom = tracked ? 0.35f : WheelRadius + 0.1f;
 
@@ -122,12 +130,13 @@ public partial class UnitView : Node3D
     /// Moves the unit to its interpolated sim position, heading and turret yaw (radians). `delta` is sim
     /// time for this frame, so squad members keep pace at any game speed.
     /// </summary>
-    public void Sync(Vector3 position, float heading, float turret, float delta, int members, float health, bool firing, Vector3 fireAt)
+    public void Sync(Vector3 position, float heading, float turret, float delta, int members, float health, bool firing, Vector3 fireAt,
+        float acceleration = 0, float lateral = 0)
     {
         float moved = _placed ? (position - _lastPosition).Dot(Direction(heading)) : 0; // negative when backing up
         GlobalPosition = position;
         _muzzles.Clear();
-        if (_hull is not null) SyncVehicle(position, heading, turret, moved);
+        if (_hull is not null) SyncVehicle(position, heading, turret, moved, Lean(acceleration, lateral, delta));
         else SyncSquad(position, delta, members, firing, fireAt);
         _lastPosition = position;
         _placed = true;
@@ -142,14 +151,18 @@ public partial class UnitView : Node3D
 
     // The sim aims the turret (it tracks targets before they're in range, and fires once on them), so the
     // view just follows it.
-    void SyncVehicle(Vector3 position, float heading, float turret, float moved)
+    void SyncVehicle(Vector3 position, float heading, float turret, float moved, Basis lean)
     {
-        _hull!.Basis = Basis.LookingAt(Direction(heading), Vector3.Up);
+        var yaw = Basis.LookingAt(Direction(heading), Vector3.Up);
+        _hull!.Basis = yaw * lean;
         _wheelSpin -= moved / WheelRadius; // rolls forward, or backward when reversing
         foreach (var wheel in _wheels) wheel.Rotation = new Vector3(_wheelSpin, 0, 0);
 
+        // The turret sits on the hull, so it leans with it (the lean taken into world space).
+        var tilt = yaw * lean * yaw.Inverse();
         var aim = Direction(turret);
-        _turret!.Basis = Basis.LookingAt(aim, Vector3.Up);
+        _turret!.Basis = tilt * Basis.LookingAt(aim, Vector3.Up);
+        _turret.Position = tilt * new Vector3(0, _turretHeight, 0);
         _muzzles.Add(position + new Vector3(0, _turretHeight + 0.2f, 0) + aim * (_barrelLength + 0.5f));
     }
 
@@ -174,6 +187,26 @@ public partial class UnitView : Node3D
             _members[i].GlobalPosition = _memberPositions[i] + new Vector3(0, MemberHeight / 2, 0);
             _muzzles.Add(_memberPositions[i] + new Vector3(0, MemberHeight * 0.7f, 0));
         }
+    }
+
+    // Speeding up squats the rear (nose up), braking dips the nose, and a turn rolls the hull to the outside.
+    // `acceleration` is along the heading, `lateral` toward its left, both m/s² from the sim.
+    Basis Lean(float acceleration, float lateral, float delta)
+    {
+        var target = new Vector2(
+            Math.Clamp(acceleration * _pitchPerAccel, -MaxLean, MaxLean),
+            Math.Clamp(-lateral * _rollPerAccel, -MaxLean, MaxLean));
+        if (!_placed) (_lean, _leanSpeed) = (target, Vector2.Zero);
+        // Semi-implicit Euler, in small steps so a long frame stays stable.
+        for (float left = delta; left > 0; left -= 1 / 60f)
+        {
+            float dt = Math.Min(left, 1 / 60f);
+            _leanSpeed += (SpringStiffness * (target - _lean) - SpringDamping * _leanSpeed) * dt;
+            _lean += _leanSpeed * dt;
+        }
+        // Local axes after LookingAt: +X right, -Z forward. Positive X rotation lifts the nose; positive Z
+        // rotation lifts the right side.
+        return Basis.FromEuler(new Vector3(Mathf.DegToRad(_lean.X), 0, Mathf.DegToRad(_lean.Y)));
     }
 
     // The sim's heading convention: yaw h faces (sin h, 0, cos h).
