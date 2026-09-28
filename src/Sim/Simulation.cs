@@ -327,11 +327,11 @@ public sealed class Simulation
             switch (unit.Current.Kind)
             {
                 case UnitOrder.None:
-                    Engage(ref unit, fire: true);
+                    Engage(ref unit);
                     break;
 
                 case UnitOrder.Move:
-                    Engage(ref unit, fire: false); // move means move, but the turret gets ready
+                    Engage(ref unit); // shoots on the move, but doesn't stop for it
                     if (Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
@@ -341,7 +341,7 @@ public sealed class Simulation
 
                 case UnitOrder.Repair:
                 {
-                    Engage(ref unit, fire: false);
+                    Engage(ref unit);
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
                     if (segment.Health >= segment.MaxHealth) { Complete(ref unit); break; }
@@ -381,7 +381,7 @@ public sealed class Simulation
 
                 case UnitOrder.AttackMove:
                     // Head for the point, but stop to fight whatever comes into range; then carry on.
-                    if (!Engage(ref unit, fire: true) && Move(ref unit, unit.Current.Target))
+                    if (!Engage(ref unit) && Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
@@ -409,19 +409,18 @@ public sealed class Simulation
     }
 
     // Turns the turret to the best enemy in range (FindTarget), or back over the nose if there's none, and
-    // fires once the turret is on it, if `fire`. Nothing out of range draws the turret: only an attack
-    // order aims ahead. Idle units fire without chasing, and units with orders don't stop to shoot (move
-    // means move); attack-move is the order that does. Returns whether an enemy is in range: what
-    // attack-move stops for.
-    bool Engage(ref Unit unit, bool fire)
+    // fires once the turret is on it. Nothing out of range draws the turret: only an attack order aims
+    // ahead. Every unit does this whatever it's doing, idle or on the move (a later exception: heavy or
+    // emplaced weapons that must stop first), but none stops or chases for it; attack-move is the order
+    // that stops to fight. Returns whether an enemy is in range: what attack-move stops for.
+    bool Engage(ref Unit unit)
     {
-        if (!fire && unit.TurretTurnRate <= 0) return false; // nothing to get ready
         if (!FindTarget(unit, out int target, out var at))
         {
             TurnTurret(ref unit, unit.Heading);
             return false;
         }
-        if (AimAt(ref unit, at) && fire) Fire(ref unit, target, at);
+        if (AimAt(ref unit, at)) Fire(ref unit, target, at);
         return true;
     }
 

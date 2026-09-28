@@ -50,19 +50,22 @@ public class CombatTests
     }
 
     [Fact]
-    public void Idle_units_fire_at_enemies_in_range_but_moving_units_do_not()
+    public void Moving_units_fire_on_the_move_without_stopping()
     {
         var sim = NewSim();
         int red = sim.AddUnit(Red, Vector3.Zero, dps: 10, range: 8);
         int blue = sim.AddUnit(Blue, new Vector3(-10, 0, 5), speed: 5, dps: 10, range: 8);
 
-        // Blue walks past Red, 5 m away at the closest; it's inside Red's 8 m range for ~12.5 m (2.5 s).
-        sim.Tick([new MoveCommand(Blue, blue, new Vector3(10, 0, 5))]);
-        Run(sim, 6 * T);
+        // Blue walks past Red, 5 m away at the closest; each is inside the other's 8 m range for ~12.5 m
+        // (2.5 s), and they trade fire the whole time.
+        int arrived = TicksUntil(sim, new SimEvent(SimEventKind.UnitArrived, blue), 6 * T,
+            [new MoveCommand(Blue, blue, new Vector3(10, 0, 5))]);
+        Run(sim, 2 * T);
 
+        Assert.InRange(arrived, 79, 81); // 20 m at 5 m/s: shooting didn't slow it down
         Assert.InRange(UnitById(sim, blue).Health, 72f, 78f);
-        Assert.Equal(100f, UnitById(sim, red).Health); // Blue was moving: it didn't shoot back
-        Assert.False(UnitById(sim, red).Firing);       // Blue is out of range again
+        Assert.InRange(UnitById(sim, red).Health, 72f, 78f); // shot back while walking
+        Assert.False(UnitById(sim, red).Firing);             // out of range again
     }
 
     [Fact]
