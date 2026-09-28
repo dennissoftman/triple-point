@@ -1,11 +1,12 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using Sim;
 using static SimConvert;
 
 /// <summary>
-/// One scene instance per unit, a ground line through each unit's current and queued orders,
-/// and a flickering line from each firing unit to its target.
+/// One scene instance per unit (with its selection ring), a ground line through each unit's current
+/// and queued orders, and a flickering line from each firing unit to its target.
 /// </summary>
 public partial class UnitsView : Node3D
 {
@@ -17,14 +18,14 @@ public partial class UnitsView : Node3D
     [Export] public Material? PathMaterial;
     [Export] public Material? FireMaterial;
 
-    readonly Dictionary<int, Node3D> _views = [];
+    readonly Dictionary<int, UnitView> _views = [];
     readonly Dictionary<int, Vector3> _positions = []; // interpolated, this frame
     readonly ImmediateMesh _lines = new();
 
     public override void _Ready() =>
         AddChild(new MeshInstance3D { Mesh = _lines, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
 
-    public void Sync(Simulation sim, float alpha)
+    public void Sync(Simulation sim, float alpha, IReadOnlyList<int> selection)
     {
         _lines.ClearSurfaces();
         var state = sim.State;
@@ -34,11 +35,12 @@ public partial class UnitsView : Node3D
         {
             if (!_views.TryGetValue(unit.Id, out var view))
             {
-                view = UnitScene.Instantiate<Node3D>();
+                view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
                 _views[unit.Id] = view;
             }
             view.GlobalPosition = positions[unit.Id] = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
+            view.Selected = selection.Contains(unit.Id);
         }
 
         DrawOrderPaths(sim, positions);

@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
 [ext_resource type="PackedScene" path="res://views/unit_cube.tscn" id="3_unit"]
 [ext_resource type="Script" path="res://scripts/UnitsView.cs" id="4_unitsview"]
+[ext_resource type="Script" path="res://scripts/PlayerInput.cs" id="5_playerinput"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -89,10 +90,22 @@ offset_top = 12.0
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView", "UnitsView", "Hud")]
+[node name="SelectionBox" type="ColorRect" parent="Ui"]
+visible = false
+mouse_filter = 2
+color = Color(0.55, 1, 0.6, 0.18)
+
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "BeltView", "UnitsView", "Player", "Hud")]
 script = ExtResource("1_simhost")
-Camera = NodePath("../Camera")
 Belts = NodePath("../Belts")
 BeltView = NodePath("../BeltView")
 UnitsView = NodePath("../UnitsView")
+Player = NodePath("../PlayerInput")
 Hud = NodePath("../Ui/Hud")
+
+[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox")]
+script = ExtResource("5_playerinput")
+Host = NodePath("../SimHost")
+Camera = NodePath("../Camera")
+BeltView = NodePath("../BeltView")
+SelectionBox = NodePath("../Ui/SelectionBox")

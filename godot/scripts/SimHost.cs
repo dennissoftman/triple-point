@@ -7,20 +7,19 @@ using static SimConvert;
 using SVector3 = System.Numerics.Vector3;
 
 /// <summary>
-/// Owns the simulation: turns input into commands, runs fixed 20 Hz ticks, and syncs views.
-/// Views only read sim state; nothing here changes it except through commands.
+/// Owns the simulation: collects commands, runs fixed 20 Hz ticks, and syncs views.
+/// Views only read sim state; nothing changes it except commands. Player input lives in PlayerInput.
 /// </summary>
 public partial class SimHost : Node3D
 {
     const double TickSeconds = 1.0 / Simulation.TicksPerSecond;
     const int MaxTicksPerFrameAt1x = 5; // after a long stall, drop time instead of catching up forever
-    const float PickTolerance = 0.5f;   // m beyond the belt edge that still counts as clicking it
     static readonly float[] SpeedSteps = [1f, 1.5f, 2f, 3f];
 
-    [Export] public Camera3D Camera = null!;
     [Export] public Node3D Belts = null!; // each Path3D child becomes a belt line
     [Export] public BeltView BeltView = null!;
     [Export] public UnitsView UnitsView = null!;
+    [Export] public PlayerInput Player = null!;
     [Export] public Label Hud = null!;
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -35,8 +34,13 @@ public partial class SimHost : Node3D
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
     double _accumulator;
-    int _unit;
+    int _demoUnit;
     bool _demo;
+
+    public Simulation Sim => _sim;
+
+    /// <summary>Queues a command for the next tick.</summary>
+    public void Issue(Command command) => _commands.Add(command);
 
     public override void _Ready()
     {
@@ -46,8 +50,9 @@ public partial class SimHost : Node3D
                 _sim.AddBeltLine(ToSegments(path), belt);
         BeltView.Build(_sim.State);
 
-        _unit = _sim.AddUnit(new SVector3(-10, 0, 9), speed: 5f);
-        _commands.Add(new MoveCommand(_unit, new SVector3(10, 0, -8)));
+        _demoUnit = _sim.AddUnit(new SVector3(-10, 0, 9), speed: 5f);
+        _sim.AddUnit(new SVector3(-7, 0, 10), speed: 5f);
+        _sim.AddUnit(new SVector3(-13, 0, 10), speed: 5f);
 
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");
         if (_demo) GameSpeed = 3f;
@@ -69,33 +74,16 @@ public partial class SimHost : Node3D
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
-        UnitsView.Sync(_sim, alpha);
+        UnitsView.Sync(_sim, alpha, Player.Selection);
         BeltView.Sync(_sim.State, alpha);
         UpdateHud();
     }
 
-    // Input goes through the actions in Project Settings > Input Map, never literal keys.
-    // "select" is reserved for selection (milestone 1).
+    // Game speed is a host setting, not a sim command, so it stays here. Input Map actions, never literal keys.
     public override void _UnhandledInput(InputEvent e)
     {
         if (e.IsActionPressed("speed_up")) StepSpeed(+1);
         else if (e.IsActionPressed("speed_down")) StepSpeed(-1);
-        else if (e.IsActionPressed("act") && e is InputEventMouseButton click && GroundPoint(click.Position) is SVector3 point)
-            Act(point);
-    }
-
-    // The context order at a ground point: force-attack a segment, repair a damaged one, otherwise move.
-    // No selection yet, so orders always go to the one unit.
-    void Act(SVector3 point)
-    {
-        bool queued = Input.IsActionPressed("queue_order");
-        bool onBelt = _sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
-        if (onBelt && Input.IsActionPressed("force_attack"))
-            _commands.Add(new AttackSegmentCommand(_unit, line, segment, queued));
-        else if (onBelt && _sim.State.Belts[line].Segments[segment] is { } s && s.Health < s.MaxHealth)
-            _commands.Add(new RepairSegmentCommand(_unit, line, segment, queued));
-        else
-            _commands.Add(new MoveCommand(_unit, point, queued));
     }
 
     // Snaps to the next preset up or down; a custom value from the inspector lands on the nearest one.
@@ -104,12 +92,6 @@ public partial class SimHost : Node3D
         GameSpeed = direction > 0
             ? SpeedSteps.FirstOrDefault(s => s > GameSpeed + 0.01f, SpeedSteps[^1])
             : SpeedSteps.LastOrDefault(s => s < GameSpeed - 0.01f, SpeedSteps[0]);
-    }
-
-    SVector3? GroundPoint(Vector2 screen)
-    {
-        var hit = new Plane(Vector3.Up, 0).IntersectsRay(Camera.ProjectRayOrigin(screen), Camera.ProjectRayNormal(screen));
-        return hit is Vector3 p ? ToSim(p) : null;
     }
 
     void UpdateHud()
@@ -126,7 +108,8 @@ public partial class SimHost : Node3D
         Hud.Text = $"Speed {GameSpeed:0.##}x   [-] [+]      Time {state.Tick / Simulation.TicksPerSecond} s\n"
                  + $"Packages on belt {onBelt}   spawned {spawned}   lost at end {lost}   blocked at source {blocked}\n"
                  + $"Spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}   collected {state.Collected}\n"
-                 + "RMB: move   RMB damaged belt: repair   Ctrl+RMB belt: attack   Shift: queue";
+                 + $"Selected {Player.Selection.Count}   LMB: select (drag: box, Shift: add)\n"
+                 + "RMB: move   RMB damaged belt: repair   Ctrl+RMB belt: attack   Shift+RMB: queue";
     }
 
     void Log(SimEvent e)
@@ -149,13 +132,13 @@ public partial class SimHost : Node3D
         var start = curve.PositionAt(0) with { Y = 0 };
         var side = SVector3.Normalize(SVector3.Cross(curve.DirectionAt(0), SVector3.UnitY)) * 1.75f;
 
-        if (tick == 25 * T) _commands.Add(new AttackSegmentCommand(_unit, line, segment));
+        if (tick == 25 * T) _commands.Add(new AttackSegmentCommand(_demoUnit, line, segment));
         if (tick == 48 * T)
         {
-            _commands.Add(new MoveCommand(_unit, start + side));
-            _commands.Add(new MoveCommand(_unit, start - side, Queued: true));
-            _commands.Add(new RepairSegmentCommand(_unit, line, segment, Queued: true));
-            _commands.Add(new MoveCommand(_unit, new SVector3(10, 0, -8), Queued: true));
+            _commands.Add(new MoveCommand(_demoUnit, start + side));
+            _commands.Add(new MoveCommand(_demoUnit, start - side, Queued: true));
+            _commands.Add(new RepairSegmentCommand(_demoUnit, line, segment, Queued: true));
+            _commands.Add(new MoveCommand(_demoUnit, new SVector3(10, 0, -8), Queued: true));
         }
     }
 

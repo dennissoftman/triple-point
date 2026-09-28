@@ -19,7 +19,7 @@ The full design, decisions and MVP scope live in [docs/rts-handoff.md](docs/rts-
 - One seeded RNG owned by the sim, and all math routed through one place, so determinism stays possible later.
 - No allocations or LINQ inside the tick.
 - Batch calls across the C#/engine boundary. They cost far more than calls within C#.
-- Input goes through Input Map actions defined in `project.godot` (`select`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`), never literal keys or buttons in code.
+- Input goes through Input Map actions defined in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`), never literal keys or buttons in code.
 - Game data is JSON in `/data`, loaded by `Sim` with `System.Text.Json`, not Godot Resources. The Godot side resolves `res://` to a real path and passes it in.
 
 ## Layout
@@ -46,3 +46,11 @@ dotnet test Game.sln
 ```bash
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --headless --path godot --build-solutions --quit
 ```
+
+Input smoke test (needs a window; headless drops input). Exits with the failure count:
+
+```bash
+"C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
+```
+
+Unattended visual check: `-- --demo` runs a scripted attack, spill and repair at 3x. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 250` to capture frames.

@@ -304,7 +304,9 @@ public partial class SimHost : Node
 1. **Camera:** perspective, pitch around 55-60 degrees, field of view around 35-40 degrees, zoom range to settle in the diorama. Lock before serious modeling.
 2. **Grid and map:** 2 m cells; prototype map 128 x 128 cells (256 m square). Footprints: infantry squad 1x1 (members spread visually), light vehicle 2x2, heavy Asian vehicle 3x3. Buildings occupy whole cells.
 3. **Belt flow:** packages spawn at source nodes at a fixed rate; packages reaching an end are lost. Loop layouts as a map option.
-4. **Resources:** a single currency for the MVP. *Proposed for after the MVP, awaiting Denys:* one spendable currency (belt packages, plus slow independent generators if sources become finite) and **Energy as capacity, not a stockpile** (C&C power model: power structures supply it, buildings draw it; a deficit pauses power charge timers, shuts down power-hungry buildings, slows production). Rejected: two belt currencies (it clutters the belt, the one thing that must read instantly, and doubles cost tuning across three asymmetric factions). High-value packages on the same belt give the "which one to raid" decision more cheaply.
+4. **Resources (decided):** one spendable currency, from belt packages (plus slow independent generators if sources become finite). The MVP uses only this.
+   **Energy (decided, arrives with buildings in milestone 4):** a capacity, not a stockpile, as in C&C. Power structures supply it and buildings draw it. A deficit pauses power charge timers, shuts down power-hungry buildings and slows production. Power plants are raid targets off the belt.
+   Rejected: two belt currencies. They clutter the belt, the one thing that must read instantly, and double cost tuning across three asymmetric factions. High-value packages on the same belt give the "which one to raid" decision more cheaply.
 4b. **Finite sources (experiment, after the belt is proven fun):** sources stop after a set number of packages, so players must build independent income or fight over scarce sources. Risk: if independent income is as good as contesting the belt, nobody fights over the belt, which removes the core loop.
 5. **Combat model:** HP, armor class, a damage-vs-armor multiplier table, range, cooldown, and ground/air targeting flags. Only AA-flagged weapons can hit air units.
 6. **Western rebuild fallback:** a mobile relay unit that projects a small influence zone, or airdropping the first structure anywhere. Undecided.
@@ -323,7 +325,7 @@ public partial class SimHost : Node
 
 Milestones:
 0. Setup: solution and projects build, Godot references `Sim`, one passing test, and a cube that moves because the simulation says so.
-1. Camera, box selection, move orders.
+1. Camera, box selection, move orders. *Done except camera pan/zoom:* click and box selection, Shift add/toggle, group moves in a grid formation.
 2. Belt with packages flowing, gatherers pulling from it, debug overlay.
 3. Infrastructure states: break, jam and repair segments; junction switches; two road states.
 3.5. Symmetric belt test: a mirror match with generic units, to check the belt is fun before asymmetry is layered on. Western drones and Asian armored segments both blunt belt disruption, so a failed asymmetric test alone wouldn't say why.
