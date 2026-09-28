@@ -1,6 +1,6 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
 # checks selection (only your own units), group moves, capturing and flipping the switch, the hotseat
-# swap, and camera pan and zoom.
+# swap with its per-side camera, and camera pan and zoom.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -69,31 +69,44 @@ func _process(_delta) -> bool:
 		1010:
 			# Both outputs leave heading east; south bends toward +z, so the arrow moves that way.
 			check("clicking it again flips it north -> south", arrow.global_position.z > arrow_before.z + 0.01, true)
+			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
 			key(KEY_F2, false)
-		1015:
+		1028:
+			# 0.3 s into a 0.6 s flight: partway, not jumped.
+			var focus: Vector2 = cam.get("Focus")
+			check("F2 glides the camera instead of jumping", focus.distance_to(blue_view) > 0.5 and focus.distance_to(RED_HOME) > 0.5, true)
+		1060:
+			check("F2 lands on Red's spawn the first time", (cam.get("Focus") as Vector2).distance_to(RED_HOME) < 0.1, true)
 			box(red)
-		1020:
+		1065:
 			check("F2 swaps to Red: Red's units select, Blue's don't", [selected(red), selected(blue)], [3, 0])
+			key(KEY_F2, true)
+			key(KEY_F2, false)
+		1115:
+			check("F2 back returns to where Blue left off", (cam.get("Focus") as Vector2).distance_to(blue_view) < 0.1, true)
 			cam_before = cam.global_position
 			key(KEY_RIGHT, true)
-		1050:
+		1145:
 			key(KEY_RIGHT, false)
 			check("arrow key pans the camera", cam.global_position.x > cam_before.x + 5, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), true)
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), false)
-		1110:
+		1205:
 			check("wheel zooms in", cam.global_position.y < cam_before.y - 3, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(576, 324), true)
 			motion(Vector2(676, 324))
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(676, 324), false)
-		1115:
+		1210:
 			check("middle-mouse drag moves the map with the cursor", cam.global_position.x < cam_before.x - 1, true)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
+
+const RED_HOME := Vector2(35.0 / 3.0, 36.5 / 3.0) # the middle of Red's three unit spawns
+var blue_view: Vector2
 
 func check(name: String, actual, expected):
 	var ok: bool = actual == expected

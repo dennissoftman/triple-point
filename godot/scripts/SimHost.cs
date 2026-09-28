@@ -44,6 +44,7 @@ public partial class SimHost : Node3D
     readonly List<Command> _commands = [];
     readonly List<string> _lineNames = [];     // for the HUD: the Path3D each line came from
     readonly List<List<int>> _unitsOf = [];    // starting unit ids per player, for the demo
+    readonly List<Vector2> _homes = [];        // per player: the middle of its unit spawns, on the ground (x, z)
     double _accumulator;
     bool _demo;
 
@@ -51,6 +52,9 @@ public partial class SimHost : Node3D
 
     /// <summary>Queues a command for the next tick.</summary>
     public void Issue(Command command) => _commands.Add(command);
+
+    /// <summary>Where a player starts: the middle of its unit spawns, on the ground (x, z). The map center if it has none.</summary>
+    public Vector2 HomeOf(int player) => player >= 0 && player < _homes.Count ? _homes[player] : Vector2.Zero;
 
     public override void _Ready()
     {
@@ -74,6 +78,7 @@ public partial class SimHost : Node3D
                 GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
 
         var types = LoadUnitTypes();
+        var spawnSums = new Vector2[PlayerCount];
         foreach (var spawn in Units.GetChildren().OfType<UnitSpawn>())
         {
             if (!types.TryGetValue(spawn.UnitType, out var type))
@@ -82,7 +87,10 @@ public partial class SimHost : Node3D
                 continue;
             }
             _unitsOf[spawn.Player].Add(_sim.AddUnit(spawn.Player, ToSim(spawn.GlobalPosition), type));
+            spawnSums[spawn.Player] += new Vector2(spawn.GlobalPosition.X, spawn.GlobalPosition.Z);
         }
+        for (int p = 0; p < PlayerCount; p++)
+            _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
         BeltView.Build(_sim.State);
 
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");

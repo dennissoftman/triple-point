@@ -31,6 +31,7 @@ public partial class PlayerInput : Node
     public IReadOnlyList<int> Selection => _selection;
 
     readonly List<int> _selection = []; // unit ids, in selection order (sets formation slots)
+    readonly Dictionary<int, CameraView> _views = []; // each side's camera, saved when you swap away
     Vector2? _dragStart;
 
     public override void _Process(double delta)
@@ -44,9 +45,7 @@ public partial class PlayerInput : Node
     {
         if (e.IsActionPressed("debug_swap_player"))
         {
-            // Hotseat for testing both sides before the AI exists.
-            LocalPlayer = (LocalPlayer + 1) % Host.Sim.State.Players.Count;
-            _selection.Clear();
+            SwapPlayer();
             return;
         }
         if (e is not InputEventMouse mouse) return;
@@ -61,6 +60,16 @@ public partial class PlayerInput : Node
         }
         else if (e.IsActionPressed("act") && Camera.GroundPoint(mouse.Position) is Vector3 ground)
             Act(mouse.Position, ToSim(ground));
+    }
+
+    // Hotseat for testing both sides before the AI exists. Each side keeps its own camera: leaving saves
+    // where you were looking, and coming back glides there (or to the side's spawn on its first turn).
+    void SwapPlayer()
+    {
+        _views[LocalPlayer] = Camera.View;
+        LocalPlayer = (LocalPlayer + 1) % Host.Sim.State.Players.Count;
+        _selection.Clear();
+        Camera.FlyTo(_views.TryGetValue(LocalPlayer, out var last) ? last : new CameraView(Host.HomeOf(LocalPlayer), Camera.HomeDistance));
     }
 
     void ShowBox(Vector2 from, Vector2 to)

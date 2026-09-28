@@ -200,7 +200,7 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - No gameplay physics. Units move in the simulation; physics is for visual effects at most.
 - Determinism isn't required now, but don't rule it out: one seeded RNG owned by the simulation, and all math routed through one place so fixed-point math (e.g. FixedMath.Net) can be swapped in later for lockstep multiplayer.
 - `System.Numerics` (or our own types) inside `Sim`. Conversion to Godot types happens in one place at the boundary.
-- Game data (unit stats, costs, faction rules) in JSON under `/data`, loaded by `Sim` with `System.Text.Json`. Not Godot Resources.
+- Game data (unit stats, costs, faction rules) in JSON under `/data`, loaded by `Sim` with `System.Text.Json`. Not Godot Resources. JSON over TOML: game data nests (units with weapon lists, factions with unit lists), which TOML handles awkwardly; it needs no dependency; and the loader allows comments and trailing commas. TOML stays an option for flat settings files.
 
 ### 5.3 Presentation (Godot side)
 
@@ -306,7 +306,7 @@ public partial class SimHost : Node
 
 ## 7. Open decisions (defaults to use until changed)
 
-1. **Camera:** perspective, pitch around 55-60 degrees, field of view around 35-40 degrees, zoom range to settle in the diorama. Lock before serious modeling. *Prototype:* 55° pitch, 38° FOV, 15-60 m zoom, no rotation; pans with WASD/arrows, screen edges and middle-mouse drag; runs on real time, unaffected by game speed.
+1. **Camera:** perspective, pitch around 55-60 degrees, field of view around 35-40 degrees, zoom range to settle in the diorama. Lock before serious modeling. *Prototype:* 55° pitch, 38° FOV, 15-60 m zoom, no rotation; pans with WASD/arrows, screen edges and middle-mouse drag; runs on real time, unaffected by game speed. Each side keeps its own view: swapping sides glides (0.6 s, eased) to that side's last view, or its spawn on its first turn. `CameraView` (focus + zoom) and `FlyTo` are the building blocks for replay cameras.
 2. **Grid and map:** 2 m cells; prototype map 128 x 128 cells (256 m square). Footprints: infantry squad 1x1 (members spread visually), light vehicle 2x2, heavy Asian vehicle 3x3. Buildings occupy whole cells.
 3. **Belt flow:** packages spawn at source nodes at a fixed rate; packages reaching an end are lost. Loop layouts as a map option.
 4. **Resources (decided):** one spendable currency, from belt packages (plus slow independent generators if sources become finite). The MVP uses only this.
