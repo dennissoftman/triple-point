@@ -1,0 +1,74 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
+[ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
+[ext_resource type="PackedScene" path="res://views/unit_cube.tscn" id="3_unit"]
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.55, 0.58, 0.6, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.6, 0.62, 0.65, 1)
+ambient_light_energy = 0.5
+tonemap_mode = 4
+ssao_enabled = true
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.36, 0.38, 0.33, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+material = SubResource("StandardMaterial3D_ground")
+size = Vector2(80, 60)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_belt"]
+albedo_color = Color(0.12, 0.12, 0.13, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_package"]
+albedo_color = Color(1, 0.62, 0.1, 1)
+emission_enabled = true
+emission = Color(1, 0.55, 0.1, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="Curve3D" id="Curve3D_belt1"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 6, 0, -6, -20, 0.2, 4, -5, 0, 0, 5, 0, 0, -4, 0.2, -3, -5, 0, 0, 5, 0, 0, 10, 0.2, 4, -5, 0, 3, 0, 0, 0, 20, 0.2, -2),
+"tilts": PackedFloat32Array(0, 0, 0, 0)
+}
+point_count = 4
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.383, 0.3214, 0, 0.6428, 0.766, -0.5, -0.6634, 0.5567, 0, 20, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 80.0
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 0, 34.4, 26.1)
+current = true
+fov = 38.0
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="Belts" type="Node3D" parent="."]
+
+[node name="Belt1" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_belt1")
+
+[node name="BeltView" type="Node3D" parent="."]
+script = ExtResource("2_beltview")
+BeltMaterial = SubResource("StandardMaterial3D_belt")
+PackageMaterial = SubResource("StandardMaterial3D_package")
+
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView")]
+script = ExtResource("1_simhost")
+Camera = NodePath("../Camera")
+Belts = NodePath("../Belts")
+BeltView = NodePath("../BeltView")
+UnitScene = ExtResource("3_unit")
