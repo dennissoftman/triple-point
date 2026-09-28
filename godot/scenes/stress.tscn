@@ -7,6 +7,9 @@
 [ext_resource type="Script" path="res://scripts/UnitsView.cs" id="4_unitsview"]
 [ext_resource type="Script" path="res://scripts/PlayerInput.cs" id="5_playerinput"]
 [ext_resource type="Script" path="res://scripts/RtsCamera.cs" id="6_camera"]
+[ext_resource type="Script" path="res://scripts/BuildingSpawn.cs" id="10_bspawn"]
+[ext_resource type="Script" path="res://scripts/BuildingsView.cs" id="11_bview"]
+[ext_resource type="Script" path="res://scripts/ProductionPanel.cs" id="12_panel"]
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
 background_color = Color(0.55, 0.58, 0.6, 1)
@@ -50,13 +53,9 @@ emission_enabled = true
 emission = Color(1, 0.62, 0.1, 1)
 emission_energy_multiplier = 0.0
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
-shading_mode = 0
-albedo_color = Color(0.55, 1, 0.6, 1)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_attack_path"]
-shading_mode = 0
-albedo_color = Color(1, 0.4, 0.25, 1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_building"]
+albedo_color = Color(0.4, 0.42, 0.44, 1)
+roughness = 0.8
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fire"]
 shading_mode = 0
@@ -99,6 +98,8 @@ Belts = NodePath("../Belts")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
 
+[node name="Buildings" type="Node3D" parent="."]
+
 [node name="BeltView" type="Node3D" parent="."]
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
@@ -110,9 +111,12 @@ GathererMaterial = SubResource("StandardMaterial3D_gatherer")
 [node name="UnitsView" type="Node3D" parent="."]
 script = ExtResource("4_unitsview")
 UnitScene = ExtResource("3_unit")
-PathMaterial = SubResource("StandardMaterial3D_path")
-AttackPathMaterial = SubResource("StandardMaterial3D_attack_path")
 FireMaterial = SubResource("StandardMaterial3D_fire")
+
+[node name="BuildingsView" type="Node3D" parent="."]
+script = ExtResource("11_bview")
+BuildingMaterial = SubResource("StandardMaterial3D_building")
+IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
 
 [node name="Ui" type="CanvasLayer" parent="."]
 
@@ -128,15 +132,21 @@ visible = false
 mouse_filter = 2
 color = Color(0.55, 1, 0.6, 0.18)
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "BeltView", "UnitsView", "PlayerInput", "Hud")]
+[node name="ProductionPanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("PlayerInput")]
+script = ExtResource("12_panel")
+PlayerInput = NodePath("../../PlayerInput")
+
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SpawnInterval = 1.0
 Belts = NodePath("../Belts")
 Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
+Buildings = NodePath("../Buildings")
 BeltView = NodePath("../BeltView")
 UnitsView = NodePath("../UnitsView")
+BuildingsView = NodePath("../BuildingsView")
 PlayerInput = NodePath("../PlayerInput")
 Hud = NodePath("../Ui/Hud")
 

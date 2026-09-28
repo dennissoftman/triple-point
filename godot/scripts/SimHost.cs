@@ -22,12 +22,15 @@ public partial class SimHost : Node3D
     [Export] public Node3D Junctions = null!; // each child marks a junction; belt ends within reach attach to it
     [Export] public Node3D Gatherers = null!; // each OwnedMarker child is a player's gatherer post beside a belt
     [Export] public Node3D Units = null!;     // each UnitSpawn child is a player's starting unit
+    [Export] public Node3D Buildings = null!; // each BuildingSpawn child is a player's starting building
     [Export] public BeltView BeltView = null!;
     [Export] public UnitsView UnitsView = null!;
+    [Export] public BuildingsView BuildingsView = null!;
     [Export] public PlayerInput PlayerInput = null!;
     [Export] public Label Hud = null!;
 
     [Export] public int PlayerCount = 2;
+    [Export] public int StartingResources = 10;
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -75,7 +78,7 @@ public partial class SimHost : Node3D
 
         for (int p = 0; p < PlayerCount; p++)
         {
-            _sim.AddPlayer();
+            _sim.State.Players[_sim.AddPlayer()].Resources = StartingResources;
             _unitsOf.Add([]);
         }
 
@@ -92,7 +95,17 @@ public partial class SimHost : Node3D
             if (_sim.AddGatherer(marker.Player, ToSim(marker.GlobalPosition), GathererReach) < 0)
                 GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
 
-        var types = LoadUnitTypes();
+        var (types, buildingTypes) = LoadData();
+        foreach (var spawn in Buildings.GetChildren().OfType<BuildingSpawn>())
+        {
+            if (!buildingTypes.TryGetValue(spawn.BuildingType, out var type))
+            {
+                GD.PushWarning($"Building spawn '{spawn.Name}' has unknown type '{spawn.BuildingType}'; skipped.");
+                continue;
+            }
+            var facing = -spawn.GlobalBasis.Z; // the exit faces the marker's -Z
+            _sim.AddBuilding(spawn.Player, ToSim(spawn.GlobalPosition), type, MathF.Atan2(facing.X, facing.Z));
+        }
         var spawnSums = new Vector2[PlayerCount];
         foreach (var spawn in Units.GetChildren().OfType<UnitSpawn>())
         {
@@ -118,19 +131,20 @@ public partial class SimHost : Node3D
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
     }
 
-    // Unit types from units.json, with their weapons from weapons.json.
-    Dictionary<string, UnitType> LoadUnitTypes()
+    // Unit types from units.json with their weapons from weapons.json, and building types from buildings.json.
+    (Dictionary<string, UnitType> Units, Dictionary<string, BuildingType> Buildings) LoadData()
     {
         var folder = Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory));
         try
         {
             var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(folder, "weapons.json")));
-            return GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(folder, "units.json")), weapons);
+            var units = GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(folder, "units.json")), weapons);
+            return (units, GameData.ParseBuildingTypes(File.ReadAllText(Path.Combine(folder, "buildings.json")), units));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
         {
-            GD.PushError($"Can't load unit types from {folder}: {e.Message}");
-            return [];
+            GD.PushError($"Can't load game data from {folder}: {e.Message}");
+            return ([], []);
         }
     }
 
@@ -157,8 +171,9 @@ public partial class SimHost : Node3D
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
-        UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection, PlayerInput.LocalPlayer);
+        UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection);
         BeltView.Sync(_sim.State, alpha);
+        BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding);
         UpdatePerf(delta);
         UpdateHud();
     }
@@ -216,7 +231,7 @@ public partial class SimHost : Node3D
                  + $"{switches}\n"
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
-                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip\n"
+                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip   LMB your HQ: production\n"
                  + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
                  + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom\n"
                  + _perf;
@@ -238,6 +253,8 @@ public partial class SimHost : Node3D
         {
             case SimEventKind.UnitDied: GD.Print($"[{t}] unit {e.Id} died"); break;
             case SimEventKind.GathererDestroyed: GD.Print($"[{t}] gatherer {e.Id} destroyed"); break;
+            case SimEventKind.UnitProduced: GD.Print($"[{t}] unit {e.Id} produced at building {e.Index}"); break;
+            case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] building {e.Id} destroyed"); break;
             case SimEventKind.SegmentBroken: GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken"); break;
             case SimEventKind.SegmentRepaired: GD.Print($"[{t}] belt {e.Id} segment {e.Index} repaired"); break;
             case SimEventKind.JunctionCaptured: GD.Print($"[{t}] junction {e.Id} captured by {PlayerPalette.Name(e.Index)}"); break;
@@ -248,11 +265,20 @@ public partial class SimHost : Node3D
     // `godot -- --demo`, on the prototype map, as a scripted match. The neutral switch splits the stream;
     // Blue takes it, which turns it to Blue's post; Blue pulls back (its vehicles back up, then turn
     // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
-    // on the way; then Blue attack-moves into Red's side and they fight it out.
+    // on the way; then Blue attack-moves into Red's side and they fight it out. Meanwhile each HQ trains
+    // a squad and a car on repeat, as income allows; they gather at the rally point.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
         const int Blue = 0, Red = 1;
+        if (tick == 1)
+            foreach (var hq in _sim.State.Buildings)
+            {
+                _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "rifle_squad"));
+                _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "scout_car"));
+                _commands.Add(new SetRepeatCommand(hq.Owner, hq.Id, true));
+                if (hq.Owner == PlayerInput.LocalPlayer) PlayerInput.SelectedBuilding = hq.Id; // shows the production bar
+            }
         _sim.FindJunction(new SVector3(9, 0, 0), 2, out int sw);
         var switchAt = _sim.State.Junctions[sw].Position with { Y = 0 };
 

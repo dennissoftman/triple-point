@@ -5,8 +5,8 @@ using Sim;
 using static SimConvert;
 
 /// <summary>
-/// One scene instance per unit, a ground line through the local player's current and queued orders,
-/// flickering tracers from bullet weapons, and shells in flight with a flash where they're fired and
+/// One scene instance per unit, a ground line through the current and queued orders of the selected
+/// units, colored by what each order does, flickering tracers from bullet weapons, and shells in flight with a flash where they're fired and
 /// where they land.
 /// </summary>
 public partial class UnitsView : Node3D
@@ -16,14 +16,21 @@ public partial class UnitsView : Node3D
     const float FlashSeconds = 0.15f; // sim time a muzzle or impact flash lasts
 
     [Export] public PackedScene UnitScene = null!;
-    [Export] public Material? PathMaterial;
-    [Export] public Material? AttackPathMaterial;
     [Export] public Material? FireMaterial;
+
+    // Order path colors, by what the order does.
+    static readonly Color MoveColor = new(0.55f, 1, 0.6f), AttackMoveColor = new(1, 0.6f, 0.15f),
+        AttackColor = new(1, 0.25f, 0.2f), RepairColor = new(0.35f, 0.65f, 1);
+    static readonly StandardMaterial3D PathMaterial = new()
+    {
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        VertexColorUseAsAlbedo = true,
+    };
 
     readonly Dictionary<int, UnitView> _views = [];
     readonly Dictionary<int, Vector3> _positions = []; // interpolated, this frame
     readonly List<int> _gone = [];
-    readonly List<(Vector3 From, Vector3 To, bool Attack)> _legs = []; // order path legs, this frame
+    readonly List<(Vector3 From, Vector3 To, Color Color)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
     readonly UnitMaterials _materials = new();
     readonly Dictionary<int, (Vector3 At, float Radius)> _shellsAt = []; // where each shell was last drawn, for its impact
@@ -50,7 +57,7 @@ public partial class UnitsView : Node3D
     }
 
     /// <summary>`delta` is the sim time this frame covers, for member movement.</summary>
-    public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection, int localPlayer)
+    public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection)
     {
         _lines.ClearSurfaces();
         _positions.Clear();
@@ -76,7 +83,7 @@ public partial class UnitsView : Node3D
         }
 
         RemoveGone();
-        DrawOrderPaths(sim, localPlayer);
+        DrawOrderPaths(sim, selection);
         DrawFire(sim.State);
         DrawShells(sim.State, alpha, delta);
     }
@@ -118,15 +125,15 @@ public partial class UnitsView : Node3D
         }
     }
 
-    // Only your own side's orders: you don't get to see where the enemy is going.
-    // Current target first, then each queued order's point; a queued segment order's point depends on
-    // where the leg before it ends. Attack-move legs are drawn in their own color.
-    void DrawOrderPaths(Simulation sim, int localPlayer)
+    // Only the selected units' orders (the selection only ever holds your own). Current target first, then
+    // each queued order's point; a queued segment order's point depends on where the leg before it ends.
+    // Each leg takes its order's color.
+    void DrawOrderPaths(Simulation sim, IReadOnlyList<int> selection)
     {
         _legs.Clear();
         foreach (var unit in sim.State.Units)
         {
-            if (unit.Owner != localPlayer || unit.Current.Kind == UnitOrder.None) continue;
+            if (unit.Current.Kind == UnitOrder.None || !selection.Contains(unit.Id)) continue;
             var start = _positions[unit.Id];
             var target = unit.Current.Target;
             AddLeg(ref start, ToGodot(target), unit.Current.Kind);
@@ -136,27 +143,28 @@ public partial class UnitsView : Node3D
                 AddLeg(ref start, ToGodot(target), order.Kind);
             }
         }
-        DrawLegs(attack: false, PathMaterial);
-        DrawLegs(attack: true, AttackPathMaterial);
+        if (_legs.Count == 0) return;
+        _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, PathMaterial);
+        foreach (var (from, to, color) in _legs)
+        {
+            _lines.SurfaceSetColor(color);
+            _lines.SurfaceAddVertex(from);
+            _lines.SurfaceAddVertex(to);
+        }
+        _lines.SurfaceEnd();
     }
 
     void AddLeg(ref Vector3 start, Vector3 end, UnitOrder kind)
     {
-        _legs.Add((start with { Y = PathHeight }, end with { Y = PathHeight }, kind == UnitOrder.AttackMove));
-        start = end;
-    }
-
-    void DrawLegs(bool attack, Material? material)
-    {
-        bool drawing = false;
-        foreach (var (from, to, isAttack) in _legs)
+        var color = kind switch
         {
-            if (isAttack != attack) continue;
-            if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, material); drawing = true; }
-            _lines.SurfaceAddVertex(from);
-            _lines.SurfaceAddVertex(to);
-        }
-        if (drawing) _lines.SurfaceEnd();
+            UnitOrder.AttackMove => AttackMoveColor,
+            UnitOrder.Attack or UnitOrder.AttackSegment => AttackColor,
+            UnitOrder.Repair => RepairColor,
+            _ => MoveColor,
+        };
+        _legs.Add((start with { Y = PathHeight }, end with { Y = PathHeight }, color));
+        start = end;
     }
 
     // Bullet weapons: short tracer bursts, staggered per member so a squad doesn't fire like one gun.

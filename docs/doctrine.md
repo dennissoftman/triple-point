@@ -31,7 +31,7 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters).
 3. [built] Break, spill and repair segments; junction merges and switches. Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat, a rifle squad, a scout car and a tank, switch capture, F2 hotseat. **Next:** spending Resources (production), then win/lose, then the AI.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, HQ production, F2 hotseat. **Next:** win/lose, then the AI.
 5. [decided] A basic commander AI that fights over the belt.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
@@ -84,13 +84,13 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Reversing:** a stopped vehicle backs up to a close target behind it.
   - **Turrets:** turrets are sim state. They turn at their own rate and fire only once on target. An attack order swings the turret onto its target while the vehicle drives there. Otherwise turrets only turn to enemies already in range, or to whoever just hit them.
   - **Lean:** the view leans the hull on its suspension (look only).
-- [decided] **Production (MVP):** each player starts with one HQ, authored on the map, that trains every unit type. There's no construction yet.
+- [built] **Production (MVP):** each player starts with one HQ, authored on the map, that trains every unit type, and with a little starting money. There's no construction yet.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
   - **Queue:** one per HQ, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
   - **Repeat:** one toggle per HQ. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
-  - **Rally point:** finished units leave the HQ and move to its rally point.
+  - **Rally point:** finished units leave the HQ by its exit and spread out around its rally point.
   - **HQ targeting:** the HQ is a target like a post. Destroying it stops that player's production; losing comes with `CanStillRecover`.
-  - **Not yet:** Energy (it comes with several building types) and squad reinforcement.
+  - **Not yet:** Energy (it comes with several building types), squad reinforcement, and collision with buildings (units drive through them until navigation exists).
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
 ## Controls
@@ -104,6 +104,8 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] A then left-click attack-moves: left-clicking an enemy attacks it, Shift chains waypoints, and right-click or Esc cancels.
 - [built] Left-click your own switch to flip it.
 - [built] Double-click a unit to select every unit of its type on screen.
+- [built] Click your HQ to select it (alone): a production bar shows a button per unit type. Q, W, E queue them (a left-click on the button does the same), R toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
+- [built] Order paths show only for selected units, colored by what the order does: green move, orange attack-move, red attack (a unit or a segment), blue repair.
 - [built] The cursor shows what a click will do, computed by the same code that issues the order. Round cursors click at their center; tool cursors point up-left, as on Windows.
 - [built] The camera pans with the arrow keys (A is taken by attack-move), screen edges and middle-drag, and zooms with the wheel. It runs on real time, unaffected by game speed.
 - [built] Game speed is 1x, 1.5x, 2x or 3x. The sim always runs 20 ticks per sim-second, so speed never changes results.

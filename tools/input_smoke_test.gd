@@ -1,7 +1,8 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
 # checks selection (only your own units), group moves, the switch (splitting while neutral, turning to
 # your post when you capture it, flipping when you click it), the hotseat swap with its per-side camera,
-# double-click select by type, the cursor, attack-move, and camera pan and zoom.
+# double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
+# order), camera pan and zoom, and production (select the HQ, queue by hotkey, rally point, cancel).
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -107,8 +108,13 @@ func _process(_delta) -> bool:
 			click(cam.unproject_position(Vector3(3, 0, 11))) # short of Red's units
 		1270:
 			check("the click attack-moves and disarms (back to the plain cursor over open ground)", player.get("CursorName"), "Move")
+			check("selected units show their order paths, orange for attack-move", path_colors().any(func(c): return absf(c.r - ORANGE.r) + absf(c.g - ORANGE.g) + absf(c.b - ORANGE.b) < 0.02), true)
 			cam_before = cam.global_position
 			key(KEY_RIGHT, true)
+		1285:
+			click(cam.unproject_position(Vector3(-20, 0, 8))) # empty ground: deselects
+		1290:
+			check("unselected units show no order paths", path_colors().size(), 0)
 		1300:
 			key(KEY_RIGHT, false)
 			check("arrow key pans the camera", cam.global_position.x > cam_before.x + 5, true)
@@ -126,11 +132,35 @@ func _process(_delta) -> bool:
 		1600:
 			# Six seconds after the attack-move: Blue walked into range of Red's units and opened fire.
 			check("attack-move engages enemies on the way", red.any(func(v): return not is_instance_valid(v) or hurt(v)), true)
+			cam.set("Focus", Vector2(-10, -17)) # over Blue's HQ
+		1610:
+			click(cam.unproject_position(BLUE_HQ))
+		1615:
+			var panel = root.get_node("Main/Ui/ProductionPanel")
+			check("clicking your HQ selects it and shows production", [player.get("SelectedBuilding") != -1, panel.visible], [true, true])
+			key(KEY_Q, true)
+			key(KEY_Q, false)
+		1620:
+			check("Q queues the first unit type", root.get_node("Main/Ui/ProductionPanel").get("QueueLength"), 1)
+			right_click(cam.unproject_position(RALLY))
+		1625:
+			var flag: Vector3 = root.get_node("Main/BuildingsView/Rally").global_position
+			check("right-click with the HQ selected sets its rally point", flag.distance_to(RALLY) < 0.3, true)
+			key(KEY_BACKSPACE, true)
+			key(KEY_BACKSPACE, false)
+		1630:
+			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/ProductionPanel").get("QueueLength"), 0)
+			click(cam.unproject_position(Vector3(-20, 0, -8))) # empty ground
+		1635:
+			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/ProductionPanel").visible], [-1, false])
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
 
 const RED_HOME := Vector2(2.75, 17.875) # the middle of Red's four unit spawns
+const BLUE_HQ := Vector3(-10, 1.5, -22)
+const RALLY := Vector3(-4, 0, -14)
+const ORANGE := Color(1, 0.6, 0.15)
 var blue_view: Vector2
 
 func check(name: String, actual, expected):
@@ -150,6 +180,19 @@ func hurt(v: Node) -> bool:
 		if script != null and str(script.resource_path).ends_with("HealthBar.cs") and c.visible:
 			return true
 	return false
+
+# The colors of the order path lines UnitsView draws this frame (its path surface uses vertex colors;
+# tracers don't).
+func path_colors() -> Array:
+	var mesh: ImmediateMesh = root.get_node("Main/UnitsView").get_child(0).mesh
+	var colors := []
+	for i in mesh.get_surface_count():
+		var material = mesh.surface_get_material(i)
+		if material is StandardMaterial3D and material.vertex_color_use_as_albedo:
+			for c in mesh.surface_get_arrays(i)[Mesh.ARRAY_COLOR]:
+				if not colors.any(func(k): return k.is_equal_approx(c)):
+					colors.append(c)
+	return colors
 
 func selected(views: Array) -> int:
 	return views.filter(func(v): return is_instance_valid(v) and v.get_node("SelectionRing").visible).size()

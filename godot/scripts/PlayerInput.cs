@@ -8,7 +8,8 @@ using SVector3 = System.Numerics.Vector3;
 /// <summary>
 /// Turns player input into selection and commands for the local player, and shows what a click would do
 /// as the cursor. Selection is local UI state: the sim never sees it, only the commands issued to the
-/// selected units. Input goes through Input Map actions (Project Settings), never literal keys.
+/// selected units, or to the one selected building (production, rally point). Input goes through Input
+/// Map actions (Project Settings), never literal keys.
 /// </summary>
 public partial class PlayerInput : Node
 {
@@ -28,9 +29,12 @@ public partial class PlayerInput : Node
     [Export] public Control SelectionBox = null!;
     [Export] public int LocalPlayer;                        // the player you control; debug_swap_player cycles it
     [Export] public string CursorName = nameof(CursorKind.Default); // what the cursor shows; for tools
+    [Export] public int SelectedBuilding = -1;              // a building id, or -1; selected alone, never with units
+
+    static readonly string[] ProduceActions = ["produce_1", "produce_2", "produce_3"]; // the building's unit types, in order
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair }
+    enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair, Rally }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
     public IReadOnlyList<int> Selection => _selection;
@@ -49,6 +53,7 @@ public partial class PlayerInput : Node
         for (int i = _selection.Count - 1; i >= 0; i--)
             if (!Host.Sim.TryGetTarget(_selection[i], out _, out _)) _selection.RemoveAt(i);
         if (_selection.Count == 0) _attackMoveArmed = false;
+        if (Building is null) SelectedBuilding = -1;
         UpdateCursor(_mouse); // every frame: units move under a still mouse too
     }
 
@@ -64,6 +69,7 @@ public partial class PlayerInput : Node
         if (e.IsActionPressed("debug_swap_player")) { SwapPlayer(); return; }
         if (e.IsActionPressed("attack_move")) { _attackMoveArmed = _selection.Count > 0; return; }
         if (e.IsActionPressed("cancel")) { _attackMoveArmed = false; return; }
+        if (Building is Building building && ProductionKey(e, building)) return;
         if (e is not InputEventMouse mouse) return;
 
         if (_attackMoveArmed)
@@ -99,12 +105,50 @@ public partial class PlayerInput : Node
             Issue(RightClickIntent(mouse.Position, ToSim(ground)), Input.IsActionPressed("queue_order"));
     }
 
+    // ---- Production ----
+
+    /// <summary>The selected building, if it's still there.</summary>
+    public Building? Building => SelectedBuilding < 0 ? null : Host.Sim.State.Buildings.Find(b => b.Id == SelectedBuilding);
+
+    /// <summary>Queues a unit of this type at the selected building.</summary>
+    public void Produce(string unitType)
+    {
+        if (Building is Building b) Host.Issue(new ProduceCommand(LocalPlayer, b.Id, unitType));
+    }
+
+    /// <summary>Takes the last queued unit of this type (any type, if null) off the selected building's queue.</summary>
+    public void CancelLast(string? unitType)
+    {
+        if (Building is not Building b) return;
+        int index = b.Queue.FindLastIndex(t => unitType is null || t.Id == unitType);
+        if (index >= 0) Host.Issue(new CancelProductionCommand(LocalPlayer, b.Id, index));
+    }
+
+    public void ToggleRepeat()
+    {
+        if (Building is Building b) Host.Issue(new SetRepeatCommand(LocalPlayer, b.Id, !b.Repeat));
+    }
+
+    // The production keys, while a building is selected: one per unit type it produces, repeat, and
+    // cancel the last queued.
+    bool ProductionKey(InputEvent e, Building building)
+    {
+        var types = building.Type.Units;
+        for (int i = 0; i < ProduceActions.Length && i < types.Length; i++)
+            if (e.IsActionPressed(ProduceActions[i])) { Produce(types[i].Id); return true; }
+        if (e.IsActionPressed("produce_repeat")) { ToggleRepeat(); return true; }
+        if (e.IsActionPressed("cancel_production")) { CancelLast(null); return true; }
+        return false;
+    }
+
     // ---- What a click would do ----
 
     // What a right-click here orders the selection to do: attack an enemy, hold a switch (capturing is
-    // automatic), force-attack a segment, repair a damaged one, otherwise move.
+    // automatic), force-attack a segment, repair a damaged one, otherwise move. With a building
+    // selected, it sets the rally point.
     Intent RightClickIntent(Vector2 screen, SVector3 point)
     {
+        if (SelectedBuilding >= 0) return new(Act.Rally, point);
         if (_selection.Count == 0) return default;
         var sim = Host.Sim;
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
@@ -125,6 +169,11 @@ public partial class PlayerInput : Node
 
     void Issue(Intent intent, bool queued)
     {
+        if (intent.Kind == Act.Rally)
+        {
+            Host.Issue(new SetRallyCommand(LocalPlayer, SelectedBuilding, intent.Point));
+            return;
+        }
         for (int i = 0; i < _selection.Count; i++)
         {
             int id = _selection[i];
@@ -156,7 +205,7 @@ public partial class PlayerInput : Node
             else if (UnitAt(screen, mine: true) is null)
                 kind = RightClickIntent(screen, point).Kind switch
                 {
-                    Act.Move => CursorKind.Move,
+                    Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
                     Act.Capture => CursorKind.Capture,
                     Act.Repair => CursorKind.Repair,
@@ -178,6 +227,7 @@ public partial class PlayerInput : Node
         _views[LocalPlayer] = Camera.View;
         LocalPlayer = (LocalPlayer + 1) % Host.Sim.State.Players.Count;
         _selection.Clear();
+        SelectedBuilding = -1;
         _attackMoveArmed = false;
         Camera.FlyTo(_views.TryGetValue(LocalPlayer, out var last) ? last : new CameraView(Host.HomeOf(LocalPlayer), Camera.HomeDistance));
     }
@@ -192,8 +242,9 @@ public partial class PlayerInput : Node
     }
 
     // A click on the disc of a switch you own flips it (even with your units standing around it);
-    // otherwise a click picks one of your units (select_add toggles it). A drag picks all your units in
-    // the box (select_add adds). Clicking empty ground without select_add clears.
+    // otherwise a click picks one of your units (select_add toggles it), or else one of your buildings,
+    // alone. A drag picks all your units in the box (select_add adds). Clicking empty ground without
+    // select_add clears.
     void Select(Vector2 from, Vector2 to)
     {
         bool add = Input.IsActionPressed("select_add");
@@ -201,6 +252,13 @@ public partial class PlayerInput : Node
         if (click && FlipSwitchAt(to)) return;
 
         int? unit = click ? UnitAt(to, mine: true) : null;
+        if (click && unit is null && Camera.GroundPoint(to) is Vector3 ground && BuildingAt(ToSim(ground), mine: true) is int building)
+        {
+            _selection.Clear();
+            SelectedBuilding = building;
+            return;
+        }
+        SelectedBuilding = -1;
         if (click && add && unit is int toggled)
         {
             if (!_selection.Remove(toggled)) _selection.Add(toggled);
@@ -224,6 +282,7 @@ public partial class PlayerInput : Node
     void SelectSameType(Vector2 screen)
     {
         if (UnitAt(screen, mine: true) is not int clicked) return;
+        SelectedBuilding = -1;
         string type = Host.Sim.State.Units.Find(u => u.Id == clicked).Type;
         if (!Input.IsActionPressed("select_add")) _selection.Clear();
         var onScreen = GetViewport().GetVisibleRect();
@@ -259,6 +318,18 @@ public partial class PlayerInput : Node
         {
             float dx = post.Position.X - ground.X, dz = post.Position.Z - ground.Z;
             if (post.Owner != LocalPlayer && dx * dx + dz * dz <= PostPickRadius * PostPickRadius) return post.Id;
+        }
+        return BuildingAt(ground, mine: false);
+    }
+
+    // The building (yours, or anyone else's) whose footprint covers this ground point.
+    int? BuildingAt(SVector3 ground, bool mine)
+    {
+        foreach (var b in Host.Sim.State.Buildings)
+        {
+            float half = b.Type.Size / 2;
+            if ((b.Owner == LocalPlayer) == mine && MathF.Abs(b.Position.X - ground.X) <= half && MathF.Abs(b.Position.Z - ground.Z) <= half)
+                return b.Id;
         }
         return null;
     }

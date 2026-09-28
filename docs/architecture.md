@@ -13,10 +13,10 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 `src/Sim` is a plain class library with no Godot reference. It owns all game state and rules. The Godot project is a host and a set of views over it.
 
 - **One tick:** `Simulation.Tick(commands) -> events` at a fixed 20 Hz, advancing `SimState` in place. The returned event list is reused and valid until the next call.
-- **Commands** (`Commands.cs`) are records carrying their issuing player: move, attack, attack-move, attack segment, repair segment, set junction, break segment (scripted). Player input and, later, the AI issue the same commands. The sim drops orders to units the issuer doesn't own.
-- **Events** (`SimEvent`) say what happened, for logs and effects: unit died, arrived, package lost or gathered, segment broken or repaired, junction captured or switched, shell hit.
-- **Tick order:** apply commands, then update units (orders, movement, turrets, shots), move shells, remove the dead, capture switches, move packages, transfer at junctions, gatherers, spawn packages, pickups.
-- **State** (`SimState.cs`): `Unit` and `Gatherer` are structs in lists, updated through spans. Belts, segments and junctions are classes. Packages are ordered front to back per line. Pickups and projectiles are unordered, removed by swapping with the last. Ids come from one counter per sim.
+- **Commands** (`Commands.cs`) are records carrying their issuing player: move, attack, attack-move, attack segment, repair segment, set junction, break segment (scripted), and for buildings produce, cancel production, set repeat, set rally. Player input and, later, the AI issue the same commands. The sim drops commands to units and buildings the issuer doesn't own.
+- **Events** (`SimEvent`) say what happened, for logs and effects: unit died, arrived or produced, package lost or gathered, gatherer or building destroyed, segment broken or repaired, junction captured or switched, shell hit.
+- **Tick order:** apply commands, then update units (orders, movement, turrets, shots), move shells, remove the dead, capture switches, move packages, transfer at junctions, gatherers, production, spawn packages, pickups.
+- **State** (`SimState.cs`): `Unit` and `Gatherer` are structs in lists, updated through spans. Belts, segments, junctions and buildings are classes. Packages are ordered front to back per line. Pickups and projectiles are unordered, removed by swapping with the last. Ids come from one counter per sim.
 - **Randomness:** one seeded `SimRandom` (xorshift). Math goes through `System.Numerics`, and conversion to Godot types happens only in `SimConvert`. Determinism isn't required yet, but nothing rules it out: fixed-point math could replace floats later for lockstep.
 - **Performance:** no allocations or LINQ inside the tick. Target search is all-pairs for now; a spatial grid comes with navigation.
 
@@ -24,13 +24,14 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 
 | Concern | Sim (`src/Sim`) | View and host (`godot/scripts`) |
 |---|---|---|
-| Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, paths, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
+| Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, order paths of the selection, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
 | Belts, spill, pickups, junctions, capture, gatherers | `Simulation.cs`, `BezierSegment.cs` | `BeltView` (ribbons, packages, discs, arrows, posts), `CaptureRing`, `InstanceBatch` |
-| Game data | `GameData.cs` (parses `data/units.json` and `data/weapons.json`) | `SimHost.LoadUnitTypes` reads the files |
+| Buildings, production queue, rally points | `Simulation.cs` (`UpdateProduction`), `SimState.cs` (`Building`) | `BuildingsView` (blocks, bars, rally flag), `ProductionPanel` (the production bar) |
+| Game data | `GameData.cs` (parses `data/units.json`, `data/weapons.json`, `data/buildings.json`) | `SimHost.LoadData` reads the files |
 | Host: ticks, game speed, map building, HUD, perf readout, demo script | | `SimHost` |
-| Input, selection, cursor, hotseat | | `PlayerInput`, `Cursors` |
+| Input, selection (units, or one building), cursor, hotseat | | `PlayerInput`, `Cursors` |
 | Camera | | `RtsCamera` (`CameraView`, `FlyTo`) |
-| Map markers | | `OwnedMarker`, `UnitSpawn`; `StressMap` generates the stress scene |
+| Map markers | | `OwnedMarker`, `UnitSpawn`, `BuildingSpawn`; `StressMap` generates the stress scene |
 
 - **The host:** `SimHost._Process` adds real time multiplied by the game speed to an accumulator, runs the ticks that are due, logs events, and hands them to `UnitsView.OnEvent`. Then it syncs the views with `alpha`, the fraction of the way to the next tick, so movement interpolates smoothly.
 - **Views read, never write:** views read `SimState` and never change it, and no game logic runs in per-node `_Process`. Units carry `Prev*` fields (position, heading, turret) for interpolation.
@@ -43,8 +44,9 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing commas, case-insensitive names, enums as strings. Godot reads the file text (`SimHost.DataDirectory`, relative to the Godot project) and passes it in, because the sim can't use Godot's `res://` paths.
 
 - `weapons.json`: kind (bullet or shell), hit (direct or splash), damage, reload, range, shell speed, splash radius.
-- `units.json`: members, speed, member health, weapon id, movement, and vehicle driving values (acceleration, braking, ease in and out, turn rates, reverse speed), plus whether it can capture.
-- Loading rejects bad data: an unknown weapon, a shell without speed, splash without a radius. A test loads the repo's real files.
+- `units.json`: members, speed, member health, weapon id, movement, and vehicle driving values (acceleration, braking, ease in and out, turn rates, reverse speed), whether it can capture, cost and build time.
+- `buildings.json`: health, footprint size, the unit types it produces (in button order), queue limit.
+- Loading rejects bad data: an unknown weapon or unit type, a shell without speed, splash without a radius, a negative cost. A test loads the repo's real files.
 - Why not TOML: game data nests (units with weapon lists, factions with unit lists), which TOML handles awkwardly. JSON needs no dependency, and this loader allows comments. TOML stays an option for flat settings.
 
 ## Rendering
@@ -59,7 +61,7 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 - **Measured at MVP scale** (stress scene: 200 units, 400 segments, 800 packages, a battle; dev machine, vsync off):
   - 330-560 fps; render at most ~1.1 ms CPU and ~0.9 ms GPU.
   - 485 draw calls idle, ~1,600 in battle.
-  - Sim in Release: 0.09 ms/tick idle, 0.2 ms in battle (0.5 ms worst). The editor runs C# in Debug, about 15× slower, so don't judge sim cost from it.
+  - Sim in Release: 0.1 ms/tick idle, 0.15 ms in battle (0.9 ms worst, likely return fire alerting a whole block of allies at once, each checking for targets). The editor runs C# in Debug, about 15× slower, so don't judge sim cost from it.
   - Nothing here blocks the MVP.
 - **Rendering debt, in order:**
   1. **Belt segments:** a mesh and a material per segment, which is 400 of the 485 idle draw calls. Fix: one mesh per line with a state texture read by a shader. Do it in the visual pass, since the scrolling belt needs that shader anyway.
@@ -88,8 +90,8 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 ## Testing
 
 - `src/Sim.Tests` (xUnit, headless): sim rules, one behavior per test. Helpers are in `TestHelpers.cs`. Ad-hoc units made with `dps`/`range` get a bullet weapon that fires every tick, so damage timings stay exact. The win/lose edge-case table will live here too.
-- `tools/input_smoke_test.gd`: real input events through `Input.parse_input_event` against `main.tscn`. It needs a window, because headless Godot drops input. It checks selection, formation, switch capture and flips, the hotseat camera, double-click, cursors, attack-move, and camera controls. It exits with the failure count.
-- `-- --demo`: a scripted two-player match at 3x, for unattended checks and movie-maker frames.
+- `tools/input_smoke_test.gd`: real input events through `Input.parse_input_event` against `main.tscn`. It needs a window, because headless Godot drops input. It checks selection, formation, switch capture and flips, the hotseat camera, double-click, cursors, attack-move, order paths, camera controls, and production (HQ selection, hotkeys, rally, cancel). It exits with the failure count.
+- `-- --demo`: a scripted two-player match at 3x, with both HQs producing on repeat and Blue's selected, for unattended checks and movie-maker frames.
 - `stress.tscn` with `-- --perf-log`: the performance numbers above.
 
 ## References

@@ -23,13 +23,13 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 - Godot views only read sim state and never change it. No game logic in per-node `_Process`. Selection, colors, names and the local player are Godot-side UI state.
 - `System.Numerics` inside `Sim`; convert to Godot types only in `SimConvert`. One seeded RNG (`SimRandom`) owned by the sim.
 - No allocations or LINQ inside the tick. Batch calls across the C#/engine boundary; never read engine properties back just to compare them.
-- Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`), never literal keys or buttons in code.
-- Game data is JSON in `/data` (`units.json`, `weapons.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. Godot reads the files (`SimHost.DataDirectory`) and passes the text in.
+- Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`, `produce_1/2/3`, `produce_repeat`, `cancel_production`), never literal keys or buttons in code.
+- Game data is JSON in `/data` (`units.json`, `weapons.json`, `buildings.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. Godot reads the files (`SimHost.DataDirectory`) and passes the text in.
 
 ## Current state
 
-- **Built:** belts with breakable segments, spill and repair; gatherer posts; merges and switches (split while neutral, captured by squads, turned to the captor's side, flipped by the owner); two players; a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; cursors; F2 hotseat; RTS camera; the stress scene.
-- **Next in the MVP:** spending Resources (production), then win/lose (`CanStillRecover`), then the commander AI.
+- **Built:** belts with breakable segments, spill and repair; gatherer posts; merges and switches (split while neutral, captured by squads, turned to the captor's side, flipped by the owner); two players, each with an HQ that produces units (paid as they build, one queue, repeat, rally point); a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
+- **Next in the MVP:** win/lose (`CanStillRecover`), then the commander AI.
 
 ## Layout
 
@@ -38,7 +38,7 @@ Game.sln            root solution; Godot uses it (dotnet/project/solution_direct
 src/Sim/            simulation library, net10.0
 src/Sim.Tests/      xUnit, headless
 godot/              Godot project: scenes/ (main, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
-data/               units.json, weapons.json
+data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md (story documents are kept out of the repo)
 tools/              input smoke test
 ```
@@ -49,6 +49,7 @@ tools/              input smoke test
 - `Junctions`: markers; belt ends within 1 m attach (a line's end is an input, its start an output).
 - `Gatherers`: `OwnedMarker`s (with `Player`) beside a belt become that player's posts.
 - `Units`: `UnitSpawn`s (with `Player` and a `UnitType` from `data/units.json`) are the starting units; a marker's -Z is the unit's facing.
+- `Buildings`: `BuildingSpawn`s (with `Player` and a `BuildingType` from `data/buildings.json`) are the starting buildings; a marker's -Z is the exit side. `SimHost.StartingResources` is each player's starting money.
 - Keep posts and spawns out of range of capture points: at least the longest weapon range plus the capture radius.
 - `stress.tscn` has no authored content; `StressMap` generates it.
 
@@ -78,4 +79,4 @@ Stress scene (generated belts, 200 units, a battle). The HUD's Perf line shows f
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot res://scenes/stress.tscn --disable-vsync -- --perf-log
 ```
 
-Unattended visual check: `-- --demo` plays a scripted two-player match at 3x (switch captures, a post destroyed, a fight), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
+Unattended visual check: `-- --demo` plays a scripted two-player match at 3x (switch captures, a post destroyed, a fight, both HQs producing), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
