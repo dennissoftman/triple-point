@@ -30,6 +30,17 @@ public sealed class BezierSegment
         Length = _cumulative[Samples];
     }
 
+    /// <summary>Splits into equal-length pieces no longer than `maxLength`, tracing the same curve.</summary>
+    public BezierSegment[] Split(float maxLength)
+    {
+        int n = Math.Max(1, (int)MathF.Ceiling(Length / maxLength));
+        if (n == 1) return [this];
+        var pieces = new BezierSegment[n];
+        for (int i = 0; i < n; i++)
+            pieces[i] = Between(ParamAt(Length * i / n), ParamAt(Length * (i + 1) / n));
+        return pieces;
+    }
+
     public Vector3 PositionAt(float distance) => Evaluate(ParamAt(distance));
 
     public Vector3 DirectionAt(float distance)
@@ -55,6 +66,29 @@ public sealed class BezierSegment
         }
         groundDistance = MathF.Sqrt(bestSq);
         return best;
+    }
+
+    // The part of the curve between parameters t0 < t1: keep [0, t1], then the tail of that
+    // from t0, which is t0 / t1 in the shortened curve's parameter.
+    BezierSegment Between(float t0, float t1)
+    {
+        var (head, _) = SplitAt(new(P0, P1, P2, P3), t1);
+        var (_, piece) = SplitAt(head, t0 / t1);
+        return new BezierSegment(piece.A, piece.B, piece.C, piece.D);
+    }
+
+    readonly record struct Cubic(Vector3 A, Vector3 B, Vector3 C, Vector3 D);
+
+    // de Casteljau: both halves of a cubic Bezier cut at t.
+    static (Cubic Head, Cubic Tail) SplitAt(Cubic p, float t)
+    {
+        var ab = Vector3.Lerp(p.A, p.B, t);
+        var bc = Vector3.Lerp(p.B, p.C, t);
+        var cd = Vector3.Lerp(p.C, p.D, t);
+        var abc = Vector3.Lerp(ab, bc, t);
+        var bcd = Vector3.Lerp(bc, cd, t);
+        var mid = Vector3.Lerp(abc, bcd, t);
+        return (new Cubic(p.A, ab, abc, mid), new Cubic(mid, bcd, cd, p.D));
     }
 
     Vector3 Evaluate(float t)

@@ -10,6 +10,10 @@ public class SimulationTests
     static BezierSegment Straight(Vector3 from, Vector3 to) =>
         new(from, Vector3.Lerp(from, to, 1 / 3f), Vector3.Lerp(from, to, 2 / 3f), to);
 
+    // 0-10 m and 10-20 m along +X.
+    static BezierSegment[] TwoSegments() =>
+        [Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(20, 0, 0))];
+
     static void Run(Simulation sim, int ticks)
     {
         for (int i = 0; i < ticks; i++) sim.Tick(NoCommands);
@@ -33,7 +37,52 @@ public class SimulationTests
         // 10 m at 5 m/s is 2 s = 40 ticks; allow one tick of float slack.
         Assert.InRange(arrivedAt, 40, 41);
         Assert.Equal(target, sim.State.Units[0].Position);
-        Assert.Equal(UnitOrder.None, sim.State.Units[0].Order);
+        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+    }
+
+    [Fact]
+    public void Queued_orders_run_in_turn_and_a_plain_order_replaces_them()
+    {
+        var sim = new Simulation();
+        int id = sim.AddUnit(Vector3.Zero, speed: 5);
+
+        int arrivals = 0;
+        var events = sim.Tick([
+            new MoveCommand(id, new(5, 0, 0)),
+            new MoveCommand(id, new(5, 0, 5), Queued: true),
+            new MoveCommand(id, new(0, 0, 5), Queued: true),
+        ]);
+        for (int i = 0; i < 200; i++)
+        {
+            arrivals += events.Count(e => e.Kind == SimEventKind.UnitArrived);
+            events = sim.Tick(NoCommands);
+        }
+        Assert.Equal(3, arrivals);
+        Assert.Equal(new Vector3(0, 0, 5), sim.State.Units[0].Position);
+
+        sim.Tick([new MoveCommand(id, new(10, 0, 0)), new MoveCommand(id, new(10, 0, 10), Queued: true)]);
+        sim.Tick([new MoveCommand(id, Vector3.Zero)]);
+        Assert.Empty(sim.State.Units[0].Pending);
+        Assert.Equal(Vector3.Zero, sim.State.Units[0].Current.Target);
+    }
+
+    [Fact]
+    public void Queued_repair_walks_from_where_the_previous_order_ends()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], speed: 2, spacing: 1, spawnIntervalSeconds: 1);
+        int id = sim.AddUnit(new Vector3(0, 0, 5), speed: 5);
+
+        sim.Tick([
+            new BreakSegmentCommand(0, 0),
+            new MoveCommand(id, new(8, 0, 5)),
+            new RepairSegmentCommand(id, 0, 0, Queued: true),
+        ]);
+        for (int i = 0; i < 100 && sim.State.Units[0].Current.Kind != UnitOrder.Repair; i++) sim.Tick(NoCommands);
+
+        var order = sim.State.Units[0].Current;
+        Assert.Equal(UnitOrder.Repair, order.Kind);
+        Assert.True(Vector3.Distance(new Vector3(8, 0, 0), order.Target) < 0.2f); // nearest belt point to (8, 0, 5)
     }
 
     [Fact]
@@ -46,6 +95,23 @@ public class SimulationTests
         Assert.Equal(1.5f, segment.PositionAt(1.5f).X, 0.01f);
         Assert.Equal(0.5f, segment.PositionAt(0.5f).X, 0.01f);
         Assert.Equal(Vector3.UnitX, segment.DirectionAt(0)); // zero derivative at the end is handled
+    }
+
+    [Fact]
+    public void Split_cuts_a_curve_into_equal_pieces_along_the_same_path()
+    {
+        var arch = new BezierSegment(Vector3.Zero, new(0, 0, 6), new(10, 0, 6), new(10, 0, 0));
+        var pieces = arch.Split(maxLength: 2);
+
+        Assert.Equal((int)MathF.Ceiling(arch.Length / 2), pieces.Length);
+        float along = 0;
+        foreach (var piece in pieces)
+        {
+            Assert.Equal(arch.Length / pieces.Length, piece.Length, 0.05f);
+            Assert.True(Vector3.Distance(arch.PositionAt(along), piece.PositionAt(0)) < 0.05f);
+            Assert.True(Vector3.Distance(arch.PositionAt(along + piece.Length / 2), piece.PositionAt(piece.Length / 2)) < 0.05f);
+            along += piece.Length;
+        }
     }
 
     [Fact]
@@ -71,34 +137,100 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Broken_segment_holds_packages_and_the_queue_blocks_the_source()
+    public void Dense_spawns_are_blocked_to_keep_package_spacing()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(
-            [Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(20, 0, 0))],
-            speed: 2, spacing: 1, spawnIntervalSeconds: 0.25f);
+        // A spawn every 0.5 m of travel, but packages need 1 m.
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.25f);
+        var line = sim.State.Belts[0];
+
+        Run(sim, 150);
+
+        Assert.True(line.BlockedSpawns > 0);
+        for (int i = 1; i < line.Packages.Count; i++)
+            Assert.True(line.Packages[i - 1].Distance - line.Packages[i].Distance >= 1 - 2e-3f);
+    }
+
+    [Fact]
+    public void Breaking_a_segment_spills_the_packages_on_it()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
+        var line = sim.State.Belts[0];
+        Run(sim, 150); // the first packages are ~5 m into segment 1
+        int onSegment = line.Packages.Count(p => p.Segment == 1);
+        Assert.True(onSegment > 0);
+
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+
+        Assert.DoesNotContain(line.Packages, p => p.Segment == 1);
+        Assert.True(line.Spilled >= onSegment);
+        Assert.Equal(line.Spilled, sim.State.Pickups.Count);
+    }
+
+    [Fact]
+    public void Packages_reaching_a_break_spill_beside_it_and_the_source_keeps_flowing()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
         var line = sim.State.Belts[0];
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Run(sim, 400);
 
-        Assert.Equal(SegmentState.Broken, line.Segments[1].State);
         Assert.Equal(0, line.Lost);
-        // Queued nose to tail from the broken segment's start back to the source.
-        Assert.Equal(10, line.Packages.Count);
-        Assert.InRange(line.Packages[0].Distance, 9.99f, 10f);
-        for (int i = 1; i < line.Packages.Count; i++)
-            Assert.True(line.Packages[i - 1].Distance - line.Packages[i].Distance >= 1 - 1e-4f);
-        Assert.True(line.BlockedSpawns > 0);
+        Assert.Equal(0, line.BlockedSpawns);
+        Assert.True(line.Spilled > 0);
+        Assert.Equal(line.Spawned, line.Spilled + line.Packages.Count);
+        Assert.All(line.Packages, p => Assert.True(p.Distance < 10));
+        // Beside the break at (10, 0, 0), off the belt, on the ground.
+        Assert.All(sim.State.Pickups, p =>
+        {
+            Assert.InRange(MathF.Abs(p.Position.Z), 1.3f, 2.5f);
+            Assert.InRange(p.Position.X, 9.2f, 10.8f);
+            Assert.Equal(0f, p.Position.Y);
+        });
+    }
+
+    [Fact]
+    public void Units_collect_pickups_they_stand_near()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 0.5f);
+        // One on each side of the break; spills land 1.3-2.5 m to either side.
+        sim.AddUnit(new Vector3(10, 0, 1.75f), speed: 5);
+        sim.AddUnit(new Vector3(10, 0, -1.75f), speed: 5);
+
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        Run(sim, 400);
+
+        Assert.True(sim.State.Collected > 0);
+        Assert.Equal(sim.State.Belts[0].Spilled, sim.State.Collected);
+        Assert.Empty(sim.State.Pickups);
+    }
+
+    [Fact]
+    public void Uncollected_pickups_expire()
+    {
+        var sim = new Simulation();
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 1000); // a single package
+        Run(sim, 120); // ~12 m along, on segment 1
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        Assert.Single(sim.State.Pickups);
+
+        int lifetime = (int)(Simulation.PickupLifetimeSeconds * Simulation.TicksPerSecond);
+        Run(sim, lifetime - 2);
+        Assert.Single(sim.State.Pickups);
+        Run(sim, 2);
+        Assert.Empty(sim.State.Pickups);
+        Assert.Equal(0, sim.State.Collected);
     }
 
     [Fact]
     public void Unit_walks_to_broken_segment_repairs_it_and_flow_resumes()
     {
         var sim = new Simulation();
-        sim.AddBeltLine(
-            [Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(20, 0, 0))],
-            speed: 2, spacing: 1, spawnIntervalSeconds: 1);
+        sim.AddBeltLine(TwoSegments(), speed: 2, spacing: 1, spawnIntervalSeconds: 1);
         var line = sim.State.Belts[0];
         int unit = sim.AddUnit(new Vector3(10, 0, 5), speed: 5); // 5 m from the segment start
 
@@ -113,7 +245,7 @@ public class SimulationTests
         // 2.5 m to get in range (10 ticks), then 5 s of work (100 ticks).
         Assert.InRange(repairedAt, 110, 112);
         Assert.Equal(SegmentState.Normal, line.Segments[1].State);
-        Assert.Equal(UnitOrder.None, sim.State.Units[0].Order);
+        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
         Assert.Equal(0, line.Lost);
 
         Run(sim, 200);

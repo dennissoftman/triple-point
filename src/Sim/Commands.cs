@@ -2,15 +2,18 @@ using System.Numerics;
 
 namespace Sim;
 
-/// <summary>An order. Player input and AI both produce these.</summary>
+/// <summary>
+/// An order. Player input and AI both produce these.
+/// Queued (shift-click) orders go after the unit's current ones instead of replacing them.
+/// </summary>
 public abstract record Command;
 
-public sealed record MoveCommand(int UnitId, Vector3 Target) : Command;
+public sealed record MoveCommand(int UnitId, Vector3 Target, bool Queued = false) : Command;
 
 /// <summary>Stand-in for combat damage until there is combat.</summary>
 public sealed record BreakSegmentCommand(int Line, int Segment) : Command;
 
-public sealed record RepairSegmentCommand(int UnitId, int Line, int Segment) : Command;
+public sealed record RepairSegmentCommand(int UnitId, int Line, int Segment, bool Queued = false) : Command;
 
 public enum SimEventKind { UnitArrived, PackageLost, SegmentBroken, SegmentRepaired }
 

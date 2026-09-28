@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
 [ext_resource type="PackedScene" path="res://views/unit_cube.tscn" id="3_unit"]
+[ext_resource type="Script" path="res://scripts/UnitsView.cs" id="4_unitsview"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -30,6 +31,10 @@ albedo_color = Color(1, 0.62, 0.1, 1)
 emission_enabled = true
 emission = Color(1, 0.55, 0.1, 1)
 emission_energy_multiplier = 0.4
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
+shading_mode = 0
+albedo_color = Color(0.55, 1, 0.6, 1)
 
 [sub_resource type="Curve3D" id="Curve3D_belt1"]
 _data = {
@@ -66,6 +71,11 @@ script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
 
+[node name="UnitsView" type="Node3D" parent="."]
+script = ExtResource("4_unitsview")
+UnitScene = ExtResource("3_unit")
+PathMaterial = SubResource("StandardMaterial3D_path")
+
 [node name="Ui" type="CanvasLayer" parent="."]
 
 [node name="Hud" type="Label" parent="Ui"]
@@ -74,10 +84,10 @@ offset_top = 12.0
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Camera", "Belts", "BeltView", "UnitsView", "Hud")]
 script = ExtResource("1_simhost")
 Camera = NodePath("../Camera")
 Belts = NodePath("../Belts")
 BeltView = NodePath("../BeltView")
-UnitScene = ExtResource("3_unit")
+UnitsView = NodePath("../UnitsView")
 Hud = NodePath("../Ui/Hud")

@@ -36,7 +36,9 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 - Players collect packages with faction-specific gatherers (3.2). Collected packages leave the belt. More or upgraded gatherers collect faster.
 - Segment states: **normal**, **jammed** (slowed), **broken** (stopped until repaired).
 - Segments are cubic Bezier curves; packages move by arc length at constant speed. Maps author belts as Godot `Path3D` curves, converted to plain sim data at load.
-- Packages keep a minimum spacing and queue when held. A broken segment freezes the packages on it and holds upstream ones at its start. When the queue reaches the source, spawns are skipped (those packages never exist). *Prototype behavior:* a break doesn't destroy packages, it delays them and blocks the source, and the backlog leaves as a dense burst after repair.
+- Authored curves are cut into short breakable segments at load (default max 5 m, a tuning value), so map authors draw long smooth curves and breakability stays fine-grained.
+- Packages keep a minimum spacing and queue when held; a queue that reaches the source blocks spawns (those packages never exist).
+- **A broken segment spills.** Packages on it when it breaks, and every package that reaches it while broken, fall off beside it as ground pickups. Any unit walking over a pickup collects it; uncollected pickups fade after 60 s. So a break redirects flow to whoever holds the spot, and its value grows the longer it's held. Downstream gets nothing until repair.
 - Players can break segments and switch junctions to reroute flow. The belt layout itself is fixed by map design; players don't build new belt.
 - **Fighting jams only the segment it happens on** (a local slowdown), rather than pausing the whole belt. *Proposed, not yet confirmed; validate in playtest.*
 - Known risks to solve through map design and tuning: upstream advantage (loops, multiple belts, flow that can change direction) and snowballing (caps per gathering point, or catch-up rules).
@@ -73,6 +75,7 @@ Anti-references: Tempest Rising (muddy, low-contrast visuals, vague controls, no
 
 - **Automate the clicks, not the choices.** Production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override.
 - Orders can target pieces of the belt: guard segment, raid segment, escort convoy, take junction.
+- Shift-click queues orders; a plain order replaces the queue. Queued orders are drawn as a path on the ground.
 - Every button must be a decision, not upkeep. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 - **Infantry fights in squads.** Fixed size per type (e.g. 5 riflemen, 3 engineers), indivisible (no splitting). One simulation entity per squad: one path, one order, one grid footprint. Members are visual formation slots with local steering and individual HP. Damage is distributed across members. Area damage uses a simple rule against the squad's area (e.g. the fraction of members hit follows the overlap between blast and squad footprint), not exact member positions. Member positions become sim state only if that looks wrong in play. Squads reinforce near base or relay points, which costs resources.
 - **Vehicles are single units.**

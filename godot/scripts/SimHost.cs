@@ -20,7 +20,7 @@ public partial class SimHost : Node3D
     [Export] public Camera3D Camera = null!;
     [Export] public Node3D Belts = null!; // each Path3D child becomes a belt line
     [Export] public BeltView BeltView = null!;
-    [Export] public PackedScene UnitScene = null!;
+    [Export] public UnitsView UnitsView = null!;
     [Export] public Label Hud = null!;
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -28,10 +28,10 @@ public partial class SimHost : Node3D
     [Export] public float BeltSpeed = 1f;      // m/s
     [Export] public float PackageSpacing = 1f; // m
     [Export] public float SpawnInterval = 1.5f; // s
+    [Export] public float SegmentLength = 5f;  // m; authored curves are cut into breakable segments this long at most
 
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
-    readonly Dictionary<int, Node3D> _unitViews = [];
     double _accumulator;
     int _unit;
     bool _demo;
@@ -40,7 +40,7 @@ public partial class SimHost : Node3D
     {
         foreach (var path in Belts.GetChildren().OfType<Path3D>())
             if (path.Curve.PointCount >= 2)
-                _sim.AddBeltLine(ToSegments(path), BeltSpeed, PackageSpacing, SpawnInterval);
+                _sim.AddBeltLine(ToSegments(path), BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength);
         BeltView.Build(_sim.State);
 
         _unit = _sim.AddUnit(new SVector3(-10, 0, 9), speed: 5f);
@@ -66,7 +66,7 @@ public partial class SimHost : Node3D
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
-        SyncUnits(alpha);
+        UnitsView.Sync(_sim, alpha);
         BeltView.Sync(_sim.State, alpha);
         UpdateHud();
     }
@@ -80,16 +80,17 @@ public partial class SimHost : Node3D
                 else if (key.Keycode is Key.Minus or Key.KpSubtract) StepSpeed(-1);
                 break;
 
-            // No selection yet (milestone 1): orders always go to the one unit.
+            // No selection yet (milestone 1): orders always go to the one unit. Shift queues them.
             case InputEventMouseButton { Pressed: true } click when GroundPoint(click.Position) is SVector3 point:
+                bool queued = click.ShiftPressed;
                 bool onBelt = _sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment);
                 if (click.ButtonIndex == MouseButton.Left && onBelt)
                     _commands.Add(new BreakSegmentCommand(line, segment));
                 else if (click.ButtonIndex == MouseButton.Right && onBelt
                          && _sim.State.Belts[line].Segments[segment].State == SegmentState.Broken)
-                    _commands.Add(new RepairSegmentCommand(_unit, line, segment));
+                    _commands.Add(new RepairSegmentCommand(_unit, line, segment, queued));
                 else if (click.ButtonIndex == MouseButton.Right)
-                    _commands.Add(new MoveCommand(_unit, point));
+                    _commands.Add(new MoveCommand(_unit, point, queued));
                 break;
         }
     }
@@ -108,29 +109,20 @@ public partial class SimHost : Node3D
         return hit is Vector3 p ? ToSim(p) : null;
     }
 
-    void SyncUnits(float alpha)
-    {
-        foreach (var unit in _sim.State.Units)
-        {
-            if (!_unitViews.TryGetValue(unit.Id, out var view))
-            {
-                view = UnitScene.Instantiate<Node3D>();
-                AddChild(view);
-                _unitViews[unit.Id] = view;
-            }
-            view.GlobalPosition = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
-        }
-    }
-
     void UpdateHud()
     {
-        int onBelt = 0, spawned = 0, lost = 0, blocked = 0;
-        foreach (var line in _sim.State.Belts)
-            (onBelt, spawned, lost, blocked) = (onBelt + line.Packages.Count, spawned + line.Spawned, lost + line.Lost, blocked + line.BlockedSpawns);
+        var state = _sim.State;
+        int onBelt = 0, spawned = 0, lost = 0, spilled = 0, blocked = 0;
+        foreach (var line in state.Belts)
+        {
+            onBelt += line.Packages.Count;
+            (spawned, lost, spilled, blocked) = (spawned + line.Spawned, lost + line.Lost, spilled + line.Spilled, blocked + line.BlockedSpawns);
+        }
 
-        Hud.Text = $"Speed {GameSpeed:0.##}x   [-] [+]      Time {_sim.State.Tick / Simulation.TicksPerSecond} s\n"
+        Hud.Text = $"Speed {GameSpeed:0.##}x   [-] [+]      Time {state.Tick / Simulation.TicksPerSecond} s\n"
                  + $"Packages on belt {onBelt}   spawned {spawned}   lost at end {lost}   blocked at source {blocked}\n"
-                 + "LMB belt: break   RMB broken belt: repair   RMB ground: move";
+                 + $"Spilled {spilled}   on ground {state.Pickups.Count}   collected {state.Collected}\n"
+                 + "LMB belt: break   RMB broken belt: repair   RMB ground: move   Shift: queue";
     }
 
     void Log(SimEvent e)
@@ -139,15 +131,28 @@ public partial class SimHost : Node3D
         {
             case SimEventKind.UnitArrived: GD.Print($"[{_sim.State.Tick}] unit {e.Id} arrived"); break;
             case SimEventKind.SegmentBroken: GD.Print($"[{_sim.State.Tick}] belt {e.Id} segment {e.Segment} broken"); break;
-            case SimEventKind.SegmentRepaired: GD.Print($"[{_sim.State.Tick}] belt {e.Id} segment {e.Segment} repaired"); break;
+            case SimEventKind.SegmentRepaired: GD.Print($"[{_sim.State.Tick}] belt {e.Id} segment {e.Segment} repaired; collected {_sim.State.Collected}"); break;
         }
     }
 
-    // `godot -- --demo`: breaks a segment once packages reach it, then sends the unit to repair it.
+    // `godot -- --demo`: breaks a segment near the top middle of the view once packages reach it,
+    // lets it spill for a while, then queues: sweep both sides of the break, repair, walk back.
     void Demo(int tick)
     {
-        if (tick == 25 * Simulation.TicksPerSecond) _commands.Add(new BreakSegmentCommand(0, 1));
-        if (tick == 45 * Simulation.TicksPerSecond) _commands.Add(new RepairSegmentCommand(_unit, 0, 1));
+        const int T = Simulation.TicksPerSecond;
+        if (!_sim.FindSegment(new SVector3(2, 0, -2), 3, out int line, out int segment)) return;
+        var curve = _sim.State.Belts[line].Segments[segment].Curve;
+        var start = curve.PositionAt(0) with { Y = 0 };
+        var side = SVector3.Normalize(SVector3.Cross(curve.DirectionAt(0), SVector3.UnitY)) * 1.75f;
+
+        if (tick == 30 * T) _commands.Add(new BreakSegmentCommand(line, segment));
+        if (tick == 40 * T)
+        {
+            _commands.Add(new MoveCommand(_unit, start + side));
+            _commands.Add(new MoveCommand(_unit, start - side, Queued: true));
+            _commands.Add(new RepairSegmentCommand(_unit, line, segment, Queued: true));
+            _commands.Add(new MoveCommand(_unit, new SVector3(10, 0, -8), Queued: true));
+        }
     }
 
     // Godot's Curve3D stores each point with in/out handles relative to it; consecutive points

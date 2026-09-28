@@ -4,14 +4,10 @@ using Godot;
 using Sim;
 using static SimConvert;
 
-/// <summary>
-/// Draws belt segments as flat ribbons colored by state, and all packages through one MultiMesh.
-/// Package transforms go to the engine as a single buffer per frame, not one call per package.
-/// </summary>
+/// <summary>Draws belt segments as flat ribbons colored by state, packages on the belt, and spilled pickups.</summary>
 public partial class BeltView : Node3D
 {
     const float RibbonStep = 0.25f; // meters between ribbon cross-sections
-    const int FloatsPerInstance = 12; // Transform3D as a 3x4 row-major matrix
 
     [Export] public StandardMaterial3D BeltMaterial = null!;
     [Export] public Material? PackageMaterial;
@@ -21,8 +17,7 @@ public partial class BeltView : Node3D
 
     // One material per segment, indexed [line][segment], so each can show its own state.
     readonly List<StandardMaterial3D[]> _segmentMaterials = [];
-    MultiMesh _packages = null!;
-    float[] _buffer = [];
+    InstanceBatch _packages = null!, _pickups = null!;
 
     public void Build(SimState state)
     {
@@ -37,42 +32,34 @@ public partial class BeltView : Node3D
             _segmentMaterials.Add(materials);
         }
 
-        _packages = new MultiMesh
-        {
-            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
-            Mesh = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial },
-        };
-        Grow(64);
-        AddChild(new MultiMeshInstance3D { Multimesh = _packages });
+        var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
+        _packages = new InstanceBatch(this, box);
+        _pickups = new InstanceBatch(this, box);
     }
 
     public void Sync(SimState state, float alpha)
     {
+        var lift = new Vector3(0, PackageSize / 2, 0); // sit on the surface, not in it
+
         int total = 0;
         foreach (var line in state.Belts) total += line.Packages.Count;
-        if (total > _packages.InstanceCount) Grow(total * 2);
-
-        var lift = new Vector3(0, PackageSize / 2, 0); // sit on the belt, not in it
-        int n = 0;
+        _packages.Begin(total);
         for (int l = 0; l < state.Belts.Count; l++)
         {
             var line = state.Belts[l];
             SyncSegmentColors(line, _segmentMaterials[l]);
             foreach (var p in line.Packages)
-            {
-                var origin = ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift;
-                var z = ToGodot(p.Direction);
-                var x = Vector3.Up.Cross(z).Normalized();
-                var y = z.Cross(x);
-
-                int o = n++ * FloatsPerInstance;
-                _buffer[o + 0] = x.X; _buffer[o + 1] = y.X; _buffer[o + 2] = z.X; _buffer[o + 3] = origin.X;
-                _buffer[o + 4] = x.Y; _buffer[o + 5] = y.Y; _buffer[o + 6] = z.Y; _buffer[o + 7] = origin.Y;
-                _buffer[o + 8] = x.Z; _buffer[o + 9] = y.Z; _buffer[o + 10] = z.Z; _buffer[o + 11] = origin.Z;
-            }
+                _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction));
         }
-        _packages.Buffer = _buffer;
-        _packages.VisibleInstanceCount = total;
+        _packages.End();
+
+        _pickups.Begin(state.Pickups.Count);
+        foreach (var p in state.Pickups)
+        {
+            float yaw = p.Id * 2.4f; // golden-angle steps: a stable, scattered look per pickup
+            _pickups.Add(ToGodot(p.Position) + lift, new Vector3(MathF.Sin(yaw), 0, MathF.Cos(yaw)));
+        }
+        _pickups.End();
     }
 
     // Broken is red, fading back toward normal as repair progresses.
@@ -86,12 +73,6 @@ public partial class BeltView : Node3D
                 : BeltMaterial.AlbedoColor;
             if (materials[s].AlbedoColor != color) materials[s].AlbedoColor = color;
         }
-    }
-
-    void Grow(int count)
-    {
-        _packages.InstanceCount = count; // resets the engine-side buffer; the next Sync refills it
-        _buffer = new float[count * FloatsPerInstance];
     }
 
     ArrayMesh BuildRibbon(BezierSegment curve)
