@@ -14,11 +14,27 @@ public static class GameData
         Converters = { new JsonStringEnumConverter() }, // "movement": "tracked"
     };
 
-    /// <summary>Unit types by id, from the contents of units.json. Each type knows its own id.</summary>
-    public static Dictionary<string, UnitType> ParseUnitTypes(string json)
+    /// <summary>Weapon types by id, from the contents of weapons.json. Each knows its own id.</summary>
+    public static Dictionary<string, WeaponType> ParseWeapons(string json)
+    {
+        var weapons = JsonSerializer.Deserialize<Dictionary<string, WeaponType>>(json, Options)
+            ?? throw new InvalidDataException("weapons.json has no weapons.");
+        foreach (var (id, w) in weapons)
+            if (w.Reload <= 0 || w.Range <= 0 || (w.Kind == WeaponKind.Shell && w.ShellSpeed <= 0))
+                throw new InvalidDataException($"Weapon '{id}' needs a reload and range above 0, and a shell a shellSpeed above 0.");
+        return weapons.ToDictionary(w => w.Key, w => w.Value with { Id = w.Key });
+    }
+
+    /// <summary>
+    /// Unit types by id, from the contents of units.json, with each type's weapon looked up in `weapons`.
+    /// Each type knows its own id.
+    /// </summary>
+    public static Dictionary<string, UnitType> ParseUnitTypes(string json, IReadOnlyDictionary<string, WeaponType> weapons)
     {
         var types = JsonSerializer.Deserialize<Dictionary<string, UnitType>>(json, Options)
             ?? throw new InvalidDataException("units.json has no unit types.");
-        return types.ToDictionary(t => t.Key, t => t.Value with { Id = t.Key });
+        return types.ToDictionary(t => t.Key, t => weapons.TryGetValue(t.Value.Weapon ?? "", out var gun)
+            ? t.Value with { Id = t.Key, Gun = gun }
+            : throw new InvalidDataException($"Unit type '{t.Key}' has unknown weapon '{t.Value.Weapon}'."));
     }
 }

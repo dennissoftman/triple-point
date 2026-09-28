@@ -118,16 +118,18 @@ public partial class SimHost : Node3D
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
     }
 
+    // Unit types from units.json, with their weapons from weapons.json.
     Dictionary<string, UnitType> LoadUnitTypes()
     {
-        var path = Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory, "units.json"));
+        var folder = Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory));
         try
         {
-            return GameData.ParseUnitTypes(File.ReadAllText(path));
+            var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(folder, "weapons.json")));
+            return GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(folder, "units.json")), weapons);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
         {
-            GD.PushError($"Can't load unit types from {path}: {e.Message}");
+            GD.PushError($"Can't load unit types from {folder}: {e.Message}");
             return [];
         }
     }
@@ -146,7 +148,11 @@ public partial class SimHost : Node3D
             _tickSeconds += _tickClock.Elapsed.TotalSeconds;
             _ticksInWindow++;
             _commands.Clear();
-            foreach (var e in events) Log(e);
+            foreach (var e in events)
+            {
+                Log(e);
+                UnitsView.OnEvent(e);
+            }
             _accumulator -= TickSeconds;
         }
 

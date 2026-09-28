@@ -1,0 +1,9 @@
+// Prototype weapons, named by units.json.
+// kind: "bullet" hits the moment it fires (drawn as tracers); "shell" flies at shellSpeed (m/s) and hits on arrival.
+// damage is per shot, per member for a squad; reload is seconds between shots (rounded to 1/20 s ticks); range in m.
+// Rockets and heavier guns come later as more entries (and kinds).
+{
+  "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8 },                      // 2 dps a member
+  "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12 },           // 9 dps
+  "tank_cannon": { "kind": "shell", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40 }, // 14 dps, in big hits
+}

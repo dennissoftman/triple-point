@@ -6,12 +6,14 @@ using static SimConvert;
 
 /// <summary>
 /// One scene instance per unit, a ground line through the local player's current and queued orders,
-/// and flickering tracer lines from everything that's firing.
+/// flickering tracers from bullet weapons, and shells in flight with a flash where they're fired and
+/// where they land.
 /// </summary>
 public partial class UnitsView : Node3D
 {
     const float PathHeight = 0.05f;  // just above the ground
     const float AimHeight = 0.5f;    // tracers end this far above what they hit
+    const float FlashSeconds = 0.15f; // sim time a muzzle or impact flash lasts
 
     [Export] public PackedScene UnitScene = null!;
     [Export] public Material? PathMaterial;
@@ -24,9 +26,26 @@ public partial class UnitsView : Node3D
     readonly List<(Vector3 From, Vector3 To, bool Attack)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
     readonly UnitMaterials _materials = new();
+    readonly Dictionary<int, Vector3> _shellsAt = [];         // where each shell was last drawn, for its impact
+    readonly Dictionary<int, int> _lastShots = [];            // per unit: the shot tick last seen, to flash new ones
+    readonly List<(Vector3 At, float Left)> _flashes = [];    // sim seconds left
+    InstanceBatch _shellBatch = null!, _flashBatch = null!;
 
-    public override void _Ready() =>
+    public override void _Ready()
+    {
         AddChild(new MeshInstance3D { Mesh = _lines, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
+        // Placeholder effects, drawn in code: a glowing slug, and a small bright ball for flashes.
+        _shellBatch = new InstanceBatch(this, new BoxMesh { Size = new Vector3(0.14f, 0.14f, 0.7f), Material = Glow(new Color(1, 0.9f, 0.55f)) });
+        _flashBatch = new InstanceBatch(this, new SphereMesh { Radius = 0.35f, Height = 0.7f, RadialSegments = 12, Rings = 6, Material = Glow(new Color(1, 0.6f, 0.2f)) });
+    }
+
+    static StandardMaterial3D Glow(Color color) => new() { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, AlbedoColor = color };
+
+    /// <summary>A sim event, for effects. SimHost passes every one on.</summary>
+    public void OnEvent(SimEvent e)
+    {
+        if (e.Kind == SimEventKind.ShellHit && _shellsAt.Remove(e.Id, out var at)) _flashes.Add((at, FlashSeconds));
+    }
 
     /// <summary>`delta` is the sim time this frame covers, for member movement.</summary>
     public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection, int localPlayer)
@@ -49,11 +68,38 @@ public partial class UnitsView : Node3D
             view.Sync(position, heading, turret, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt),
                 unit.CurrentAcceleration, unit.LateralAcceleration);
             view.Selected = selection.Contains(unit.Id);
+            if (unit.WeaponKind == WeaponKind.Shell && _lastShots.GetValueOrDefault(unit.Id, unit.LastShotTick) != unit.LastShotTick)
+                _flashes.Add((view.Muzzles[0], FlashSeconds));
+            _lastShots[unit.Id] = unit.LastShotTick;
         }
 
         RemoveGone();
         DrawOrderPaths(sim, localPlayer);
         DrawFire(sim.State);
+        DrawShells(sim.State, alpha, delta);
+    }
+
+    void DrawShells(SimState state, float alpha, float delta)
+    {
+        _shellBatch.Begin(state.Projectiles.Count);
+        foreach (var p in state.Projectiles)
+        {
+            var (from, to) = (ToGodot(p.PrevPosition), ToGodot(p.Position));
+            var at = from.Lerp(to, alpha);
+            _shellBatch.Add(at, to - from is { } v && v.LengthSquared() > 1e-8f ? v.Normalized() : Vector3.Forward);
+            _shellsAt[p.Id] = at;
+        }
+        _shellBatch.End();
+
+        for (int i = _flashes.Count - 1; i >= 0; i--)
+        {
+            var (at, left) = _flashes[i];
+            if ((left -= delta) <= 0) _flashes.RemoveAt(i);
+            else _flashes[i] = (at, left);
+        }
+        _flashBatch.Begin(_flashes.Count);
+        foreach (var (at, _) in _flashes) _flashBatch.Add(at, Vector3.Forward);
+        _flashBatch.End();
     }
 
     void RemoveGone()
@@ -66,6 +112,7 @@ public partial class UnitsView : Node3D
         {
             _views[id].QueueFree();
             _views.Remove(id);
+            _lastShots.Remove(id);
         }
     }
 
@@ -110,13 +157,13 @@ public partial class UnitsView : Node3D
         if (drawing) _lines.SurfaceEnd();
     }
 
-    // Short bursts, staggered per member so a squad doesn't fire like one gun.
+    // Bullet weapons: short tracer bursts, staggered per member so a squad doesn't fire like one gun.
     void DrawFire(SimState state)
     {
         bool drawing = false;
         foreach (var unit in state.Units)
         {
-            if (!unit.Firing) continue;
+            if (!unit.Firing || unit.WeaponKind != WeaponKind.Bullet) continue;
             var muzzles = _views[unit.Id].Muzzles;
             var at = ToGodot(unit.FireAt) + new Vector3(0, AimHeight, 0);
             for (int i = 0; i < muzzles.Count; i++)

@@ -23,6 +23,8 @@ public sealed class Simulation
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
     const float SpillAlongJitter = 0.75f;                     // m along the belt
     const float SpacingSlack = 0.001f;                        // m
+    const float MuzzleReach = 1.5f, MuzzleHeight = 1.2f; // m; where shells start, ahead of a vehicle along its turret
+    const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
     const float AimTolerance = 0.1f;                // rad (~6°); a turret this close to its target fires
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
@@ -54,19 +56,21 @@ public sealed class Simulation
 
     /// <summary>A unit of a type from /data, facing `heading` (radians, facing (sin h, 0, cos h)).</summary>
     public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0) =>
-        AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, type.MemberDps * type.Members, type.Range,
+        AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, 0, 0,
             type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id,
-            type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate);
+            type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
 
     /// <summary>
-    /// A unit with explicit stats; health and damage are for the whole squad, turn rates are in degrees per
-    /// second, and braking 0 is twice the acceleration. See UnitType.
+    /// A unit with explicit stats; health is for the whole squad, turn rates are in degrees per second, and
+    /// braking 0 is twice the acceleration. See UnitType. Without a `weapon`, it gets a bullet weapon with
+    /// `range` that fires every tick, `dps` for the whole squad: steady damage, handy for tests.
     /// </summary>
     public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
         float reverseSpeed = 0, bool canCapture = true, float heading = 0, string type = "",
-        float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0)
+        float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0, WeaponType? weapon = null)
     {
+        weapon ??= new WeaponType(WeaponKind.Bullet, dps / members * Dt, Dt, range);
         int id = _nextId++;
         State.Units.Add(new Unit
         {
@@ -80,7 +84,6 @@ public sealed class Simulation
             Turret = heading,
             PrevTurret = heading,
             Speed = speed,
-            Range = range,
             Movement = movement,
             Acceleration = acceleration,
             Braking = braking > 0 ? braking : acceleration * 2,
@@ -92,8 +95,13 @@ public sealed class Simulation
             CanCapture = canCapture,
             MaxMembers = members,
             MemberHealth = maxHealth / members,
-            MemberDps = dps / members,
             Health = maxHealth,
+            WeaponKind = weapon.Kind,
+            Damage = weapon.Damage,
+            Range = weapon.Range,
+            ShellSpeed = weapon.ShellSpeed,
+            ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
+            LastShotTick = int.MinValue / 2,
             Pending = new(),
         });
         return id;
@@ -223,6 +231,7 @@ public sealed class Simulation
         _events.Clear();
         foreach (var command in commands) Apply(command);
         UpdateUnits();
+        MoveShells();
         RemoveDead();
         for (int j = 0; j < State.Junctions.Count; j++) UpdateCapture(j, State.Junctions[j]);
         foreach (var line in State.Belts) MovePackages(line);
@@ -365,13 +374,7 @@ public sealed class Simulation
                     bool onTarget = AimAt(ref unit, unit.Current.Target);
                     if (!InRange(ref unit, unit.Range) || !onTarget) break;
 
-                    (unit.Firing, unit.FireAt) = (true, unit.Current.Target);
-                    segment.Health -= unit.Dps * Dt;
-                    if (segment.Health <= 0)
-                    {
-                        Break(l, s);
-                        Complete(ref unit);
-                    }
+                    if (Fire(ref unit, -1, unit.Current.Target, l, s)) Complete(ref unit);
                     break;
                 }
 
@@ -466,11 +469,73 @@ public sealed class Simulation
     static bool AimAt(ref Unit unit, Vector3 at) =>
         TurnTurret(ref unit, MathF.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z));
 
-    // Returns true if this shot destroyed the target.
-    bool Fire(ref Unit unit, int targetId, Vector3 at)
+    // Engages a target (a unit or post by id, or else a belt segment) and shoots if the weapon has reloaded:
+    // every living member's Damage in one shot. A bullet hits at once; a shell flies (MoveShells). Returns
+    // true if this shot destroyed the target, which only a bullet can: a shell's kill lands later.
+    bool Fire(ref Unit unit, int targetId, Vector3 at, int line = -1, int segment = -1)
     {
         (unit.Firing, unit.FireAt) = (true, at);
-        float damage = unit.Dps * Dt;
+        if (State.Tick < unit.ReadyAtTick) return false;
+        (unit.ReadyAtTick, unit.LastShotTick) = (State.Tick + unit.ReloadTicks, State.Tick);
+        float damage = unit.Damage * unit.Members;
+        if (unit.WeaponKind == WeaponKind.Bullet) return Hit(targetId, line, segment, damage);
+
+        var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
+        State.Projectiles.Add(new Projectile
+        {
+            Id = _nextId++,
+            Owner = unit.Owner,
+            TargetId = targetId,
+            Line = line,
+            Segment = segment,
+            Position = muzzle,
+            PrevPosition = muzzle,
+            Target = at with { Y = HitHeight },
+            Speed = unit.ShellSpeed,
+            Damage = damage,
+        });
+        return false;
+    }
+
+    // Shells fly at the target, where it is now while it lives, and hit when they get there. One whose
+    // target died on the way lands where it last was, harmlessly.
+    void MoveShells()
+    {
+        var shells = State.Projectiles;
+        for (int i = shells.Count - 1; i >= 0; i--)
+        {
+            var p = shells[i];
+            p.PrevPosition = p.Position;
+            bool alive = true; // a segment target always is; broken ones just take no damage
+            if (p.TargetId >= 0 && (alive = TryGetTarget(p.TargetId, out var at, out _))) p.Target = at with { Y = HitHeight };
+
+            var toTarget = p.Target - p.Position;
+            float distance = toTarget.Length(), step = p.Speed * Dt;
+            if (distance > step)
+            {
+                p.Position += toTarget / distance * step;
+                shells[i] = p;
+                continue;
+            }
+            if (alive) Hit(p.TargetId, p.Line, p.Segment, p.Damage);
+            _events.Add(new SimEvent(SimEventKind.ShellHit, p.Id));
+            shells[i] = shells[^1];
+            shells.RemoveAt(shells.Count - 1);
+        }
+    }
+
+    // Damages a unit or post by id, or else a belt segment; true if that destroyed it.
+    bool Hit(int targetId, int line, int segment, float damage)
+    {
+        if (targetId < 0)
+        {
+            var s = State.Belts[line].Segments[segment];
+            if (s.State == SegmentState.Broken) return false;
+            s.Health -= damage;
+            if (s.Health > 0) return false;
+            Break(line, segment);
+            return true;
+        }
         int u = FindUnit(targetId);
         if (u >= 0)
         {

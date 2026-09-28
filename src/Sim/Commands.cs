@@ -32,12 +32,13 @@ public sealed record BreakSegmentCommand(int Line, int Segment) : Command(Sim.Pl
 public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, GathererDestroyed,
-    SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched,
+    SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched, ShellHit,
 }
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id: a unit, package or gatherer id; the line index for segment events; the junction index for junction events.
+/// Id: a unit, package or gatherer id; the line index for segment events; the junction index for junction
+/// events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
 /// Index: the segment for segment events, the gatherer id for PackageGathered, the new owner for
 /// JunctionCaptured, the output for JunctionSwitched.
 /// </summary>

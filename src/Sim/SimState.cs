@@ -31,16 +31,36 @@ public readonly record struct Order(UnitOrder Kind, Vector3 Target, int Line = -
 public enum Movement { Foot, Wheeled, Tracked }
 
 /// <summary>
-/// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle. The rest only matter for
+/// How a weapon's shots reach the target. A bullet hits the moment it's fired (drawn as a tracer); a
+/// shell is a projectile that flies at the weapon's ShellSpeed and hits on arrival. Rockets and the like
+/// come later as more kinds.
+/// </summary>
+public enum WeaponKind { Bullet, Shell }
+
+/// <summary>
+/// A weapon type, as loaded from /data/weapons.json: Damage per shot (per member, for a squad), Reload
+/// seconds between shots, Range in m, and for shells their speed in m/s. Id is its key in the file.
+/// </summary>
+public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0, string Id = "")
+{
+    public float Dps => Damage / Reload;
+}
+
+/// <summary>
+/// A unit type, as loaded from /data/units.json. Members is 1 for a vehicle; for a squad, every member
+/// carries the Weapon (an id in weapons.json, resolved into Gun when parsed). The rest only matter for
 /// vehicles: Acceleration and Braking in m/s² (Braking 0: twice Acceleration); EaseIn and EaseOut in
 /// seconds, how long speeding up, braking and turning take to build up to full and to settle (0:
 /// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
 /// instantly); ReverseSpeed in m/s (0: can't back up). Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
-    int Members, float Speed, float MemberHealth, float MemberDps, float Range,
+    int Members, float Speed, float MemberHealth, string Weapon,
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
-    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true, string Id = "");
+    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true, string Id = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
+}
 
 /// <summary>
 /// A vehicle, or an infantry squad. A squad is one sim entity (one position, one order); its members
@@ -54,7 +74,7 @@ public struct Unit
     public Vector3 Position, PrevPosition; // PrevPosition is last tick's, for view interpolation
     public float Heading, PrevHeading;     // radians; facing (sin h, 0, cos h)
     public float Turret, PrevTurret;       // radians, world yaw like Heading; units without a turret aim instantly
-    public float Speed, Range;             // top speed m/s, weapon range m
+    public float Speed;                    // top speed, m/s
     public Movement Movement;
     // Vehicles only. Effort is the throttle, eased over EaseIn/EaseOut seconds: -1..1, positive pushing
     // along the heading; it brakes (at Braking) when it opposes the motion, and drives (at Acceleration)
@@ -69,10 +89,14 @@ public struct Unit
     public bool CanCapture;                // squads take switches; vehicles only deny them
     public bool Driving;                   // moved under power this tick; otherwise a vehicle coasts to a stop
     public int MaxMembers;
-    public float MemberHealth, MemberDps;
+    public float MemberHealth;
     public float Health;                   // the whole squad's pool
-    public bool Firing;                    // this tick; for effects
-    public Vector3 FireAt;                 // what it fired at this tick
+    // The weapon, copied from its type: every living member fires it, so a squad's shot does Damage per member.
+    public WeaponKind WeaponKind;
+    public float Damage, Range, ShellSpeed; // per shot per member; m; m/s
+    public int ReloadTicks, ReadyAtTick, LastShotTick;
+    public bool Firing;                    // engaging something this tick (on target, in range), reloading or not
+    public Vector3 FireAt;                 // what it's engaging
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
 
@@ -84,7 +108,7 @@ public struct Unit
 
     public readonly float MaxHealth => MemberHealth * MaxMembers;
     public readonly int Members => Health <= 0 ? 0 : Math.Max(1, (int)MathF.Ceiling(Health / MemberHealth - 1e-4f));
-    public readonly float Dps => MemberDps * Members;
+    public readonly float Dps => Damage * Members / (ReloadTicks * Simulation.Dt);
 }
 
 public enum SegmentState { Normal, Broken }
@@ -206,6 +230,17 @@ public struct Gatherer
     public int Gathered;
 }
 
+/// <summary>
+/// A shell in flight. It homes on its target (a unit or post by TargetId, else the point Target on a belt
+/// segment) and hits on arrival; a target that died meanwhile leaves it to land where the target was.
+/// </summary>
+public struct Projectile
+{
+    public int Id, Owner, TargetId, Line, Segment;
+    public Vector3 Position, PrevPosition, Target;
+    public float Speed, Damage;
+}
+
 public struct Package
 {
     public int Id;
@@ -231,4 +266,5 @@ public sealed class SimState
     public readonly List<Junction> Junctions = [];
     public readonly List<Gatherer> Gatherers = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last
+    public readonly List<Projectile> Projectiles = []; // unordered
 }

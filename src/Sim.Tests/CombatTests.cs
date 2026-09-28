@@ -358,31 +358,93 @@ public class CombatTests
     }
 
     [Fact]
-    public void Unit_types_load_from_json()
+    public void Tank_shells_fly_to_the_target_and_hit_once_per_reload()
     {
-        var types = GameData.ParseUnitTypes("""
+        var sim = NewSim();
+        var cannon = new WeaponType(WeaponKind.Shell, Damage: 40, Reload: 3, Range: 14, ShellSpeed: 40);
+        sim.AddUnit(Blue, Vector3.Zero, movement: Movement.Tracked, acceleration: 2, turnRate: 60, weapon: cannon);
+        int target = sim.AddUnit(Red, new Vector3(0, 0, 12), maxHealth: 1000, dps: 0); // straight ahead, in range
+
+        sim.Tick(NoCommands);
+        Assert.Single(sim.State.Projectiles);                   // fired...
+        Assert.Equal(1000f, UnitById(sim, target).Health);      // ...but nothing lands yet
+        int hitAt = TicksUntil(sim, new SimEvent(SimEventKind.ShellHit, sim.State.Projectiles[0].Id), T);
+        Assert.InRange(hitAt, 5, 7);                            // ~11.5 m at 40 m/s: ~0.3 s
+        Assert.Equal(960f, UnitById(sim, target).Health);
+
+        Run(sim, 3 * T - hitAt - 2);                            // just short of the reload
+        Assert.Equal(960f, UnitById(sim, target).Health);
+        Run(sim, 12);
+        Assert.Equal(920f, UnitById(sim, target).Health);       // the second shell
+    }
+
+    [Fact]
+    public void A_shell_whose_target_dies_on_the_way_lands_harmlessly()
+    {
+        var sim = NewSim();
+        var cannon = new WeaponType(WeaponKind.Shell, Damage: 40, Reload: 3, Range: 14, ShellSpeed: 10);
+        sim.AddUnit(Blue, Vector3.Zero, weapon: cannon);
+        int target = sim.AddUnit(Red, new Vector3(0, 0, 12), maxHealth: 10, dps: 0);
+        sim.AddUnit(Blue, new Vector3(0, 0, 8), dps: 100); // kills it long before the slow shell arrives
+
+        Run(sim, 2 * T);
+
+        Assert.DoesNotContain(sim.State.Units, u => u.Id == target);
+        Assert.Empty(sim.State.Projectiles); // landed where the target was
+    }
+
+    [Fact]
+    public void A_squad_fires_every_living_members_weapon_in_one_shot()
+    {
+        var sim = NewSim();
+        var rifle = new WeaponType(WeaponKind.Bullet, Damage: 1, Reload: 0.5f, Range: 8);
+        sim.AddUnit(Blue, Vector3.Zero, maxHealth: 100, members: 5, weapon: rifle);
+        int target = sim.AddUnit(Red, new Vector3(0, 0, 5), maxHealth: 1000, dps: 0);
+
+        sim.Tick(NoCommands);
+        Assert.Equal(995f, UnitById(sim, target).Health); // 5 members x 1
+        Run(sim, 9);
+        Assert.Equal(995f, UnitById(sim, target).Health); // reloading for 0.5 s
+        sim.Tick(NoCommands);
+        Assert.Equal(990f, UnitById(sim, target).Health);
+    }
+
+    [Fact]
+    public void Unit_types_load_from_json_with_their_weapons()
+    {
+        var weapons = GameData.ParseWeapons("""
             // comments and trailing commas are fine
             {
-              "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "memberDps": 2, "range": 8 },
-              "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 2, "braking": 4,
-                        "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90, "reverseSpeed": 2.2,
-                        "memberHealth": 260, "memberDps": 14, "range": 14, "canCapture": false },
-              "car": { "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 4, "turnRate": 120,
-                       "memberHealth": 140, "memberDps": 9, "range": 12 },
+              "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8 },
+              "cannon": { "kind": "shell", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40 },
+              "mg": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12 },
             }
             """);
+        var types = GameData.ParseUnitTypes("""
+            {
+              "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle" },
+              "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 2, "braking": 4,
+                        "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90, "reverseSpeed": 2.2,
+                        "memberHealth": 260, "weapon": "cannon", "canCapture": false },
+              "car": { "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 4, "turnRate": 120,
+                       "memberHealth": 140, "weapon": "mg" },
+            }
+            """, weapons);
         Assert.Equal("tank", types["tank"].Id);
+        Assert.Equal("cannon", types["tank"].Gun.Id);
 
         var sim = NewSim();
         var squad = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["rifle_squad"]));
         Assert.Equal(5, squad.Members);
         Assert.Equal(100f, squad.MaxHealth);
-        Assert.Equal(10f, squad.Dps);
+        Assert.Equal(10f, squad.Dps, 0.001f); // 1 a shot every 0.5 s, from each of 5
+        Assert.Equal((WeaponKind.Bullet, 8f), (squad.WeaponKind, squad.Range));
         Assert.Equal(4.5f, squad.Speed);
         Assert.Equal(Movement.Foot, squad.Movement);
         Assert.True(squad.CanCapture);
 
         var tank = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["tank"]));
+        Assert.Equal((WeaponKind.Shell, 14f, 40f, 60), (tank.WeaponKind, tank.Range, tank.ShellSpeed, tank.ReloadTicks));
         Assert.Equal(Movement.Tracked, tank.Movement);
         Assert.Equal(MathF.PI / 3, tank.TurnRate, 0.001f);
         Assert.Equal(MathF.PI / 2, tank.TurretTurnRate, 0.001f);
@@ -394,5 +456,26 @@ public class CombatTests
 
         var car = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["car"]));
         Assert.Equal((8f, 0f, 0f, 0f), (car.Braking, car.EaseIn, car.EaseOut, car.TurretTurnRate)); // braking: twice acceleration
+        Assert.Equal(3, car.ReloadTicks); // 0.15 s
+
+        Assert.Throws<InvalidDataException>(() => GameData.ParseUnitTypes("""{ "x": { "members": 1, "speed": 1, "memberHealth": 1, "weapon": "laser" } }""", weapons));
+        Assert.Throws<InvalidDataException>(() => GameData.ParseWeapons("""{ "slow": { "kind": "shell", "damage": 1, "reload": 1, "range": 5 } }"""));
+    }
+
+    [Fact]
+    public void The_data_files_in_the_repo_load()
+    {
+        var data = Path.Combine(RepoRoot(), "data");
+        var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(data, "weapons.json")));
+        var types = GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(data, "units.json")), weapons);
+        Assert.Equal(WeaponKind.Shell, types["tank"].Gun.Kind);
+        Assert.All(types.Values, t => Assert.NotNull(t.Gun));
+    }
+
+    static string RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "Game.sln"))) return dir.FullName;
+        throw new DirectoryNotFoundException("No Game.sln above the test binaries.");
     }
 }
