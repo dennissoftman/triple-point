@@ -1,5 +1,6 @@
 [gd_scene format=3]
 
+[ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]
 [ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
 [ext_resource type="PackedScene" path="res://views/unit.tscn" id="3_unit"]
@@ -63,17 +64,17 @@ albedo_color = Color(1, 0.85, 0.4, 1)
 
 [sub_resource type="Curve3D" id="Curve3D_BlueBelt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 1.665, 0, -2.496, -36.616, 0.2, 4.428, -4.439, 0, 2.449, 4.439, 0, -2.449, -26.626, 0.2, -10.548, -4.715, 0, -0.14, 4.715, 0, 0.14, -9.983, 0.2, -10.266, -3.884, 0, 2.819, 3.884, 0, -2.819, 1.667, 0.2, -9.708, -8.88, 0, 13.312, 8.88, 0, -13.312, 13.322, 0.2, -27.18, -6.938, 0, 10.4, 0, 0, 0, 54.947, 0.2, -89.58),
-"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, 6.667, 0, -0.333, -140, 0.2, 20, -13, 0, 0.667, 13, 0, -0.667, -100, 0.2, 18, -10.564, 0, 2.262, 10.564, 0, -2.262, -62, 0.2, 16, -5.896, 0, 4.425, 5.896, 0, -4.425, -36.616, 0.2, 4.428, -4.439, 0, 2.449, 4.439, 0, -2.449, -26.626, 0.2, -10.548, -4.715, 0, -0.14, 4.715, 0, 0.14, -9.983, 0.2, -10.266, -3.884, 0, 2.819, 3.884, 0, -2.819, 1.667, 0.2, -9.708, -8.418, 0, 12.619, 8.418, 0, -12.619, 13.322, 0.2, -27.18, -8.787, 0, 13.173, 8.787, 0, -13.173, 52.172, 0.2, -85.42, -2.312, 0, 3.467, 0, 0, 0, 66.047, 0.2, -106.22),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
-point_count = 6
+point_count = 10
 
 [sub_resource type="Curve3D" id="Curve3D_RedBelt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, -1.665, 0, 2.496, 36.616, 0.2, -4.428, 4.439, 0, -2.449, -4.439, 0, 2.449, 26.626, 0.2, 10.548, 4.715, 0, 0.14, -4.715, 0, -0.14, 9.983, 0.2, 10.266, 3.884, 0, -2.819, -3.884, 0, 2.819, -1.667, 0.2, 9.708, 8.88, 0, -13.312, -8.88, 0, 13.312, -13.322, 0.2, 27.18, 6.938, 0, -10.4, 0, 0, 0, -54.947, 0.2, 89.58),
-"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, -6.667, 0, 0.333, 140, 0.2, -20, 13, 0, -0.667, -13, 0, 0.667, 100, 0.2, -18, 10.564, 0, -2.262, -10.564, 0, 2.262, 62, 0.2, -16, 5.896, 0, -4.425, -5.896, 0, 4.425, 36.616, 0.2, -4.428, 4.439, 0, -2.449, -4.439, 0, 2.449, 26.626, 0.2, 10.548, 4.715, 0, 0.14, -4.715, 0, -0.14, 9.983, 0.2, 10.266, 3.884, 0, -2.819, -3.884, 0, 2.819, -1.667, 0.2, 9.708, 8.418, 0, -12.619, -8.418, 0, 12.619, -13.322, 0.2, 27.18, 8.787, 0, -13.173, -8.787, 0, 13.173, -52.172, 0.2, 85.42, 2.312, 0, -3.467, 0, 0, 0, -66.047, 0.2, 106.22),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
-point_count = 6
+point_count = 10
 
 [node name="Main" type="Node3D"]
 
@@ -102,9 +103,15 @@ mesh = SubResource("PlaneMesh_ground")
 
 [node name="BlueBelt" type="Path3D" parent="Belts"]
 curve = SubResource("Curve3D_BlueBelt")
+script = ExtResource("16_beltpath")
+CoveredStart = 106.26
+CoveredEnd = 25.003
 
 [node name="RedBelt" type="Path3D" parent="Belts"]
 curve = SubResource("Curve3D_RedBelt")
+script = ExtResource("16_beltpath")
+CoveredStart = 106.26
+CoveredEnd = 25.003
 
 [node name="Gatherers" type="Node3D" parent="."]
 

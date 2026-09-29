@@ -1,5 +1,6 @@
 [gd_scene format=3]
 
+[ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]
 [ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
 [ext_resource type="PackedScene" path="res://views/unit.tscn" id="3_unit"]
@@ -63,17 +64,17 @@ albedo_color = Color(1, 0.85, 0.4, 1)
 
 [sub_resource type="Curve3D" id="Curve3D_blue_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 19, 0, 0, -26, 0.2, -11, -19, 0, 0, 0, 0, 0, 32, 0.2, -11),
-"tilts": PackedFloat32Array(0, 0)
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -50, 0.2, -11, 0, 0, 0, 0, 0, 0, -26, 0.2, -11, 0, 0, 0, 0, 0, 0, 32, 0.2, -11, 0, 0, 0, 0, 0, 0, 50, 0.2, -11),
+"tilts": PackedFloat32Array(0, 0, 0, 0)
 }
-point_count = 2
+point_count = 4
 
 [sub_resource type="Curve3D" id="Curve3D_red_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, -19, 0, 0, 32, 0.2, 11, 19, 0, 0, 0, 0, 0, -26, 0.2, 11),
-"tilts": PackedFloat32Array(0, 0)
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 50, 0.2, 11, 0, 0, 0, 0, 0, 0, 32, 0.2, 11, 0, 0, 0, 0, 0, 0, -26, 0.2, 11, 0, 0, 0, 0, 0, 0, -50, 0.2, 11),
+"tilts": PackedFloat32Array(0, 0, 0, 0)
 }
-point_count = 2
+point_count = 4
 
 [node name="Main" type="Node3D"]
 
@@ -100,9 +101,15 @@ mesh = SubResource("PlaneMesh_ground")
 
 [node name="BlueBelt" type="Path3D" parent="Belts"]
 curve = SubResource("Curve3D_blue_belt")
+script = ExtResource("16_beltpath")
+CoveredStart = 24.0
+CoveredEnd = 18.0
 
 [node name="RedBelt" type="Path3D" parent="Belts"]
 curve = SubResource("Curve3D_red_belt")
+script = ExtResource("16_beltpath")
+CoveredStart = 18.0
+CoveredEnd = 24.0
 
 [node name="Gatherers" type="Node3D" parent="."]
 

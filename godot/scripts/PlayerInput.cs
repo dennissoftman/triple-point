@@ -20,6 +20,7 @@ public partial class PlayerInput : Node
     const float UnitCenterHeight = 0.6f;
     const float PostPickRadius = 1.3f;    // m on the ground
     const float PickTolerance = 0.5f;     // m beyond the belt edge that still counts as clicking it
+    static readonly Vector2 HintOffset = new(22, 14); // px from the cursor to the belt hint
     const float FormationSpacing = 3f;    // m between units of a group move
     const float PostSnapRadius = 6f;      // m from the cursor to a belt that a post being placed snaps to
 
@@ -59,6 +60,9 @@ public partial class PlayerInput : Node
     bool _attackMoveArmed; // by attack_move: the next left click attack-moves
     bool _skipRelease;     // the release after a double-click isn't a click of its own
     string? _placingType;  // a building type id, while placement is armed
+    Label? _hint;          // beside the cursor over a belt segment (UpdateBeltHover)
+    readonly List<(int Line, float From, float To)> _spots = []; // free post spots, while placing a post
+    int _spotsSignature = -1;
     float _placingHeading; // radians, in 90° steps
     CursorKind _cursor = CursorKind.Default;
 
@@ -216,6 +220,7 @@ public partial class PlayerInput : Node
     // whole cost in hand. Placement ends when no builder is selected any more.
     void UpdatePlacement()
     {
+        ShowPostSpots(_placingType is not null && Host.Sim.BuildingTypes.TryGetValue(_placingType, out var placing) && placing.Kind == BuildingKind.Post);
         Placing = null;
         if (_placingType is null) return;
         if (!Host.Sim.BuildingTypes.TryGetValue(_placingType, out var type) || Buildable.Count == 0)
@@ -226,7 +231,7 @@ public partial class PlayerInput : Node
         if (Camera.GroundPoint(_mouse) is not Vector3 ground) return;
         var point = ToSim(ground) with { Y = 0 };
         var (at, heading, problem) = (Simulation.SnapToGrid(point, type.Size), _placingHeading, (string?)null);
-        if (type.Kind == BuildingKind.Post && !Host.Sim.SnapToBelt(point, PostSnapRadius, out at, out heading))
+        if (type.Kind == BuildingKind.Post && !Host.Sim.SnapPost(point, PostSnapRadius, out at, out heading))
             (at, problem) = (point, "must go beside a belt");
         if (problem is null && type.Kind == BuildingKind.Post && Host.Sim.TooCloseToPost(at))
             problem = $"another post is closer than {Simulation.PostSpacing:0} m along this belt";
@@ -268,7 +273,7 @@ public partial class PlayerInput : Node
         if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
             return new(Act.Resume, point, site);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
-        if (sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment))
+        if (sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
             var s = sim.State.Belts[line].Segments[segment];
@@ -313,9 +318,10 @@ public partial class PlayerInput : Node
     void UpdateCursor(Vector2 screen)
     {
         var kind = CursorKind.Default; // also while placing a building: the ghost shows what a click does
-        if (_placingType is null && Camera.GroundPoint(screen) is Vector3 ground)
+        var over = Camera.GroundPoint(screen) is Vector3 g ? ToSim(g) : (SVector3?)null;
+        UpdateBeltHover(screen, over);
+        if (_placingType is null && over is SVector3 point)
         {
-            var point = ToSim(ground);
             if (_attackMoveArmed)
                 kind = AttackMoveIntent(screen, point).Kind == Act.Attack ? CursorKind.Attack : CursorKind.AttackMove;
             else if (UnitAt(screen, mine: true) is null)
@@ -331,6 +337,53 @@ public partial class PlayerInput : Node
         _cursor = kind;
         CursorName = kind.ToString();
         Cursors.Apply(kind);
+    }
+
+    // While a post is being placed, the belt view marks every free spot along the belts (PostSpots),
+    // recomputed only when posts or foundations come or go.
+    void ShowPostSpots(bool show)
+    {
+        var state = Host.Sim.State;
+        int signature = show ? state.Gatherers.Count * 7919 + state.Buildings.Count : -1;
+        if (show) foreach (var g in state.Gatherers) signature += g.Id;
+        if (signature == _spotsSignature) return;
+        _spotsSignature = signature;
+        _spots.Clear();
+        if (show) Host.Sim.PostSpots(_spots);
+        BeltView.ShowPostSpots(state, show ? _spots : null);
+    }
+
+    // With units selected, the belt segment under the cursor lights up in the view with what a right-click
+    // would do to it, and a hint beside the cursor gives its health and the keys: belts can be shot
+    // apart and repaired, and this is where a player learns it.
+    void UpdateBeltHover(Vector2 screen, SVector3? over)
+    {
+        var hover = (-1, -1, BeltView.HoverKind.None);
+        string hint = "";
+        var sim = Host.Sim;
+        if (over is SVector3 point && _selection.Count > 0 && _placingType is null && !_attackMoveArmed && EnemyAt(screen, point) is null
+            && sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
+        {
+            var s = sim.State.Belts[line].Segments[segment];
+            bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth;
+            hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
+            string act = CommandCard.KeyOf("act");
+            hint = $"{(s.State == SegmentState.Broken ? "Broken belt" : hurt ? "Damaged belt" : "Belt")}  {s.Health:0}/{s.MaxHealth:0}\n"
+                 + (force ? $"{act}: attack it" : $"{CommandCard.KeyOf("force_attack")}+{act}: attack" + (hurt ? $"   {act}: repair" : ""));
+        }
+        BeltView.Hover = hover;
+
+        if (_hint is null)
+        {
+            _hint = new Label { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
+            _hint.AddThemeFontSizeOverride("font_size", 13);
+            _hint.AddThemeColorOverride("font_outline_color", Colors.Black);
+            _hint.AddThemeConstantOverride("outline_size", 4);
+            SelectionBox.GetParent().AddChild(_hint);
+        }
+        if (_hint.Text != hint) _hint.Text = hint;
+        _hint.Visible = hint.Length > 0;
+        if (_hint.Visible) _hint.Position = screen + HintOffset;
     }
 
     // ---- Selection ----

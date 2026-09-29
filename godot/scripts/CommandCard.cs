@@ -155,9 +155,11 @@ public partial class CommandCard : PanelContainer
     public static string Title(string id) => id.Length == 0 ? id : char.ToUpperInvariant(id[0]) + id[1..].Replace('_', ' ');
 
     // The key an Input Map action is bound to, as text.
-    static string KeyOf(string action)
+    /// <summary>What the first input bound to an action is called, short: "Q", "Ctrl", "RMB".</summary>
+    public static string KeyOf(string action)
     {
         var events = InputMap.ActionGetEvents(action);
-        return events.Count > 0 ? events[0].AsText().Replace(" (Physical)", "") : "?";
+        return events.Count == 0 ? "?" : events[0].AsText().Replace(" (Physical)", "")
+            .Replace("Left Mouse Button", "LMB").Replace("Right Mouse Button", "RMB").Replace("Middle Mouse Button", "MMB");
     }
 }

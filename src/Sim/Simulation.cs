@@ -32,6 +32,7 @@ public sealed class Simulation
     public const float PostReach = 4f;              // m; a post must stand this close to a belt, and pulls from it
     public const float PostOffset = 2.5f;           // m from the belt's middle that a placed post snaps to (SnapToBelt)
     const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
+    const float SpotMargin = 0.05f;                 // m inside a free stretch's ends that SnapPost aims for, clear of rounding
     public const float PostSpacing = 30f;           // m along a line between any two posts (foundations too); two posts drain a belt
     const float BuildReach = 2f;                    // m beyond a footprint's edge that a builder works from
     const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
@@ -63,6 +64,8 @@ public sealed class Simulation
 
     readonly SimRandom _random;
     readonly List<SimEvent> _events = [];
+    readonly List<(int, float, float)> _spots = []; // SnapPost's scratch
+    readonly List<float> _taken = [];               // PostSpots' scratch
     int _nextId = 1;
 
     public Simulation(uint seed = 1) => _random = new SimRandom(seed);
@@ -136,11 +139,14 @@ public sealed class Simulation
         return id;
     }
 
-    /// <summary>Adds a belt line; each curve is cut into breakable segments no longer than the config allows.</summary>
-    public void AddBeltLine(BezierSegment[] curves, BeltConfig config)
+    /// <summary>
+    /// Adds a belt line; each curve is cut into breakable segments no longer than the config allows. The
+    /// first `coveredStart` m and last `coveredEnd` m are covered (unbreakable, no posts; see BeltLine).
+    /// </summary>
+    public void AddBeltLine(BezierSegment[] curves, BeltConfig config, float coveredStart = 0, float coveredEnd = 0)
     {
         var segments = curves.SelectMany(c => c.Split(config.MaxSegmentLength)).ToArray();
-        State.Belts.Add(new BeltLine(segments, config, TicksPerSecond));
+        State.Belts.Add(new BeltLine(segments, config, TicksPerSecond, coveredStart, coveredEnd));
     }
 
     /// <summary>
@@ -193,7 +199,7 @@ public sealed class Simulation
     public bool SnapToBelt(Vector3 near, float maxDistance, out Vector3 at, out float heading)
     {
         (at, heading) = (near, 0);
-        if (!FindSegment(near, maxDistance, out int l, out int s)) return false;
+        if (!FindSegment(near, maxDistance, out int l, out int s, openOnly: true)) return false;
         var line = State.Belts[l];
         var segment = line.Segments[s];
         float along = segment.Start + segment.Curve.ClosestDistanceAlong(near, out _);
@@ -205,6 +211,69 @@ public sealed class Simulation
         at = point + side * PostOffset;
         heading = MathF.Atan2(-side.X, -side.Z); // facing the belt
         return true;
+    }
+
+    /// <summary>
+    /// Like SnapToBelt, but if that spot is too close to another post along the belt, it moves along the
+    /// same line to the nearest spot that isn't (PostSpots), as long as that's within PostSpacing of it.
+    /// </summary>
+    public bool SnapPost(Vector3 near, float maxDistance, out Vector3 at, out float heading)
+    {
+        if (!SnapToBelt(near, maxDistance, out at, out heading)) return false;
+        if (!TooCloseToPost(at) || !PullPoint(at, PostReach, out int line, out float along)) return true;
+
+        _spots.Clear();
+        PostSpots(_spots);
+        float best = float.MaxValue, bestAlong = along;
+        foreach (var (l, from, to) in _spots)
+        {
+            if (l != line) continue;
+            float clamped = Math.Clamp(along, from + SpotMargin, to - SpotMargin);
+            if (to - from > 2 * SpotMargin && MathF.Abs(clamped - along) < best) (best, bestAlong) = (MathF.Abs(clamped - along), clamped);
+        }
+        if (best > PostSpacing) return true; // nothing close: stay under the cursor, and say why it can't go
+        var belt = State.Belts[line];
+        var point = belt.PositionAt(bestAlong) with { Y = near.Y };
+        var direction = belt.DirectionAt(bestAlong);
+        var side = Vector3.Normalize(new Vector3(direction.Z, 0, -direction.X));
+        if (Vector3.Dot(side, near - point) < 0) side = -side;
+        at = point + side * PostOffset;
+        heading = MathF.Atan2(-side.X, -side.Z);
+        return true;
+    }
+
+    /// <summary>
+    /// Where along each line a new post could stand as far as the belt goes: on open (not covered) belt,
+    /// at least PostSpacing along it from every post and post foundation. Appends (line, from, to) ranges,
+    /// in m along the line. Other things in the way aren't considered; CanPlace has the last word.
+    /// </summary>
+    public void PostSpots(List<(int Line, float From, float To)> spots)
+    {
+        for (int l = 0; l < State.Belts.Count; l++)
+        {
+            _taken.Clear();
+            foreach (var post in State.Gatherers)
+                if (post.Line == l) _taken.Add(post.Distance);
+            foreach (var b in State.Buildings)
+                if (!b.Built && b.Type.Kind == BuildingKind.Post && PullPoint(b.Position, PostReach, out int bl, out float d) && bl == l) _taken.Add(d);
+            _taken.Sort();
+
+            var segments = State.Belts[l].Segments;
+            for (int s = 0; s < segments.Length; s++)
+            {
+                if (segments[s].Covered) continue;
+                float from = segments[s].Start, to = segments[s].End;
+                while (s + 1 < segments.Length && !segments[s + 1].Covered) to = segments[++s].End; // a run of open belt
+                foreach (float d in _taken) // cut out PostSpacing either side of each post, in order along the line
+                {
+                    if (d + PostSpacing <= from) continue;
+                    if (d - PostSpacing >= to) break;
+                    if (d - PostSpacing > from) spots.Add((l, from, d - PostSpacing));
+                    from = MathF.Max(from, d + PostSpacing);
+                }
+                if (to > from) spots.Add((l, from, to));
+            }
+        }
     }
 
     /// <summary>
@@ -226,7 +295,7 @@ public sealed class Simulation
     bool PullPoint(Vector3 at, float maxDistance, out int line, out float along)
     {
         along = 0;
-        if (!FindSegment(at, maxDistance, out line, out int segment)) return false;
+        if (!FindSegment(at, maxDistance, out line, out int segment, openOnly: true)) return false;
         var s = State.Belts[line].Segments[segment];
         along = s.Start + s.Curve.ClosestDistanceAlong(at, out _);
         return true;
@@ -261,15 +330,18 @@ public sealed class Simulation
             if (u.Movement == Movement.Static && Overlap(at, half, u.Position, GridCell / 2)) return false;
         float corner = half * MathF.Sqrt(2); // the footprint's corners, whichever way it faces
         if (type.Kind == BuildingKind.Post)
-            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && FindSegment(at, PostReach, out _, out _) && !TooCloseToPost(at);
+            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && PullPoint(at, PostReach, out _, out _) && !TooCloseToPost(at);
         return !FindSegment(at, corner + BeltHalfWidth, out _, out _);
     }
 
     static bool Overlap(Vector3 a, float aHalf, Vector3 b, float bHalf) =>
         MathF.Abs(a.X - b.X) < aHalf + bHalf && MathF.Abs(a.Z - b.Z) < aHalf + bHalf;
 
-    /// <summary>The belt segment nearest to a ground point, if one is within `maxDistance`.</summary>
-    public bool FindSegment(Vector3 point, float maxDistance, out int line, out int segment)
+    /// <summary>
+    /// The belt segment nearest to a ground point, if one is within `maxDistance`; with `openOnly`, only
+    /// segments that aren't covered (the ones that can be shot, repaired and built beside).
+    /// </summary>
+    public bool FindSegment(Vector3 point, float maxDistance, out int line, out int segment, bool openOnly = false)
     {
         (line, segment) = (-1, -1);
         float best = maxDistance;
@@ -278,6 +350,7 @@ public sealed class Simulation
             var segments = State.Belts[l].Segments;
             for (int s = 0; s < segments.Length; s++)
             {
+                if (openOnly && segments[s].Covered) continue;
                 segments[s].Curve.ClosestDistanceAlong(point, out float d);
                 if (d <= best) (best, line, segment) = (d, l, s);
             }
@@ -348,13 +421,13 @@ public sealed class Simulation
             case AttackMoveCommand am:
                 Issue(am.Player, am.UnitId, new Order(UnitOrder.AttackMove, am.Target), am.Queued);
                 break;
-            case AttackSegmentCommand s:
+            case AttackSegmentCommand s when Open(s.Line, s.Segment):
                 Issue(s.Player, s.UnitId, new Order(UnitOrder.AttackSegment, default, s.Line, s.Segment), s.Queued);
                 break;
-            case RepairSegmentCommand r:
+            case RepairSegmentCommand r when Open(r.Line, r.Segment):
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
                 break;
-            case BreakSegmentCommand b:
+            case BreakSegmentCommand b when Open(b.Line, b.Segment):
                 Break(b.Line, b.Segment);
                 break;
             case DestroyCommand d:
@@ -653,6 +726,11 @@ public sealed class Simulation
         unit.Current = order with { Target = OrderPoint(order, unit.Position) };
         (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
     }
+
+    // A segment that exists and isn't covered: what segment orders can name.
+    bool Open(int line, int segment) =>
+        line >= 0 && line < State.Belts.Count && segment >= 0 && segment < State.Belts[line].Segments.Length
+        && !State.Belts[line].Segments[segment].Covered;
 
     void Complete(ref Unit unit)
     {

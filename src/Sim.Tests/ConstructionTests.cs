@@ -173,6 +173,36 @@ public class ConstructionTests
     }
 
     [Fact]
+    public void Post_spots_are_the_open_belt_clear_of_the_spacing_and_a_post_snaps_to_the_nearest()
+    {
+        var sim = NewConstructionSim();
+        // 0-100 m, the first and last 10 m covered; a post at 40.
+        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(90, 0, 0)), Straight(new(90, 0, 0), new(100, 0, 0))],
+            Belt(1), coveredStart: 10, coveredEnd: 10);
+        sim.AddGatherer(Red, new Vector3(40, 0, 2), maxDistance: 3);
+
+        var spots = new List<(int Line, float From, float To)>();
+        sim.PostSpots(spots);
+        var free = Assert.Single(spots); // 10-70 is within the spacing of the post at 40
+        Assert.Equal((0, 70f, 90f), (free.Line, free.From, free.To), new SpotComparer());
+
+        // Aiming at 55 (too close to the post at 40) lands at the nearest free spot along the belt, 70.
+        Assert.True(sim.SnapPost(new Vector3(55, 0, 2), 6, out var at, out _));
+        Assert.Equal(70f, at.X, 0.1f);
+        Assert.True(sim.CanPlace(Post, at));
+        // Where it's free already, it stays under the cursor.
+        Assert.True(sim.SnapPost(new Vector3(80, 0, -2), 6, out at, out _));
+        Assert.Equal((80f, -Simulation.PostOffset), (at.X, at.Z));
+    }
+
+    sealed class SpotComparer : IEqualityComparer<(int, float, float)>
+    {
+        public bool Equals((int, float, float) a, (int, float, float) b) =>
+            a.Item1 == b.Item1 && MathF.Abs(a.Item2 - b.Item2) < 0.01f && MathF.Abs(a.Item3 - b.Item3) < 0.01f;
+        public int GetHashCode((int, float, float) v) => v.Item1;
+    }
+
+    [Fact]
     public void A_builder_sent_to_a_spot_another_post_took_meanwhile_is_blocked()
     {
         var sim = NewConstructionSim();

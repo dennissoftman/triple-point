@@ -25,7 +25,7 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 | Concern | Sim (`src/Sim`) | View and host (`godot/scripts`) |
 |---|---|---|
 | Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, order paths of the selection, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
-| Belts, spill, pickups, gatherers, post spacing | `Simulation.cs` (`TooCloseToPost`), `BezierSegment.cs` | `BeltView` (ribbons, packages, posts), `InstanceBatch` |
+| Belts, spill, pickups, gatherers, post spacing, covered stretches | `Simulation.cs` (`TooCloseToPost`, `PostSpots`, `SnapPost`; `FindSegment(openOnly)`), `SimState.cs` (`BeltSegment.Covered`), `BezierSegment.cs` | `BeltView` (segments as rails, joints and housings, wrecks, health bars, hover, post spots; packages, posts), `BeltPath` (a map's belt, with its covered ends), `InstanceBatch` |
 | Buildings, production queue, rally points | `Simulation.cs` (`UpdateProduction`), `SimState.cs` (`Building`) | `BuildingsView` (blocks, bars, rally flag), `CommandCard` |
 | Construction: builders, foundations, placement, grid snap, posts snapped to belts | `Simulation.cs` (`Construct`, `UpdateConstruction`, `CanPlace`, `CanAfford`, `SnapToGrid`, `SnapToBelt`) | `PlayerInput` (placement), `BuildingsView` (foundations, ghost), `CommandCard` |
 | Win and lose: rebuild clock, losing, game over | `Simulation.cs` (`UpdateEndConditions`, `CanStillRecover`, `Lose`; `EndConditions` switches it on), `SimState.cs` (`Player.GraceTicksLeft`, `Lost`; `GameOver`, `Winner`) | `GameOverOverlay` (banner, Restart, Quit), the HUD line (rebuild clocks) |
@@ -70,7 +70,7 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
   - Sim in Release: 0.1 ms/tick idle, 0.15 ms in battle (0.9 ms worst, likely return fire alerting a whole block of allies at once, each checking for targets). The editor runs C# in Debug, about 15× slower, so don't judge sim cost from it.
   - Nothing here blocks the MVP.
 - **Rendering debt, in order:**
-  1. **Belt segments:** a mesh and a material per segment, which is 400 of the 485 idle draw calls. Fix: one mesh per line with a state texture read by a shader. Do it in the visual pass, since the scrolling belt needs that shader anyway.
+  1. **Belt segments:** a mesh and a material per segment, which is 400 of the 485 idle draw calls (still ~500 with rails, joints and housings, since each segment stays one mesh with vertex colors; a broken one swaps to two halves and a few debris boxes). Fix: one mesh per line with a state texture read by a shader. Do it in the visual pass, since the scrolling belt needs that shader anyway.
   2. **Health bars:** two quads and a material each, so most of the battle's extra calls. Fix: a MultiMesh with per-instance fill and color.
   3. **Placeholder mesh detail:** Godot's default capsules and cylinders are finely divided, about 1.6M triangles idle and 4.4M in battle. Real models fix it.
   4. **Squad members:** a node per member. Move them to a MultiMesh first when counts grow.

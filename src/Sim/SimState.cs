@@ -207,9 +207,10 @@ public sealed class BeltSegment
     public readonly float MaxHealth;
     public float Health; // a damaged segment still works; at 0 it breaks and stays broken until fully repaired
     public SegmentState State;
+    public readonly bool Covered; // can't be damaged, takes no posts (see BeltLine)
 
-    public BeltSegment(BezierSegment curve, float start, float maxHealth) =>
-        (Curve, Start, MaxHealth, Health) = (curve, start, maxHealth, maxHealth);
+    public BeltSegment(BezierSegment curve, float start, float maxHealth, bool covered = false) =>
+        (Curve, Start, MaxHealth, Health, Covered) = (curve, start, maxHealth, maxHealth, covered);
 }
 
 /// <summary>Tuning for one belt line.</summary>
@@ -238,13 +239,22 @@ public sealed class BeltLine
     public int Spawned, Lost, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
     internal int TicksUntilSpawn = 1;
 
-    public BeltLine(BezierSegment[] curves, BeltConfig config, int ticksPerSecond)
+    /// <summary>
+    /// A line of segments. The first `coveredStart` m and the last `coveredEnd` m are covered: a segment
+    /// whose middle lies there can't be damaged and takes no posts (where a belt comes in from beyond the
+    /// map, or runs through its owner's back field to where the open belt starts).
+    /// </summary>
+    public BeltLine(BezierSegment[] curves, BeltConfig config, int ticksPerSecond, float coveredStart = 0, float coveredEnd = 0)
     {
         if (curves.Length == 0) throw new ArgumentException("A belt line needs at least one segment.");
         Segments = new BeltSegment[curves.Length];
+        float total = 0;
+        foreach (var c in curves) total += c.Length;
         for (int i = 0; i < curves.Length; i++)
         {
-            Segments[i] = new BeltSegment(curves[i], Length, config.SegmentHealth);
+            float middle = Length + curves[i].Length / 2;
+            bool covered = middle < coveredStart || middle > total - coveredEnd;
+            Segments[i] = new BeltSegment(curves[i], Length, config.SegmentHealth, covered);
             Length += curves[i].Length;
         }
         (Speed, Spacing, SpillLoss) = (config.Speed, config.Spacing, config.SpillLoss);

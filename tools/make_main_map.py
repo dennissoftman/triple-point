@@ -5,10 +5,12 @@ The map is point-symmetric: everything is authored for Blue and mirrored through
 (x, z) -> (-x, -z), for Red, so both sides get exactly the same map. There are no gatherer posts:
 players build them.
 
-Layout: the HQs sit in opposite corners (Blue south-west, Red north-east). Each side's belt starts
-beside its base (its home stretch), runs to the middle of the map, and turns there to follow the line
-that's equally far from both HQs out to a flank edge, where it ends. The two belts meet point to point
-in the middle, so that's where the fight is, and their tails run out to opposite flanks.
+Layout: the HQs sit in opposite corners (Blue south-west, Red north-east). Each side's belt comes in
+from beyond the map edge, covered (unbreakable, no posts) through its owner's back field, and opens in
+front of its base (its home stretch). It runs to the middle of the map and turns there to follow the
+line that's equally far from both HQs out to a flank, and leaves the map again, covered for its last
+stretch. The two belts meet in the middle, so that's where the fight is, and their tails run out to
+opposite flanks. The rule checks count open belt only.
 
 It rewrites only the map: the belt curves, and the Belts, Gatherers (left empty), Units and Buildings
 nodes, plus the ground size and the camera bounds. Everything else in the scene (views, UI, host
@@ -48,10 +50,14 @@ def st(s, t):
 BLUE_HQ = st(0, 60)  # its exit faces the middle
 BLUE_BUILDER = st(6, 50)
 
-# Blue's belt as waypoints; the curve passes through them, smoothly. Its home stretch runs parallel to
-# the center line 28 m off it, 32 m in front of the HQ; then it jogs in to 4 m off the line and follows
-# it to the south edge. Red's is the same, mirrored.
-BLUE_BELT = [st(-24, 28), st(-6, 28), st(3, 14), st(9, 4), st(30, 4), st(105, 4)]
+# Blue's belt as waypoints; the curve passes through them, smoothly. It comes in covered from beyond the
+# west edge (ENTRY), opens where its home stretch starts, runs parallel to the center line 28 m off it,
+# 32 m in front of the HQ, then jogs in to 4 m off the line and follows it to the south edge, and is
+# covered again from the last open waypoint out past the edge (EXIT). Red's is the same, mirrored.
+BLUE_ENTRY = [(-140, 20), (-100, 18), (-62, 16)]
+BLUE_OPEN = [st(-24, 28), st(-6, 28), st(3, 14), st(9, 4), st(30, 4), st(100, 4)]
+BLUE_EXIT = [st(125, 4)]
+BLUE_BELT = BLUE_ENTRY + BLUE_OPEN + BLUE_EXIT
 
 
 def neg(p):
@@ -107,6 +113,15 @@ def sample(points, step):
 
 
 BELTS = {'BlueBelt': handles(BLUE_BELT), 'RedBelt': handles([neg(p) for p in BLUE_BELT])}
+
+
+def piece_lengths(points):
+    return [sample([a, b], 0.25)[1] for a, b in zip(points, points[1:])]
+
+
+# How much of each end is covered: the entry pieces up to where the open belt starts, and the exit pieces.
+_pieces = piece_lengths(BELTS['BlueBelt'])
+COVERED = (sum(_pieces[:len(BLUE_ENTRY)]), sum(_pieces[len(_pieces) - len(BLUE_EXIT):]))
 HQS = {'BlueBelt': (BLUE_HQ, neg(BLUE_HQ)), 'RedBelt': (neg(BLUE_HQ), BLUE_HQ)}
 
 
@@ -117,30 +132,38 @@ def check():
     for name, points in BELTS.items():
         own, enemy = HQS[name]
         samples, length = sample(points, SLOT_STEP)
-        print('%s: %.0f m long; lead toward its owner\'s HQ (m) every %g m along it:' % (name, length, SLOT_STEP))
-        leads = [(d, dist(p, enemy) - dist(p, own), p) for d, p in samples]
+        start, end = COVERED[0], length - COVERED[1]
+        print('%s: %.0f m long, open from %.0f to %.0f m; lead toward its owner\'s HQ (m) along the open belt:' % (name, length, start, end))
+        # Measured from where the open belt starts, since that's where posts go.
+        leads = [(d - start, dist(p, enemy) - dist(p, own), p) for d, p in samples if start <= d <= end]
         for d, lead, p in leads:
             mark = 'safe' if lead >= SAFE_LEAD else ('contested' if abs(lead) < CONTESTED_LEAD else 'leaning')
             print('  %5.0f m  (%6.1f, %6.1f)  lead %6.1f  %s' % (d, p[0], p[1], lead, mark))
+        for label, p in (('start', points[0][0]), ('end', points[-1][0])):
+            if abs(p[0]) <= half[0] and abs(p[1]) <= half[1]:
+                failures.append('%s: its %s is inside the map; belts come from and go beyond its edges' % (name, label))
 
+        # The safe stretch runs from where the open belt starts (samples fall every SLOT_STEP m, so up to one
+        # step past the last safe one counts too).
         safe = [d for d, lead, _ in leads if lead >= SAFE_LEAD]
-        if not safe or safe[0] != 0:
-            failures.append('%s: its start is not safe for its owner' % name)
-        elif max(safe) - min(safe) >= POST_SPACING:
-            failures.append('%s: the safe stretch is %.0f m long, room for two posts (spacing %g m)' % (name, max(safe) - min(safe), POST_SPACING))
+        if not leads or leads[0][1] < SAFE_LEAD:
+            failures.append('%s: where its open belt starts is not safe for its owner' % name)
+        elif max(safe) + SLOT_STEP >= POST_SPACING:
+            failures.append('%s: the safe stretch is up to %.0f m long, room for two posts (spacing %g m)' % (name, max(safe) + SLOT_STEP, POST_SPACING))
         # Past the second slot (spacing after the safe stretch ends), everything is contested.
         tail_from = (max(safe) if safe else 0) + POST_SPACING
         leaning = [(d, lead) for d, lead, _ in leads if d >= tail_from and abs(lead) >= CONTESTED_LEAD]
         if leaning:
             failures.append('%s: past %.0f m it still leans %.0f m at %.0f m' % (name, tail_from, leaning[0][1], leaning[0][0]))
-        for d, _, p in leads:
+        for d, p in samples:
             for hq in (own, enemy):
                 if dist(p, hq) < BUILD_CLEARANCE:
                     failures.append('%s: at %.0f m it passes %.1f m from an HQ (keep %g m clear)' % (name, d, dist(p, hq), BUILD_CLEARANCE))
+        for d, _, p in leads:
             if abs(p[0]) > half[0] + 0.01 or abs(p[1]) > half[1] + 0.01:
-                failures.append('%s: at %.0f m it leaves the map' % (name, d))
-        end = points[-1][0]
-        end_lead = dist(end, enemy) - dist(end, own)
+                failures.append('%s: at %.0f m the open belt leaves the map' % (name, d))
+        last_open = leads[-1][2]
+        end_lead = dist(last_open, enemy) - dist(last_open, own)
         if abs(end_lead) >= CONTESTED_LEAD:
             failures.append('%s: its end leads %.0f m, not on a neutral flank' % (name, end_lead))
     # The belts never touch (no junctions, no crossings).
@@ -186,7 +209,8 @@ def curves():
 def map_nodes():
     s = '[node name="Belts" type="Node3D" parent="."]\n\n'
     for name in BELTS:
-        s += '[node name="%s" type="Path3D" parent="Belts"]\ncurve = SubResource("Curve3D_%s")\n\n' % (name, name)
+        s += ('[node name="%s" type="Path3D" parent="Belts"]\ncurve = SubResource("Curve3D_%s")\nscript = ExtResource("16_beltpath")\n'
+              'CoveredStart = %s\nCoveredEnd = %s\n\n' % (name, name, num(COVERED[0]), num(COVERED[1])))
 
     s += '[node name="Gatherers" type="Node3D" parent="."]\n\n'  # none: players build their posts
 
@@ -214,6 +238,10 @@ def main():
     if '--check' in sys.argv:
         return
     scene = io.open(SCENE, encoding='utf-8').read()
+    script = '[ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]\n'
+    if script not in scene:
+        first = scene.index('[ext_resource')
+        scene = scene[:first] + script + scene[first:]
     scene = re.sub(r'\[sub_resource type="Curve3D".*?point_count = \d+\n\n', '', scene, flags=re.S)
     root = '[node name="Main" type="Node3D"]'
     scene = scene.replace(root, curves() + root)

@@ -18,7 +18,7 @@ public partial class Minimap : Control
     const float Margin = 12f;        // px from the screen's corner
     const float BeltSampleStep = 2f; // m between the points of a belt segment's outline
     static readonly Color Background = new(0.16f, 0.17f, 0.15f, 0.9f), Border = new(0, 0, 0, 0.8f);
-    static readonly Color BeltColor = new(0.55f, 0.55f, 0.55f), BrokenColor = new(0.9f, 0.2f, 0.15f);
+    static readonly Color BeltColor = new(0.55f, 0.55f, 0.55f), BrokenColor = new(0.9f, 0.2f, 0.15f), CoveredColor = new(0.33f, 0.34f, 0.35f);
     static readonly Color PackageColor = new(1, 0.62f, 0.1f), ViewColor = new(1, 1, 1, 0.85f);
 
     [Export] public SimHost Host = null!;
@@ -30,7 +30,7 @@ public partial class Minimap : Control
     readonly List<Vector2[][]> _belts = [];
     readonly List<Vector2> _pairs = [];
     readonly List<bool> _brokenShown = [];
-    Vector2[] _working = [], _broken = [];
+    Vector2[] _working = [], _broken = [], _covered = [];
     readonly List<Vector2> _packages = [], _dots = [];
     readonly Vector2[] _view = new Vector2[5];
     bool _dragging;
@@ -66,6 +66,7 @@ public partial class Minimap : Control
         DrawRect(new Rect2(Vector2.Zero, Size), Background);
 
         if (BeltStatesChanged(state)) BatchBelts(state);
+        if (_covered.Length > 0) DrawMultiline(_covered, CoveredColor, 2);
         if (_working.Length > 0) DrawMultiline(_working, BeltColor, 2);
         if (_broken.Length > 0) DrawMultiline(_broken, BrokenColor, 2);
         _packages.Clear();
@@ -140,21 +141,26 @@ public partial class Minimap : Control
         return changed;
     }
 
-    // The two line lists, from the sampled outlines and each segment's state as last seen.
+    // The three line lists (working, broken, covered), from the sampled outlines and each segment's state
+    // as last seen.
     void BatchBelts(SimState state)
     {
-        for (int pass = 0; pass < 2; pass++)
+        for (int pass = 0; pass < 3; pass++)
         {
             _pairs.Clear();
             int i = 0;
             for (int l = 0; l < state.Belts.Count; l++)
-                foreach (var points in _belts[l])
+                for (int s = 0; s < _belts[l].Length; s++, i++)
                 {
-                    if (_brokenShown[i++] == (pass == 1))
-                        for (int k = 1; k < points.Length; k++) { _pairs.Add(points[k - 1]); _pairs.Add(points[k]); }
+                    bool covered = state.Belts[l].Segments[s].Covered;
+                    int kind = covered ? 2 : _brokenShown[i] ? 1 : 0;
+                    if (kind != pass) continue;
+                    var points = _belts[l][s];
+                    for (int k = 1; k < points.Length; k++) { _pairs.Add(points[k - 1]); _pairs.Add(points[k]); }
                 }
             if (pass == 0) _working = _pairs.ToArray();
-            else _broken = _pairs.ToArray();
+            else if (pass == 1) _broken = _pairs.ToArray();
+            else _covered = _pairs.ToArray();
         }
     }
 

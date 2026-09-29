@@ -35,4 +35,26 @@ public class NetworkTests
         Assert.Equal(0, sim.State.Gatherers[1].Gathered);
         Assert.Equal(0, sim.State.Belts[0].Lost);
     }
+
+    [Fact]
+    public void Covered_segments_can_not_be_attacked_broken_or_built_beside()
+    {
+        var sim = NewSim();
+        // Segments 0-10 m (covered), 10-30 m (open), 30-40 m (covered).
+        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(30, 0, 0)), Straight(new(30, 0, 0), new(40, 0, 0))],
+            Belt(1), coveredStart: 10, coveredEnd: 10);
+        var segments = sim.State.Belts[0].Segments;
+        Assert.Equal([true, false, true], segments.Select(s => s.Covered));
+
+        int blue = sim.AddUnit(Blue, new Vector3(5, 0, 3), dps: 100, range: 8);
+        sim.Tick([new AttackSegmentCommand(Blue, blue, 0, 0), new BreakSegmentCommand(0, 2)]);
+        Run(sim, 2 * T);
+        Assert.All(segments, s => Assert.Equal(s.MaxHealth, s.Health));
+        Assert.Equal(UnitOrder.None, UnitById(sim, blue).Current.Kind); // the order was never taken
+
+        // Posts snap past the covered part, to the open belt.
+        Assert.True(sim.SnapToBelt(new Vector3(6, 0, 2), 6, out var at, out _));
+        Assert.Equal(10f, at.X, 0.01f);
+        Assert.False(sim.FindSegment(new Vector3(4, 0, 1), 1.5f, out _, out _, openOnly: true));
+    }
 }

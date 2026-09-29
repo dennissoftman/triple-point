@@ -86,7 +86,8 @@ public partial class SimHost : Node3D
         foreach (var path in Belts.GetChildren().OfType<Path3D>())
         {
             if (path.Curve.PointCount < 2) continue;
-            _sim.AddBeltLine(ToSegments(path), belt);
+            var (coveredStart, coveredEnd) = path is BeltPath b ? (b.CoveredStart, b.CoveredEnd) : (0f, 0f);
+            _sim.AddBeltLine(ToSegments(path), belt, coveredStart, coveredEnd);
         }
         foreach (var marker in Gatherers.GetChildren().OfType<OwnedMarker>())
             if (_sim.AddGatherer(marker.Player, ToSim(marker.GlobalPosition), GathererReach) < 0)
