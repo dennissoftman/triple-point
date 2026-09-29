@@ -41,11 +41,12 @@ After that, play against the AI with friends. If they ask for more, build a vert
 ## Belt economy
 
 - [built] Belts are fixed lines, authored per map, each running from a source to an end, with no junctions (see Rejected). Players never build belt.
-- [built] Lines are cubic Bezier curves, cut at load into short breakable segments. Packages move by arc length at constant speed and keep a minimum spacing. A queue that reaches a source blocks spawning, and those packages never exist. Packages reaching a line's end are lost.
+- [built] Lines are cubic Bezier curves, cut at load into short breakable segments. Packages move by arc length at constant speed and keep a minimum spacing. A queue that reaches a source blocks spawning, and those packages never exist.
+- [built] **Sources are finite, and the belt returns what nobody takes.** Each source holds a reserve (set per map). Packages reaching a line's end go back into its reserve through the covered stretch beyond the map, so the only ways supply leaves the pool are posts taking it and spills: a break is the one waste, which is why it's worth repairing, and raiding burns supply both sides share. There's no loop on the map (see Rejected: junctions); the return is off the map. A gauge on the covered stretch where the belt comes into play shows what's left.
 - [built] **Segment health.** Units shoot a segment to break it when ordered to (Ctrl+right-click): nothing picks a belt as its target on its own. Splash is the exception: it hurts any open segment in its radius, whoever's belt it is, so artillery fighting beside a belt breaks it by accident. A damaged segment still works. A broken one stays broken until repaired back to full health (Repair).
 - [built] **Belts come from beyond the map and leave it again.** Where a belt runs outside the playable area, and through its owner's back field to where the open belt starts, it's **covered**: it can't be shot or broken (nobody could reach it to repair it) and takes no posts (so the back field adds no safe post slots). Maps set each line's covered start and end.
 - [built] **A belt reads as a machine made of breakable pieces:** raised rails, a crossbar at every joint between segments, a health bar over a damaged one, and a broken one buckled into two halves torn up at the break with debris in the gap, settling back flat as it's repaired. Covered stretches are a closed housing. With units selected, the segment under the cursor lights up in the color of what a right-click would do, and a hint beside the cursor gives its health and the keys.
-- [built] **A broken segment spills.** Packages on it, and every package that reaches it, fall beside it. A share is destroyed in the fall (spill loss, per belt), so holding a break never captures the whole stream. The rest become ground pickups: any unit walking over one collects it for its owner, and uncollected pickups fade. Downstream gets nothing until the repair.
+- [built] **A broken segment spills.** Packages on it, and every package that reaches it, fall beside it. A share is destroyed in the fall (spill loss, per belt), so holding a break never captures the whole stream. The rest become ground pickups: any unit walking over one collects it for its owner, and uncollected pickups fade. A spilled package jumps off the belt and can only be collected once it lands (a fraction of a second); one that breaks in the fall bursts into shards where it lands. A collected one flies into its unit with a +1. Downstream gets nothing until the repair.
 - [built] **Gatherer posts** stand beside a belt with a pull point. An idle post grabs a passing package (+1 Resource for its owner), then works for a while; packages passing meanwhile go on. Upstream posts get first pick, and a post whose rate matches the flow starves everything below it.
 - [built] **Post spacing:** no post stands within the post spacing of another post on the same line, measured along the belt, whoever owns it; foundations count. With a post taking half of a belt's flow, two posts drain it, so this is what keeps a side from draining its own belt at home: the map gives each belt exactly one safe slot (Playable map).
 - [built] **Control is presence, not capture.** Who gets the flow is decided by whose posts stand furthest upstream and survive, and by breaking segments. Nothing is held by standing in a circle.
@@ -56,7 +57,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [decided] **Stream upgrades multiply what a package is worth, never a post's share of the flow,** and there's no flat income. A multiplier scales with the share a side wins, so it raises the stakes of the fight instead of replacing it; a faster post only drains the belt sooner.
   - [proposed] **Enricher**, the first to try, after navigation and the AI: a building beside a belt turns the packages passing it into high-value ones, visibly different on the belt. Whoever takes them downstream gets the value, the enemy too, so an enricher is an investment the enemy can steal. It gives the "which to raid" choice (see the Rejected second currency).
   - [idea] A global refining upgrade (your posts get more per package), or a source pump (a faster source, which floods the contested middle as well).
-- [idea] **Finite sources:** sources stop after N packages, forcing independent income or fights over what's left. Try it only after the belt is proven fun. Risk: if independent income matches contesting the belt, nobody fights over it.
+  - Risk: a race for the pool can favor fast early posts over fighting; tune the reserve per map. Independent income stays out, or nobody fights over the belt.
 - Known risks, to solve with map design and tuning: upstream advantage (answers: one belt per side, post spacing, reversible flow) and snowballing (answers: per-post caps, catch-up rules).
 
 ## Units, orders and combat
@@ -101,6 +102,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Rally point:** finished units leave by the building's exit and spread out around its rally point.
   - **Targets:** buildings and foundations are targets like posts. Losing them can lose the game (Win and lose).
   - **Not yet:** Energy (it comes with several building types), squad reinforcement, and collision with buildings (units drive through them until navigation exists).
+- [decided] **Veterancy** (after the commander AI, outside the MVP): units rank up from kills, C&C-style, so keeping a unit alive, and repairing it, is worth more than its replacement cost.
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
 ## Controls
@@ -157,7 +159,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] **Repair** is what builders and engineers do, per unit type (`repairSeconds`, `repairCost`); other units can't. The engineer (barracks, unarmed) repairs but doesn't build, quicker and cheaper than the builder.
   - It costs money and time: a unit repairs at its own rate, paying as the segment heals, and stalls while its owner is broke.
   - **Auto-repair:** an idle repairer fixes damaged open belt within a small radius on its own, while its owner has Resources. An order sets priorities.
-  - [proposed] Engineers also repair vehicles and buildings, builders only buildings and belt: one list of what each type repairs, with medics later healing infantry through the same code. Cost as a share of the target's own cost.
+  - [decided] **What each type repairs is a list:** builders belt and buildings (posts and defenses too), engineers belt, buildings and vehicles. Medics later heal infantry through the same code. A full repair costs a share of the target's own cost, set per repairer type.
 - [decided] Buildings snap to the navigation grid, rotated in 90° steps. [built] with a 2 m grid, before navigation exists.
 - [built] **Construction prototype** (generic, before factions):
   - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
@@ -239,10 +241,11 @@ Still [decided], for when their systems exist:
 1. **Grid and MVP map:** 2 m cells. The playable map is 200×140 m for now (256 m square was the earlier default); grow it if fights feel cramped. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. No map has a grid yet.
 2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
-4. **Fog of war:** post-MVP, grid-based.
-5. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
-6. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
-7. **Tax and unrest balance, final faction names:** later, Denys's call.
+4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall.
+5. **Fog of war:** post-MVP, grid-based.
+6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
+7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
+8. **Tax and unrest balance, final faction names:** later, Denys's call.
 
 ## Rejected (don't re-propose without a new reason)
 

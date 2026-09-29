@@ -16,6 +16,7 @@ public sealed class Simulation
     public const float GathererHealth = 300f;
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float PickupLifetimeSeconds = 60f;
+    public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
     const float GrabReach = 0.5f;                   // m either side of a post's pull point
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
     const float SpillAlongJitter = 0.75f;                     // m along the belt
@@ -1482,8 +1483,12 @@ public sealed class Simulation
 
             if (p.Segment == segments.Length)
             {
-                line.Lost++;
-                _events.Add(new SimEvent(SimEventKind.PackageLost, p.Id));
+                if (line.Finite) (line.Reserve, line.Returned) = (line.Reserve + 1, line.Returned + 1); // back round to the source
+                else
+                {
+                    line.Lost++;
+                    _events.Add(new SimEvent(SimEventKind.PackageLost, p.Id));
+                }
                 continue;
             }
 
@@ -1541,11 +1546,8 @@ public sealed class Simulation
     {
         line.Spilled++;
         // Some break in the fall, so holding a break never captures the whole stream.
-        if (_random.Range(0, 1) < line.SpillLoss)
-        {
-            line.Destroyed++;
-            return;
-        }
+        bool smashed = _random.Range(0, 1) < line.SpillLoss;
+        if (smashed) line.Destroyed++;
 
         var side = Vector3.Normalize(Vector3.Cross(direction, Vector3.UnitY));
         float offset = _random.Range(SpillMinOffset, SpillMaxOffset) * (_random.NextUInt() % 2 == 0 ? 1 : -1);
@@ -1554,7 +1556,11 @@ public sealed class Simulation
         {
             Id = _nextId++,
             Position = position with { Y = 0 },
-            ExpiresAtTick = State.Tick + (int)(PickupLifetimeSeconds * TicksPerSecond),
+            From = at,
+            SpilledAtTick = State.Tick,
+            LandsAtTick = State.Tick + (int)(SpillFallSeconds * TicksPerSecond),
+            ExpiresAtTick = smashed ? State.Tick + (int)(SpillFallSeconds * TicksPerSecond) : State.Tick + (int)(PickupLifetimeSeconds * TicksPerSecond),
+            Smashed = smashed,
         });
     }
 
@@ -1562,6 +1568,7 @@ public sealed class Simulation
     {
         if (--line.TicksUntilSpawn > 0) return;
         line.TicksUntilSpawn = line.SpawnIntervalTicks;
+        if (line.Finite && line.Reserve == 0) return; // dry
 
         // A queue reaching back to the source blocks it; that package never exists.
         if (!EntryClear(line))
@@ -1580,19 +1587,22 @@ public sealed class Simulation
             Direction = first.DirectionAt(0),
         });
         line.Spawned++;
+        if (line.Finite) line.Reserve--;
     }
 
-    // Whoever's unit is on a pickup gets it; unclaimed ones fade.
+    // Whoever's unit is on a landed pickup gets it; unclaimed ones fade, and smashed ones go when they land.
     void UpdatePickups()
     {
         var pickups = State.Pickups;
         for (int i = pickups.Count - 1; i >= 0; i--)
         {
-            int collector = CollectorOf(pickups[i].Position);
-            if (collector != Player.None)
+            bool loose = !pickups[i].Smashed && State.Tick >= pickups[i].LandsAtTick;
+            int collector = loose ? CollectorOf(pickups[i].Position) : -1;
+            if (collector >= 0)
             {
-                var player = State.Players[collector];
+                var player = State.Players[State.Units[collector].Owner];
                 (player.Collected, player.Resources) = (player.Collected + 1, player.Resources + 1);
+                _events.Add(new SimEvent(SimEventKind.PickupCollected, pickups[i].Id, State.Units[collector].Id));
             }
             else if (State.Tick < pickups[i].ExpiresAtTick) continue;
             pickups[i] = pickups[^1];
@@ -1600,12 +1610,13 @@ public sealed class Simulation
         }
     }
 
-    // The owner of the first unit within collecting distance of a point.
+    // The index of the first unit within collecting distance of a point; -1: none.
     int CollectorOf(Vector3 point)
     {
-        foreach (var unit in State.Units)
-            if (GroundDistanceSq(unit.Position, point) <= CollectRadius * CollectRadius) return unit.Owner;
-        return Player.None;
+        var units = State.Units;
+        for (int i = 0; i < units.Count; i++)
+            if (GroundDistanceSq(units[i].Position, point) <= CollectRadius * CollectRadius) return i;
+        return -1;
     }
 
     static float GroundDistanceSq(Vector3 a, Vector3 b)

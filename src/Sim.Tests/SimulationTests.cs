@@ -191,8 +191,8 @@ public class SimulationTests
         Run(sim, 400);
 
         Assert.True(sim.State.Players[Blue].Collected > 0);
-        Assert.Equal(sim.State.Belts[0].Spilled, sim.State.Players[Blue].Collected);
-        Assert.Empty(sim.State.Pickups);
+        Assert.Equal(sim.State.Belts[0].Spilled, sim.State.Players[Blue].Collected + sim.State.Pickups.Count);
+        Assert.All(sim.State.Pickups, p => Assert.True(p.LandsAtTick > sim.State.Tick)); // only the ones still falling
     }
 
     [Fact]
@@ -305,5 +305,34 @@ public class SimulationTests
 
         Assert.True(line.Spilled > 80);
         Assert.InRange(line.Destroyed / (float)line.Spilled, 0.2f, 0.4f);
+    }
+
+    [Fact]
+    public void A_spilled_package_is_in_the_air_before_it_can_be_collected_and_a_smashed_one_is_gone_when_it_lands()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single package
+        Run(sim, 120); // ~12 m along, on segment 1
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        var pickup = Assert.Single(sim.State.Pickups);
+        sim.AddUnit(Blue, pickup.Position, speed: 0); // waiting where it will land
+        Assert.Equal(pickup.SpilledAtTick + (int)(Simulation.SpillFallSeconds * T), pickup.LandsAtTick);
+
+        Run(sim, pickup.LandsAtTick - sim.State.Tick - 1);
+        Assert.Equal(0, sim.State.Players[Blue].Collected); // still falling
+        var events = sim.Tick(NoCommands).Concat(sim.Tick(NoCommands)).ToList();
+        Assert.Equal(1, sim.State.Players[Blue].Collected);
+        Assert.Contains(events, e => e.Kind == SimEventKind.PickupCollected && e.Id == pickup.Id);
+
+        var smashing = NewSim();
+        smashing.AddBeltLine(TwoSegments(), Belt(1000, spillLoss: 1));
+        Run(smashing, 120);
+        smashing.Tick([new BreakSegmentCommand(0, 1)]);
+        var smashed = Assert.Single(smashing.State.Pickups);
+        Assert.True(smashed.Smashed); // falls all the same
+        smashing.AddUnit(Blue, smashed.Position, speed: 0);
+        Run(smashing, (int)(Simulation.SpillFallSeconds * T) + 1);
+        Assert.Empty(smashing.State.Pickups);
+        Assert.Equal(0, smashing.State.Players[Blue].Collected);
     }
 }

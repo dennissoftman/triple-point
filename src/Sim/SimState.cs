@@ -233,11 +233,13 @@ public readonly record struct BeltConfig(
     float SpawnIntervalSeconds,
     float MaxSegmentLength = float.PositiveInfinity, // authored curves are cut into breakable segments this long at most
     float SegmentHealth = 100,
-    float SpillLoss = 0);        // 0..1: chance a spilled package is destroyed instead of becoming a pickup
+    float SpillLoss = 0,         // 0..1: chance a spilled package is destroyed instead of becoming a pickup
+    int Supply = 0);             // packages the source holds at the start; 0: unlimited
 
 /// <summary>
-/// A chain of segments. A line not fed by a junction spawns packages at its start; a line not ending
-/// in a junction loses them at its end. The belt moves everything on it at once; packages only queue
+/// A chain of segments. It spawns packages at its start from its source's reserve, and packages reaching
+/// its end go back into the reserve (off the map), so only posts and spills drain it; an unlimited
+/// source (Supply 0) just loses them at the end. The belt moves everything on it at once; packages only queue
 /// when something ahead of them is held. A broken segment carries nothing: packages on it, and any
 /// that reach it, spill. Belts are neutral: anyone can use, break or repair them.
 /// </summary>
@@ -247,9 +249,11 @@ public sealed class BeltLine
     public readonly float Length;
     public readonly float Speed, Spacing, SpillLoss;
     public readonly int SpawnIntervalTicks;
+    public readonly int Supply;  // the source's reserve at the start; 0: unlimited
+    public int Reserve;          // packages left at the source, counting those that came back round
 
     public readonly List<Package> Packages = []; // ordered: index 0 is furthest along
-    public int Spawned, Lost, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
+    public int Spawned, Lost, Returned, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
     internal int TicksUntilSpawn = 1;
 
     /// <summary>
@@ -272,7 +276,10 @@ public sealed class BeltLine
         }
         (Speed, Spacing, SpillLoss) = (config.Speed, config.Spacing, config.SpillLoss);
         SpawnIntervalTicks = Math.Max(1, (int)MathF.Round(config.SpawnIntervalSeconds * ticksPerSecond));
+        Supply = Reserve = Math.Max(0, config.Supply);
     }
+
+    public bool Finite => Supply > 0;
 
     public Vector3 StartPosition => Segments[0].Curve.PositionAt(0);
     public Vector3 EndPosition => Segments[^1].Curve.PositionAt(Segments[^1].Curve.Length);
@@ -338,8 +345,10 @@ public struct Package
 public struct Pickup
 {
     public int Id;
-    public Vector3 Position;
-    public int ExpiresAtTick;
+    public Vector3 Position;   // where it landed
+    public Vector3 From;       // the belt point it fell off
+    public int SpilledAtTick, LandsAtTick, ExpiresAtTick; // collectable once landed
+    public bool Smashed;       // broke in the fall: nobody gets it, and it's gone when it lands
 }
 
 public sealed class SimState

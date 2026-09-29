@@ -40,6 +40,16 @@ public sealed class InstanceBatch
         _buffer[o + 8] = x.Z; _buffer[o + 9] = y.Z; _buffer[o + 10] = z.Z; _buffer[o + 11] = origin.Z;
     }
 
+    /// <summary>An instance with any transform (a tumbling one).</summary>
+    public void Add(Transform3D t)
+    {
+        var (b, origin) = (t.Basis, t.Origin);
+        int o = _count++ * FloatsPerInstance;
+        _buffer[o + 0] = b.X.X; _buffer[o + 1] = b.Y.X; _buffer[o + 2] = b.Z.X; _buffer[o + 3] = origin.X;
+        _buffer[o + 4] = b.X.Y; _buffer[o + 5] = b.Y.Y; _buffer[o + 6] = b.Z.Y; _buffer[o + 7] = origin.Y;
+        _buffer[o + 8] = b.X.Z; _buffer[o + 9] = b.Y.Z; _buffer[o + 10] = b.Z.Z; _buffer[o + 11] = origin.Z;
+    }
+
     public void End()
     {
         _multimesh.Buffer = _buffer;

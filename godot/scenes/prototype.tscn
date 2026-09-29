@@ -231,6 +231,8 @@ Camera = NodePath("../../Camera")
 
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
+SourceSupply = 150
+BeltSpeed = 2.0
 StartingResources = 40
 Belts = NodePath("../Belts")
 Gatherers = NodePath("../Gatherers")

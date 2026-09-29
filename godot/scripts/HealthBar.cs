@@ -3,15 +3,20 @@ using Godot;
 /// <summary>A small camera-facing bar that fills from the left, drawn on top of the scene.</summary>
 public partial class HealthBar : Node3D
 {
-    const float Width = 1.8f, Height = 0.22f, Border = 0.06f; // m; readable from the default zoom
+    const float DefaultWidth = 1.8f, DefaultHeight = 0.22f, Border = 0.06f; // m; readable from the default zoom
 
-    readonly QuadMesh _fill = new() { Size = new Vector2(Width, Height) };
+    readonly float Width, Height;
+    readonly QuadMesh _fill;
     readonly StandardMaterial3D _fillMaterial = BarMaterial(Colors.White, renderPriority: 1);
     float _fraction = 1;
     Color _color = Colors.White;
 
-    public HealthBar()
+    public HealthBar() : this(DefaultWidth, DefaultHeight) { }
+
+    public HealthBar(float width, float height)
     {
+        (Width, Height) = (width, height);
+        _fill = new QuadMesh { Size = new Vector2(Width, Height) };
         AddChild(new MeshInstance3D
         {
             Mesh = new QuadMesh { Size = new Vector2(Width + Border, Height + Border) },

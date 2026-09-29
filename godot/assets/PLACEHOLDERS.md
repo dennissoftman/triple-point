@@ -10,6 +10,7 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 | `godot/scripts/BuildingsView.cs` | Buildings (a colored block with a door), selection outline, rally flag | Built-in meshes and flat colors, in code | No | Real building models |
 | `godot/scripts/CommandCard.cs` | Command card: default Godot buttons and text | Godot's default theme, in code | No | Real UI |
 | `godot/scripts/BeltView.cs` | Belts: extruded rails, base and joint bars, a box housing for covered stretches, wrecked halves and debris boxes, green post-spot strips | Procedural meshes in code, vertex colors | No | Real belt models, a scrolling surface shader |
+| `godot/scripts/BeltView.cs` | Source gauge (a bar and a Label3D), spill hop and tumble, shard burst, collection flight and +1 label | Built-in meshes, default font, in code | No | Real UI and VFX |
 | `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots and squares | Canvas drawing in code | No | Real minimap art |
 | `godot/scripts/ResourcePanel.cs` | Resources panel: a flat dark box with a player-colored edge, default font | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |
 | `godot/scripts/GameOverOverlay.cs` | Game-over banner: a flat dark box, default font and buttons | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |

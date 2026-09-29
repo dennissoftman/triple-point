@@ -43,6 +43,7 @@ public partial class SimHost : Node3D
     [Export] public float SegmentLength = 5f;  // m; authored curves are cut into breakable segments this long at most
     [Export] public float SegmentHealth = 100f;
     [Export(PropertyHint.Range, "0,1,0.05")] public float SpillLoss = 0.3f; // share of spilled packages destroyed
+    [Export] public int SourceSupply;          // packages each source holds at the start; 0: unlimited
     [Export] public float GathererReach = 4f;        // m from a gatherer marker to the belt it pulls from
 
     readonly Simulation _sim = new();
@@ -82,7 +83,7 @@ public partial class SimHost : Node3D
             _unitsOf.Add([]);
         }
 
-        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss);
+        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply);
         foreach (var path in Belts.GetChildren().OfType<Path3D>())
         {
             if (path.Curve.PointCount < 2) continue;
@@ -166,6 +167,7 @@ public partial class SimHost : Node3D
             {
                 Log(e);
                 UnitsView.OnEvent(e);
+                BeltView.OnEvent(e, _sim.State);
             }
             _accumulator -= TickSeconds;
         }
@@ -239,10 +241,11 @@ public partial class SimHost : Node3D
     string DebugText()
     {
         var state = _sim.State;
-        int onBelt = 0, lost = 0, spilled = 0, destroyed = 0, blocked = 0;
+        int onBelt = 0, lost = 0, returned = 0, spilled = 0, destroyed = 0, blocked = 0;
         foreach (var line in state.Belts)
         {
             (onBelt, lost, blocked) = (onBelt + line.Packages.Count, lost + line.Lost, blocked + line.BlockedSpawns);
+            returned += line.Returned;
             (spilled, destroyed) = (spilled + line.Spilled, destroyed + line.Destroyed);
         }
 
@@ -250,7 +253,8 @@ public partial class SimHost : Node3D
             $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected}, spent {p.Spent})"));
 
         return $"Resources   {players}\n"
-                 + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
+                 + $"Sources: {string.Join(" / ", state.Belts.Select(l => l.Finite ? $"{l.Reserve} of {l.Supply}" : "unlimited"))}   "
+                 + $"Belt: {onBelt} on it   returned at end {returned}   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
                  + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your building: its card\n"
                  + "RMB: move / attack enemy / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
@@ -281,7 +285,7 @@ public partial class SimHost : Node3D
 
     // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. Blue
     // raids Red's belt beside Red's post: it breaks a segment, kills the post on the way (fire on the
-    // move), and walks over the spill to collect it. Blue pulls back (its vehicles back up, then turn
+    // move), and waits by the break to collect the spill as the first packages arrive. Blue pulls back (its vehicles back up, then turn
     // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's belt; Red goes for Blue's
     // post, turrets swinging onto it on the way; then Blue attack-moves
     // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
@@ -317,8 +321,8 @@ public partial class SimHost : Node3D
                 }
 
         if (tick == 2 * T) SegmentOrder(Blue, new SVector3(28, 0, 11), repair: false); // Red's belt, just upstream of its post
-        if (tick == 12 * T) MoveAll(Blue, new SVector3(28, 0, 7));                      // over the spill, to collect it
-        if (tick == 25 * T)
+        if (tick == 12 * T) MoveAll(Blue, new SVector3(27, 0, 9));                      // by the break, where the spill lands
+        if (tick == 44 * T) // the first packages reach the break at about 39 s
         {
             MoveAll(Blue, new SVector3(28, 0, -2));                // close behind: vehicles back up...
             MoveAll(Blue, new SVector3(12, 0, -21), queued: true); // ...then far: they turn round

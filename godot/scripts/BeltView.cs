@@ -13,7 +13,9 @@ using static SimConvert;
 /// settling back flat as repair brings its health back. The segment under the cursor, with units
 /// selected, lights up in the color of what a right-click would do (PlayerInput sets Hover). Covered
 /// stretches are a closed housing over the belt, dark where the open belt comes out. While a post is
-/// being placed, green strips beside the belts mark where one can go (ShowPostSpots).
+/// being placed, green strips beside the belts mark where one can go (ShowPostSpots). A spilled package
+/// jumps off the belt tumbling and lands; one that breaks in the fall bursts into shards. A finite source
+/// shows what it has left as a gauge on the housing where its belt comes into play.
 /// </summary>
 public partial class BeltView : Node3D
 {
@@ -31,6 +33,11 @@ public partial class BeltView : Node3D
     const float HealthBarHeight = 1.4f;
     const float HousingHeight = 0.8f, HousingOverhang = 0.12f; // m above the surface, and beyond the rails
     const float SpotWidth = 0.5f, SpotHeight = 0.04f, SpotStep = 0.5f; // the free-spot strips beside the belt
+    const float FallHop = 0.9f, FallTurns = 1.25f; // a spilled package's jump off the belt, on average (its time is the sim's)
+    const float CollectSeconds = 0.35f, PopSeconds = 1.1f, PopRise = 2.2f; // a collected pickup flies to its unit; the +1 floats up
+    const int ShardCount = 5;
+    const float ShardSize = 0.26f, ShardSpeed = 2.6f, ShardRise = 2.4f, ShardSeconds = 0.9f, Gravity = 9.8f;
+    const float GaugeBack = 2f, GaugeHeight = 2.2f; // m: back from where the open belt starts, and above the ground
 
     public enum HoverKind { None, Look, Attack, Repair }
 
@@ -43,6 +50,7 @@ public partial class BeltView : Node3D
     [Export] public Color HousingColor = new(0.34f, 0.36f, 0.35f);
     [Export] public Color HousingRoofColor = new(0.42f, 0.44f, 0.42f);
     [Export] public Color SpotColor = new(0.4f, 1f, 0.5f, 0.55f);
+    [Export] public Color SupplyColor = new(0.95f, 0.65f, 0.2f); // the source gauge; the packages' color
     [Export] public Color DamagedTint = new(1f, 0.55f, 0.25f); // multiplies a working segment's colors as health drops
     [Export] public Color BrokenTint = new(1f, 0.4f, 0.32f);   // and a broken one's, fading as repair restores health
     [Export] public float BeltWidth = 1.2f;
@@ -75,10 +83,19 @@ public partial class BeltView : Node3D
     }
 
     readonly List<SegmentView[]> _segments = [];
+    readonly List<(HealthBar Bar, Label3D Label, int Shown)?> _gauges = []; // per line; null for an unlimited source
+    readonly Dictionary<int, (Vector3 At, float Yaw)> _smashing = []; // smashed pickups in the air, by id: where they'll land
+    readonly List<int> _landed = [];
+    readonly List<(Vector3 From, Vector3 Velocity, Vector3 Axis, float Born)> _shards = [];
+    readonly Dictionary<int, Vector3> _pickupAt = []; // where each pickup was last drawn, for its collection
+    readonly List<(Vector3 From, int Unit, float Yaw, float Born)> _collecting = [];
+    readonly List<(Label3D Label, Vector3 From, float Born)> _pops = [];
+    readonly Stack<Label3D> _spareLabels = [];
+    float _seconds; // sim time as last drawn
     readonly Dictionary<int, PostView> _posts = []; // by gatherer id; destroyed posts go away
     readonly HashSet<int> _seen = [];
     readonly List<int> _gone = [];
-    InstanceBatch _packages = null!, _pickups = null!;
+    InstanceBatch _packages = null!, _pickups = null!, _shardBatch = null!, _collectBatch = null!;
     StandardMaterial3D _debrisMaterial = null!, _railDebrisMaterial = null!;
     MeshInstance3D _spots = null!;
 
@@ -105,11 +122,14 @@ public partial class BeltView : Node3D
                 views[s] = new SegmentView { Whole = whole, Material = material };
             }
             _segments.Add(views);
+            _gauges.Add(line.Finite ? BuildGauge(line) : null);
         }
 
         var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
         _packages = new InstanceBatch(this, box);
         _pickups = new InstanceBatch(this, box);
+        _shardBatch = new InstanceBatch(this, new BoxMesh { Size = Vector3.One * ShardSize, Material = PackageMaterial });
+        _collectBatch = new InstanceBatch(this, box);
         AddChild(_spots = new MeshInstance3D
         {
             Visible = false,
@@ -169,14 +189,168 @@ public partial class BeltView : Node3D
         _packages.End();
 
         SyncPosts(state);
+        SyncGauges(state);
 
+        // A spilled package jumps off the belt, tumbling, and lands at rest where the sim put it. Each
+        // one's hop, tumble axis and spin are its own, from its id.
+        float now = state.Tick - 1 + alpha; // the tick being drawn, as positions interpolate
+        _seconds = now / Simulation.TicksPerSecond;
         _pickups.Begin(state.Pickups.Count);
         foreach (var p in state.Pickups)
         {
-            float yaw = p.Id * 2.4f; // golden-angle steps: a stable, scattered look per pickup
-            _pickups.Add(ToGodot(p.Position) + lift, new Vector3(MathF.Sin(yaw), 0, MathF.Cos(yaw)));
+            float yaw = Random01(p.Id, 0) * MathF.Tau;
+            var rest = new Basis(Vector3.Up, yaw);
+            float t = Math.Clamp((now - p.SpilledAtTick) / (p.LandsAtTick - p.SpilledAtTick), 0, 1);
+            if (p.Smashed) _smashing[p.Id] = (ToGodot(p.Position) + lift, yaw);
+            _pickupAt[p.Id] = ToGodot(p.Position) + lift;
+            if (t >= 1)
+            {
+                _pickups.Add(new Transform3D(rest, ToGodot(p.Position) + lift));
+                continue;
+            }
+            float hop = FallHop * (0.7f + 0.6f * Random01(p.Id, 1));
+            float turns = FallTurns * (0.5f + Random01(p.Id, 2)) * (Random01(p.Id, 3) < 0.5f ? -1 : 1);
+            float tilt = Random01(p.Id, 4) * MathF.Tau;
+            var axis = new Vector3(MathF.Cos(tilt), 0.2f + 0.6f * Random01(p.Id, 5), MathF.Sin(tilt)).Normalized();
+            var at = ToGodot(p.From).Lerp(ToGodot(p.Position), t) + lift + Vector3.Up * (hop * 4 * t * (1 - t));
+            _pickups.Add(new Transform3D(new Basis(axis, (1 - t) * turns * MathF.Tau) * rest, at));
         }
         _pickups.End();
+        SyncShards(state, _seconds);
+        SyncCollecting(state, _seconds);
+    }
+
+    // A stable pseudo-random 0..1 per id and draw: the view's own, so the sim's generator stays the sim's.
+    static float Random01(int id, int draw)
+    {
+        uint h = (uint)id * 2654435761u ^ (uint)(draw + 1) * 2246822519u;
+        h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+        return (h & 0xFFFFFF) / (float)0x1000000;
+    }
+
+    /// <summary>Effects for belt events: a collected pickup flies into its unit, with a +1 over it.</summary>
+    public void OnEvent(SimEvent e, SimState state)
+    {
+        if (e.Kind != SimEventKind.PickupCollected || !_pickupAt.Remove(e.Id, out var at)) return;
+        _collecting.Add((at, e.Index, Random01(e.Id, 0) * MathF.Tau, _seconds));
+        var label = _spareLabels.Count > 0 ? _spareLabels.Pop() : NewPopLabel();
+        int owner = state.Units.Find(u => u.Id == e.Index).Owner;
+        label.Modulate = PlayerPalette.Color(owner).Lightened(0.35f);
+        label.Visible = true;
+        _pops.Add((label, at + Vector3.Up * 0.8f, _seconds));
+    }
+
+    Label3D NewPopLabel()
+    {
+        var label = new Label3D
+        {
+            Text = "+1",
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            NoDepthTest = true,
+            FontSize = 56,
+            PixelSize = 0.012f,
+            OutlineSize = 10,
+        };
+        AddChild(label);
+        return label;
+    }
+
+    // Collected pickups shrink into their unit; the +1 above rises and fades.
+    void SyncCollecting(SimState state, float seconds)
+    {
+        _collecting.RemoveAll(c => seconds - c.Born > CollectSeconds || seconds < c.Born);
+        _collectBatch.Begin(_collecting.Count);
+        foreach (var (from, unitId, yaw, born) in _collecting)
+        {
+            float t = (seconds - born) / CollectSeconds;
+            var to = from;
+            foreach (var u in state.Units) if (u.Id == unitId) { to = ToGodot(u.Position) + Vector3.Up; break; }
+            var at = from.Lerp(to, t * t) + Vector3.Up * (0.6f * 4 * t * (1 - t));
+            _collectBatch.Add(new Transform3D(new Basis(Vector3.Up, yaw + t * 4).Scaled(Vector3.One * (1 - 0.8f * t)), at));
+        }
+        _collectBatch.End();
+
+        for (int i = _pops.Count - 1; i >= 0; i--)
+        {
+            var (label, from, born) = _pops[i];
+            float t = (seconds - born) / PopSeconds;
+            if (t > 1 || t < 0)
+            {
+                label.Visible = false;
+                _spareLabels.Push(label);
+                _pops.RemoveAt(i);
+                continue;
+            }
+            label.Position = from + Vector3.Up * (PopRise * (1 - (1 - t) * (1 - t)));
+            label.Modulate = label.Modulate with { A = t < 0.6f ? 1 : 1 - (t - 0.6f) / 0.4f };
+        }
+    }
+
+    // A smashed package the sim has dropped has landed: it bursts into shards that scatter and settle.
+    void SyncShards(SimState state, float seconds)
+    {
+        _landed.Clear();
+        foreach (var id in _smashing.Keys) _landed.Add(id);
+        foreach (var p in state.Pickups) if (p.Smashed) _landed.Remove(p.Id);
+        foreach (int id in _landed)
+        {
+            var (at, yaw) = _smashing[id];
+            _smashing.Remove(id);
+            for (int k = 0; k < ShardCount; k++)
+            {
+                float a = yaw + k * MathF.Tau / ShardCount;
+                var out_ = new Vector3(MathF.Cos(a), 0, MathF.Sin(a)) * ShardSpeed * (0.6f + 0.4f * ((id + k) % 3) / 2f);
+                _shards.Add((at, out_ + Vector3.Up * ShardRise, new Vector3(MathF.Sin(a), 1, MathF.Cos(a)).Normalized(), seconds));
+            }
+        }
+
+        _shards.RemoveAll(s => seconds - s.Born > ShardSeconds || seconds < s.Born); // gone, or the game restarted
+        _shardBatch.Begin(_shards.Count);
+        float floor = ShardSize / 2;
+        foreach (var (from, velocity, axis, born) in _shards)
+        {
+            float t = seconds - born;
+            var at = from + velocity * t + Vector3.Down * (Gravity * t * t / 2);
+            if (at.Y < floor) at = at with { Y = floor };
+            float shrink = 1 - MathF.Max(0, t / ShardSeconds - 0.6f) / 0.4f; // shrink away over the last 40%
+            _shardBatch.Add(new Transform3D(new Basis(axis, t * 9f).Scaled(Vector3.One * shrink), at));
+        }
+        _shardBatch.End();
+    }
+
+    // Over the housing just before the open belt starts (or over the source, for a belt with no covered start).
+    (HealthBar, Label3D, int) BuildGauge(BeltLine line)
+    {
+        int open = Array.FindIndex(line.Segments, s => !s.Covered);
+        float mouth = open < 0 ? line.Length : line.Segments[open].Start;
+        var at = ToGodot(line.PositionAt(MathF.Max(0, mouth - GaugeBack))) with { Y = GaugeHeight };
+        var bar = new HealthBar(width: 4f, height: 0.4f) { Position = at };
+        AddChild(bar);
+        var label = new Label3D
+        {
+            Position = at + new Vector3(0, 1.1f, 0),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            NoDepthTest = true,
+            FontSize = 64,
+            PixelSize = 0.012f,
+            OutlineSize = 12,
+            Modulate = SupplyColor,
+        };
+        AddChild(label);
+        return (bar, label, -1);
+    }
+
+    void SyncGauges(SimState state)
+    {
+        for (int l = 0; l < _gauges.Count; l++)
+        {
+            if (_gauges[l] is not var (bar, label, shown)) continue;
+            var line = state.Belts[l];
+            if (line.Reserve == shown) continue;
+            bar.Set((float)line.Reserve / line.Supply, line.Reserve == 0 ? HealthBar.HealthColor(0) : SupplyColor);
+            label.Text = line.Reserve == 0 ? "Source dry" : $"Supply {line.Reserve}";
+            _gauges[l] = (bar, label, line.Reserve);
+        }
     }
 
     // Tint by damage, light up on hover, buckle when broken (less as repair goes on), health bar when hurt.
