@@ -31,7 +31,7 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters).
 3. [built] Break, spill and repair segments; junction merges and switches. Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat. **Next:** win/lose, then the AI.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat. **Next:** win/lose, then a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
 5. [decided] A basic commander AI that fights over the belt.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
@@ -218,7 +218,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 4. **Friendly fire** for splash: decide with artillery.
 5. **Fog of war:** post-MVP, grid-based.
 6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
-7. **Name:** working title *Triple Point*. Code names stay neutral (`Game.sln`, assembly `Game`).
+7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
 8. **Tax and unrest balance, final faction names:** later, Denys's call.
 
 ## Rejected (don't re-propose without a new reason)

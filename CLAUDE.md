@@ -29,7 +29,7 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 ## Current state
 
 - **Built:** belts with breakable segments, spill and repair; gatherer posts (built by players); merges and switches (split while neutral, captured by squads, turned to the captor's side, flipped by the owner); two players, each starting with an HQ and a builder; production at buildings (paid as they build, one queue, repeat, rally point); a construction prototype (builder, barracks, factory, post, turret; placement anywhere, grid-snapped; paid as it grows); a command card and a minimap; a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
-- **Next in the MVP:** win/lose (`CanStillRecover`), then the commander AI.
+- **Next in the MVP:** win/lose (`CanStillRecover`), then minimal navigation (grid, blocking buildings, A*, separation), then the commander AI.
 
 ## Layout
 
