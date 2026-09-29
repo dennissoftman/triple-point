@@ -196,6 +196,7 @@ Host = NodePath("../../SimHost")
 
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
+AiPlayers = PackedInt32Array(1)
 SourceSupply = 900
 BeltSpeed = 2.0
 SpawnInterval = 1.0

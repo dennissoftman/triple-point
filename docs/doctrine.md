@@ -31,12 +31,18 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters, under F3).
 3. [built] Break, spill and repair segments. (Merges and switches were built, then removed: see Rejected.) Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
-5. [decided] A basic commander AI that fights over the belt.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack). The AI came first, so there is an opponent to test navigation against; its orders don't change when pathing arrives.
+5. [built] **A basic commander AI that fights over the belt** (v1, scripted), playing Red on the main map:
+   - Economy: two builders; posts on its own half, nearest home first, never where enemy fighters stand; a barracks, then a factory; more posts while money allows. It saves for a building it wants instead of training.
+   - Army: one engineer once it has a post, then whichever fighter it has fewest of (artillery counts double). Rally at a staging point in front of home.
+   - Fighting: it defends anything of its own under attack; with 8 fighters and 1.5× the enemy's strength it pushes on the nearest enemy building; with 4 it raids the enemy's most exposed post, and sends one unit (artillery first) to break the enemy belt just upstream of their posts, but never belt that feeds its own. Units below 30% health pull back home.
+   - Upkeep: repairers mend broken belt feeding its posts when no enemy is near; idle units pick up spilled packages that no enemy stands near.
+   - It sees everything, but only through one knowledge layer (`AiView`), so fog of war plugs in there.
+   - [decided] **The AI after v1 is a behaviour tree** that decides for itself. v1 is scripted to prove the belt fight first. Its steps (survey, build, produce, fight, mend, collect) are the future tree's subtrees, and `AiView` is its blackboard.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
 
-**Not in the MVP:** the Eastern bloc, bridges, civilian unrest, multiplayer and lockstep, fog of war, normal maps, FSR, CMAA2, ECS, save/load, wear transitions, decals, damage stages (a color swap per state is enough).
+**Not in the MVP:** the Eastern bloc, bridges, civilian unrest, multiplayer and lockstep, normal maps, FSR, CMAA2, ECS, save/load, wear transitions, decals, damage stages (a color swap per state is enough).
 
 ## Belt economy
 
@@ -246,7 +252,7 @@ Still [decided], for when their systems exist:
 2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
 4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall.
-5. **Fog of war:** [decided] grid-based, built together with the commander AI, so the AI sees only what it should from the start.
+5. **Fog of war:** [decided] grid-based, on the navigation grid, so it comes after navigation. The AI already asks `AiView.Sees` before acting on anything of an enemy's; fog only has to answer it.
 6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
 7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
 8. **Tax and unrest balance, final faction names:** later, Denys's call.

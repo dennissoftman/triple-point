@@ -35,6 +35,7 @@ public partial class SimHost : Node3D
     [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools
     [Export] public int ShownTick;             // the sim's tick as of the last frame; for tools
     [Export] public bool Paused;               // the pause menu is open: no ticks run
+    [Export] public int[] AiPlayers = [];      // players the commander AI plays; `--ai=1`, `--ai=0,1` or `--ai=none` overrides
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -50,6 +51,7 @@ public partial class SimHost : Node3D
 
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
+    readonly List<Sim.Ai.Commander> _ais = [];
     readonly List<List<int>> _unitsOf = [];    // starting unit ids per player, for the demo
     readonly List<Vector2> _homes = [];        // per player: the middle of its unit spawns, on the ground (x, z)
     double _accumulator;
@@ -133,6 +135,11 @@ public partial class SimHost : Node3D
         RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
         _perfLog = OS.GetCmdlineUserArgs().Contains("--perf-log");
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
+            AiPlayers = ai[5..] == "none" ? [] : ai[5..].Split(',').Select(int.Parse).ToArray();
+        if (!_demo)
+            foreach (int p in AiPlayers)
+                if (p >= 0 && p < _sim.State.Players.Count) _ais.Add(new Sim.Ai.Commander(_sim, p));
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
     }
 
@@ -162,6 +169,7 @@ public partial class SimHost : Node3D
         {
             if (++ticks > maxTicks) { _accumulator = 0; break; }
             if (_demo) Demo(_sim.State.Tick);
+            foreach (var ai in _ais) _commands.AddRange(ai.Think());
             _tickClock.Restart();
             var events = _sim.Tick(_commands);
             _tickSeconds += _tickClock.Elapsed.TotalSeconds;
