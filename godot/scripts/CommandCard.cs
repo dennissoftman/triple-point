@@ -35,8 +35,8 @@ public partial class CommandCard : PanelContainer
         column.AddChild(footer);
         footer.AddChild(_repeat = new CheckBox
         {
-            Text = "Repeat",
-            TooltipText = $"{KeyOf("produce_repeat")}: each finished unit goes back to the end of the queue, so a mix keeps its ratio",
+            Text = L.T("card.repeat"),
+            TooltipText = L.T("card.repeat.tip", KeyOf("produce_repeat")),
             FocusMode = FocusModeEnum.None,
         });
         _repeat.Toggled += _ => PlayerInput.ToggleRepeat();
@@ -58,8 +58,8 @@ public partial class CommandCard : PanelContainer
         if (!building.Built)
         {
             Layout($"site:{building.Id}", 0, "");
-            string state = building.BuildStalled ? "stalled: not enough Resources" : building.WorkedTick >= PlayerInput.Host.Sim.State.Tick - 1 ? "building" : "waiting for a builder";
-            SetHelp($"{Title(building.Type.Id)} {100 * building.BuildProgress / building.Type.BuildTicks}%, {state}");
+            string state = L.T(building.BuildStalled ? "card.site.stalled" : building.WorkedTick >= PlayerInput.Host.Sim.State.Tick - 1 ? "card.site.building" : "card.site.waiting");
+            SetHelp(L.T("card.site", L.Building(building.Type.Id), 100 * building.BuildProgress / building.Type.BuildTicks, state));
             QueueLength = 0;
             return;
         }
@@ -72,12 +72,11 @@ public partial class CommandCard : PanelContainer
             int queued = 0;
             foreach (var t in building.Queue) if (t == type) queued++;
             string state = building.Queue.Count > 0 && building.Queue[0] == type
-                ? building.Stalled ? "  stalled" : $"  {100 * building.Progress / type.BuildTicks}%"
+                ? building.Stalled ? "  " + L.T("card.stalled") : $"  {100 * building.Progress / type.BuildTicks}%"
                 : "";
             string key = KeyOf(PlayerInput.SlotActions[i]);
-            SetText(i, $"{Title(type.Id)}  [{key}]\n{type.Cost}" + (queued > 0 ? $"\nqueued {queued}{state}" : "\n"));
-            SetTip(i, $"{Title(type.Id)}: {type.Cost} Resources, {type.BuildTime:0} s, paid as it trains\n"
-                + $"{key} or click: train one   RMB: cancel one   {KeyOf("cancel_production")}: cancel the last\nRMB the ground: set the rally point");
+            SetText(i, L.T("card.button", L.Unit(type.Id), key, type.Cost) + "\n" + (queued > 0 ? L.T("card.queued", queued) + state : ""));
+            SetTip(i, L.T("card.train.tip", L.Unit(type.Id), type.Cost, type.BuildTime.ToString("0"), key, KeyOf("cancel_production")));
         }
         if (_repeat.ButtonPressed != building.Repeat) _repeat.SetPressedNoSignal(building.Repeat);
         SetHelp("");
@@ -92,17 +91,14 @@ public partial class CommandCard : PanelContainer
         for (int i = 0; i < _buttons.Count; i++)
         {
             var type = types[i];
-            string armed = PlayerInput.PlacingType == type.Id ? "  placing" : "";
+            string armed = PlayerInput.PlacingType == type.Id ? "  " + L.T("card.placing") : "";
             int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Resources;
-            string cost = short_ > 0 ? $"{type.Cost} ({short_} short)" : $"{type.Cost}";
+            string cost = short_ > 0 ? L.T("card.short", type.Cost, short_) : $"{type.Cost}";
             string key = KeyOf(PlayerInput.SlotActions[i]);
-            SetText(i, $"{Title(type.Id)}  [{key}]\n{cost}{armed}");
-            SetTip(i, $"{Title(type.Id)}: {type.Cost} Resources, {type.BuildTime:0} s. {Describe(type)}\n"
-                + "Starting one needs the whole cost in hand; it's paid as it grows\n"
-                + $"{key} or click: place it   Shift: place more   {KeyOf("rotate_building")}: rotate   RMB/Esc: cancel\n"
-                + "RMB your unfinished foundation: build it");
+            SetText(i, L.T("card.button", L.Building(type.Id), key, cost) + armed);
+            SetTip(i, L.T("card.build.tip", L.Building(type.Id), type.Cost, type.BuildTime.ToString("0"), Describe(type), key, KeyOf("rotate_building")));
         }
-        SetHelp(PlayerInput.Placing is { Problem: string p } ? $"Can't place: {p}." : "");
+        SetHelp(PlayerInput.Placing is { Problem: string p } ? L.T("card.cant_place", p) : "");
         QueueLength = 0;
     }
 
@@ -161,13 +157,10 @@ public partial class CommandCard : PanelContainer
 
     static string Describe(BuildingType type) => type.Kind switch
     {
-        BuildingKind.Post => "beside a belt",
-        BuildingKind.Defense => "defense",
-        _ => type.Units.Length > 0 ? "trains " + string.Join(", ", System.Linq.Enumerable.Select(type.Units, u => Title(u.Id).ToLowerInvariant())) : "",
+        BuildingKind.Post => L.T("card.describe.post"),
+        BuildingKind.Defense => L.T("card.describe.defense"),
+        _ => type.Units.Length > 0 ? L.T("card.describe.trains", string.Join(", ", System.Linq.Enumerable.Select(type.Units, u => L.Unit(u.Id)))) : "",
     };
-
-    // "rifle_squad" -> "Rifle squad"
-    public static string Title(string id) => id.Length == 0 ? id : char.ToUpperInvariant(id[0]) + id[1..].Replace('_', ' ');
 
     // The key an Input Map action is bound to, as text.
     /// <summary>What the first input bound to an action is called, short: "Q", "Ctrl", "RMB".</summary>
@@ -175,6 +168,6 @@ public partial class CommandCard : PanelContainer
     {
         var events = InputMap.ActionGetEvents(action);
         return events.Count == 0 ? "?" : events[0].AsText().Replace(" (Physical)", "")
-            .Replace("Left Mouse Button", "LMB").Replace("Right Mouse Button", "RMB").Replace("Middle Mouse Button", "MMB");
+            .Replace("Left Mouse Button", L.T("key.lmb")).Replace("Right Mouse Button", L.T("key.rmb")).Replace("Middle Mouse Button", L.T("key.mmb"));
     }
 }

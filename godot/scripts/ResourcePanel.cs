@@ -26,8 +26,7 @@ public partial class ResourcePanel : PanelContainer
     {
         (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 0, 0); // placed over the minimap in _Process
         MouseFilter = MouseFilterEnum.Pass; // for its tooltip
-        TooltipText = "What you have to spend. Your posts gather packages off the belt, and your units pick up spilled ones.\n"
-            + $"+N/min: what you earned per minute over the last {WindowSeconds} s";
+        TooltipText = L.T("resources.tip", WindowSeconds);
         _style = new StyleBoxFlat
         {
             BgColor = new Color(0.08f, 0.09f, 0.1f, 0.82f),
@@ -42,7 +41,7 @@ public partial class ResourcePanel : PanelContainer
         AddChild(row);
         row.AddChild(new Label
         {
-            Text = "RESOURCES",
+            Text = L.T("resources.label"),
             VerticalAlignment = VerticalAlignment.Center,
             LabelSettings = new LabelSettings { FontSize = 11, FontColor = new Color(0.75f, 0.77f, 0.8f) },
         });
@@ -77,7 +76,7 @@ public partial class ResourcePanel : PanelContainer
         int amount = state.Players[local].Resources;
         if (amount != Shown) _amount.Text = (Shown = amount).ToString();
         int rate = Rate(local);
-        if (rate != _rate) _income.Text = $"+{_rate = rate}/min";
+        if (rate != _rate) _income.Text = L.T("resources.rate", _rate = rate);
     }
 
     // Once a sim second, every player's earnings so far, into a ring buffer.

@@ -31,10 +31,10 @@ public partial class PauseMenu : Control
         var column = new VBoxContainer();
         column.AddThemeConstantOverride("separation", 10);
         panel.AddChild(column);
-        column.AddChild(new Label { Text = "Paused", HorizontalAlignment = HorizontalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 30 } });
-        column.AddChild(MenuButton("Resume", () => SetOpen(false)));
-        column.AddChild(MenuButton("Restart", () => GetTree().ReloadCurrentScene()));
-        column.AddChild(MenuButton("Quit", () => GetTree().Quit()));
+        column.AddChild(new Label { Text = L.T("menu.paused"), HorizontalAlignment = HorizontalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 30 } });
+        column.AddChild(MenuButton(L.T("menu.resume"), () => SetOpen(false)));
+        column.AddChild(MenuButton(L.T("menu.restart"), () => GetTree().ReloadCurrentScene()));
+        column.AddChild(MenuButton(L.T("menu.quit"), () => GetTree().Quit()));
         Visible = false;
     }
 

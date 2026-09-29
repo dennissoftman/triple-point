@@ -123,6 +123,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] **Minimap** (bottom-left): the whole map, with belts and their packages, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
 - [built] The game opens at 1920×1080; the interface scales with the window.
 - [built] **Above the minimap:** your Resources, with income per minute over the last 30 s (posts and pickups). The HUD line (top-left) keeps only speed, game time, whose side you're on, and anyone's rebuild clock; every side's numbers, belt counters and performance are under F3.
+- [built] **Every word the player reads is translatable:** symbolic keys into gettext .po files, English the fallback; the language is the OS's unless chosen (`--lang=xx` until there's a settings menu). English only for now.
 - [built] **Pause menu:** Esc when there's nothing to cancel, or F10. The game stops (the camera still moves) and the world takes no clicks; Resume, Restart, Quit.
 - [built] **Game over:** a banner with the winner (or a draw) and the game time, Restart and Quit. The world keeps running behind it.
 - [built] Order paths show only for selected units, colored by what the order does: green move, orange attack-move, red attack (a unit or a segment), blue repair.
@@ -245,7 +246,7 @@ Still [decided], for when their systems exist:
 2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
 4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall.
-5. **Fog of war:** post-MVP, grid-based.
+5. **Fog of war:** [decided] grid-based, built together with the commander AI, so the AI sees only what it should from the start.
 6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
 7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
 8. **Tax and unrest balance, final faction names:** later, Denys's call.

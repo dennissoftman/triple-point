@@ -243,11 +243,11 @@ public partial class PlayerInput : Node
         var point = ToSim(ground) with { Y = 0 };
         var (at, heading, problem) = (Simulation.SnapToGrid(point, type.Size), _placingHeading, (string?)null);
         if (type.Kind == BuildingKind.Post && !Host.Sim.SnapPost(point, PostSnapRadius, out at, out heading))
-            (at, problem) = (point, "must go beside a belt");
+            (at, problem) = (point, L.T("place.beside_belt"));
         if (problem is null && type.Kind == BuildingKind.Post && Host.Sim.TooCloseToPost(at))
-            problem = $"another post is closer than {Simulation.PostSpacing:0} m along this belt";
-        if (problem is null && !Host.Sim.CanPlace(type, at)) problem = "something's in the way";
-        if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = $"not enough Resources (needs {type.Cost})";
+            problem = L.T("place.post_spacing", Simulation.PostSpacing.ToString("0"));
+        if (problem is null && !Host.Sim.CanPlace(type, at)) problem = L.T("place.blocked");
+        if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = L.T("place.money", type.Cost);
         Placing = new Placement(type, at, heading, problem);
     }
 
@@ -398,8 +398,8 @@ public partial class PlayerInput : Node
             bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth && SelectionRepairs();
             hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
             string act = CommandCard.KeyOf("act");
-            hint = $"{(s.State == SegmentState.Broken ? "Broken belt" : hurt ? "Damaged belt" : "Belt")}  {s.Health:0}/{s.MaxHealth:0}\n"
-                 + (force ? "" : $"{CommandCard.KeyOf("force_attack")}+{act}: attack"); // the cursor shows the rest
+            hint = L.T("belt.hint", L.T(s.State == SegmentState.Broken ? "belt.broken" : hurt ? "belt.damaged" : "belt.intact"), s.Health.ToString("0"), s.MaxHealth.ToString("0")) + "\n"
+                 + (force ? "" : L.T("belt.attack", CommandCard.KeyOf("force_attack"), act)); // the cursor shows the rest
         }
         BeltView.Hover = hover;
 

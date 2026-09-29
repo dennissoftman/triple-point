@@ -45,6 +45,14 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 - **Input:** Input Map actions only, never literal keys. What a click would do is one `Intent`, computed once and used for both the cursor and the command, so the two can't disagree. `PlayerInput` tracks the mouse from its own events (the OS cursor position is wrong for injected events).
 - **Godot C# conventions:** script classes are `partial` and named after their file. Prefer `[Export]` fields over `GetNode("path")`. Commit the `.uid` files.
 
+## Text and languages
+
+- Player-facing text goes through `L` (`godot/scripts/L.cs`): `L.T("card.cost", ...)` looks a symbolic key up in `godot/locale/<lang>.po` and formats it with .NET placeholders; unit and building names are `unit.<id>` and `building.<id>`, so `/data` holds no text. English (`en.po`) is also the fallback for any key a language lacks.
+- The sim holds no text at all: it returns codes (why placement failed, which event), and views word them.
+- `LocaleBoot` (an autoload) sets the language before any scene builds its UI: `--lang=xx` (saved to `user://settings.cfg`), else the saved choice, else the OS's.
+- `LocaleTests` keeps the code and `en.po` in step both ways (a quoted string starting with a key family, such as `"card.`, is a key), checks every unit and building has a name, and that no language has keys English lacks. The F3 debug text stays English.
+- A new language: copy `en.po`, translate, add it to `internationalization/locale/translations`. Fonts: the default covers Latin and Cyrillic; CJK needs a fallback font.
+
 ## Game data
 
 JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing commas, case-insensitive names, enums as strings. Godot reads the file text (`SimHost.DataDirectory`, relative to the Godot project) and passes it in, because the sim can't use Godot's `res://` paths.

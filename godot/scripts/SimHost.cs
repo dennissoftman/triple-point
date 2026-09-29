@@ -127,8 +127,7 @@ public partial class SimHost : Node3D
             _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
         BeltView.Build(_sim.State);
         Hud.MouseFilter = Control.MouseFilterEnum.Pass; // for its tooltip: the keys it no longer spells out
-        Hud.TooltipText = $"Game speed, game time, your side\n{CommandCard.KeyOf("speed_down")} / {CommandCard.KeyOf("speed_up")}: slower / faster   "
-            + $"{CommandCard.KeyOf("debug_swap_player")}: swap sides   {CommandCard.KeyOf("toggle_debug")}: debug info";
+        Hud.TooltipText = L.T("hud.tip", CommandCard.KeyOf("speed_down"), CommandCard.KeyOf("speed_up"), CommandCard.KeyOf("debug_swap_player"), CommandCard.KeyOf("toggle_debug"));
 
         // Render timings are only measured when asked for.
         RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
@@ -232,13 +231,13 @@ public partial class SimHost : Node3D
         BrokenSegments = broken;
         ShownTick = state.Tick;
         int seconds = state.Tick / Simulation.TicksPerSecond;
-        var hud = $"{GameSpeed:0.##}x      {seconds / 60}:{seconds % 60:00}      {PlayerPalette.Name(PlayerInput.LocalPlayer)}";
+        var hud = L.T("hud.line", GameSpeed.ToString("0.##"), $"{seconds / 60}:{seconds % 60:00}", PlayerPalette.Name(PlayerInput.LocalPlayer));
         foreach (var p in state.Players)
         {
-            if (p.Lost) hud += $"\n{PlayerPalette.Name(p.Index)} is out";
+            if (p.Lost) hud += "\n" + L.T("hud.out", PlayerPalette.Name(p.Index));
             else if (p.GraceTicksLeft >= 0)
-                hud += $"\n{PlayerPalette.Name(p.Index)} has no buildings: {(p.GraceTicksLeft + Simulation.TicksPerSecond - 1) / Simulation.TicksPerSecond} s to rebuild"
-                     + (p.GracePaused ? " (paused while building)" : "");
+                hud += "\n" + L.T("hud.rebuild", PlayerPalette.Name(p.Index), (p.GraceTicksLeft + Simulation.TicksPerSecond - 1) / Simulation.TicksPerSecond)
+                     + (p.GracePaused ? L.T("hud.rebuild.paused") : "");
         }
         Hud.Text = ShowDebug ? hud + "\n\n" + DebugText() : hud;
     }

@@ -427,7 +427,7 @@ void fragment() {
             var line = state.Belts[l];
             if (line.Reserve == shown) continue;
             bar.Set((float)line.Reserve / line.Supply, line.Reserve == 0 ? HealthBar.HealthColor(0) : SupplyColor);
-            label.Text = line.Reserve == 0 ? "Source dry" : $"Supply {line.Reserve}";
+            label.Text = line.Reserve == 0 ? L.T("gauge.dry") : L.T("gauge.supply", line.Reserve);
             _gauges[l] = (bar, label, line.Reserve);
         }
     }

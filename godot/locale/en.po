@@ -1,0 +1,214 @@
+# English: the game's text, and the fallback for every other language.
+# Keys are symbolic (see godot/scripts/L.cs); placeholders are {0}, {1}, ... in order.
+# A new language: copy this file to <code>.po, set Language, translate each msgstr, and add it to
+# internationalization/locale/translations in project.godot. Leave a msgstr out to fall back to English.
+msgid ""
+msgstr ""
+"Language: en\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+# --- Sides
+msgid "side.blue"
+msgstr "Blue"
+
+msgid "side.red"
+msgstr "Red"
+
+msgid "side.neutral"
+msgstr "Neutral"
+
+# --- Units and buildings (one per id in data/units.json and data/buildings.json)
+msgid "unit.rifle_squad"
+msgstr "Rifle squad"
+
+msgid "unit.scout_car"
+msgstr "Scout car"
+
+msgid "unit.builder"
+msgstr "Builder"
+
+msgid "unit.engineer"
+msgstr "Engineer"
+
+msgid "unit.turret"
+msgstr "Turret"
+
+msgid "unit.tank"
+msgstr "Tank"
+
+msgid "unit.artillery"
+msgstr "Artillery"
+
+msgid "building.hq"
+msgstr "HQ"
+
+msgid "building.barracks"
+msgstr "Barracks"
+
+msgid "building.factory"
+msgstr "Factory"
+
+msgid "building.gatherer_post"
+msgstr "Gatherer post"
+
+msgid "building.turret"
+msgstr "Turret"
+
+# --- Mouse buttons, as key names
+msgid "key.lmb"
+msgstr "LMB"
+
+msgid "key.rmb"
+msgstr "RMB"
+
+msgid "key.mmb"
+msgstr "MMB"
+
+# --- HUD (top-left): {0} game speed, {1} game time, {2} your side
+msgid "hud.line"
+msgstr "{0}x      {1}      {2}"
+
+msgid "hud.tip"
+msgstr "Game speed, game time, your side\n{0} / {1}: slower / faster   {2}: swap sides   {3}: debug info"
+
+msgid "hud.out"
+msgstr "{0} is out"
+
+# {0} side, {1} seconds left
+msgid "hud.rebuild"
+msgstr "{0} has no buildings: {1} s to rebuild"
+
+msgid "hud.rebuild.paused"
+msgstr " (paused while building)"
+
+# --- Resources panel
+msgid "resources.label"
+msgstr "RESOURCES"
+
+msgid "resources.rate"
+msgstr "+{0}/min"
+
+# {0} the income window, s
+msgid "resources.tip"
+msgstr "What you have to spend. Your posts gather packages off the belt, and your units pick up spilled ones.\n+N/min: what you earned per minute over the last {0} s"
+
+# --- Command card
+msgid "card.repeat"
+msgstr "Repeat"
+
+msgid "card.repeat.tip"
+msgstr "{0}: each finished unit goes back to the end of the queue, so a mix keeps its ratio"
+
+# A foundation: {0} building, {1} percent done, {2} its state
+msgid "card.site"
+msgstr "{0} {1}%, {2}"
+
+msgid "card.site.stalled"
+msgstr "stalled: not enough Resources"
+
+msgid "card.site.building"
+msgstr "building"
+
+msgid "card.site.waiting"
+msgstr "waiting for a builder"
+
+# A button: {0} name, {1} its key, {2} cost
+msgid "card.button"
+msgstr "{0}  [{1}]\n{2}"
+
+msgid "card.queued"
+msgstr "queued {0}"
+
+msgid "card.stalled"
+msgstr "stalled"
+
+# {0} unit, {1} cost, {2} build time s, {3} its key, {4} the cancel-last key
+msgid "card.train.tip"
+msgstr "{0}: {1} Resources, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nRMB the ground: set the rally point"
+
+# {0} cost, {1} how much is missing
+msgid "card.short"
+msgstr "{0} ({1} short)"
+
+msgid "card.placing"
+msgstr "placing"
+
+# {0} building, {1} cost, {2} build time s, {3} what it is, {4} its key, {5} the rotate key
+msgid "card.build.tip"
+msgstr "{0}: {1} Resources, {2} s. {3}\nStarting one needs the whole cost in hand; it's paid as it grows\n{4} or click: place it   Shift: place more   {5}: rotate   RMB/Esc: cancel\nRMB your unfinished foundation: build it"
+
+msgid "card.describe.post"
+msgstr "Stands beside a belt."
+
+msgid "card.describe.defense"
+msgstr "A defense."
+
+# {0} the units it trains, listed
+msgid "card.describe.trains"
+msgstr "Trains: {0}."
+
+# {0} why
+msgid "card.cant_place"
+msgstr "Can't place: {0}."
+
+# --- Why a building can't go there
+msgid "place.beside_belt"
+msgstr "must go beside a belt"
+
+# {0} the post spacing, m
+msgid "place.post_spacing"
+msgstr "another post is closer than {0} m along this belt"
+
+msgid "place.blocked"
+msgstr "something's in the way"
+
+# {0} its cost
+msgid "place.money"
+msgstr "not enough Resources (needs {0})"
+
+# --- The hint beside the cursor over a belt: {0} what it is, {1} health, {2} full health
+msgid "belt.hint"
+msgstr "{0}  {1}/{2}"
+
+msgid "belt.intact"
+msgstr "Belt"
+
+msgid "belt.damaged"
+msgstr "Damaged belt"
+
+msgid "belt.broken"
+msgstr "Broken belt"
+
+# {0} the force-attack key, {1} the right-click key
+msgid "belt.attack"
+msgstr "{0}+{1}: attack"
+
+# --- A belt's source gauge
+msgid "gauge.supply"
+msgstr "Supply {0}"
+
+msgid "gauge.dry"
+msgstr "Source dry"
+
+# --- Game over, pause menu
+msgid "gameover.draw"
+msgstr "Draw"
+
+msgid "gameover.wins"
+msgstr "{0} wins"
+
+# {0} the game time
+msgid "gameover.after"
+msgstr "after {0}"
+
+msgid "menu.paused"
+msgstr "Paused"
+
+msgid "menu.resume"
+msgstr "Resume"
+
+msgid "menu.restart"
+msgstr "Restart"
+
+msgid "menu.quit"
+msgstr "Quit"

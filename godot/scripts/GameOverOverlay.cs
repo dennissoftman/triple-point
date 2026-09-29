@@ -22,7 +22,7 @@ public partial class GameOverOverlay : CenterContainer
     {
         var state = Host.Sim.State;
         if (!state.GameOver || Visible) return;
-        Shown = state.Winner == Player.None ? "Draw" : $"{PlayerPalette.Name(state.Winner)} wins";
+        Shown = state.Winner == Player.None ? L.T("gameover.draw") : L.T("gameover.wins", PlayerPalette.Name(state.Winner));
         var panel = new PanelContainer();
         panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
@@ -37,13 +37,13 @@ public partial class GameOverOverlay : CenterContainer
         column.AddThemeConstantOverride("separation", 10);
         panel.AddChild(column);
         column.AddChild(new Label { Text = Shown, HorizontalAlignment = HorizontalAlignment.Center, LabelSettings = new LabelSettings { FontSize = 36 } });
-        column.AddChild(new Label { Text = $"after {state.Tick / Simulation.TicksPerSecond / 60}:{state.Tick / Simulation.TicksPerSecond % 60:00}", HorizontalAlignment = HorizontalAlignment.Center });
+        column.AddChild(new Label { Text = L.T("gameover.after", $"{state.Tick / Simulation.TicksPerSecond / 60}:{state.Tick / Simulation.TicksPerSecond % 60:00}"), HorizontalAlignment = HorizontalAlignment.Center });
         var buttons = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         buttons.AddThemeConstantOverride("separation", 16);
         column.AddChild(buttons);
-        var restart = new Button { Text = "Restart", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
+        var restart = new Button { Text = L.T("menu.restart"), FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
         restart.Pressed += () => GetTree().ReloadCurrentScene();
-        var quit = new Button { Text = "Quit", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
+        var quit = new Button { Text = L.T("menu.quit"), FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
         quit.Pressed += () => GetTree().Quit();
         buttons.AddChild(restart);
         buttons.AddChild(quit);
