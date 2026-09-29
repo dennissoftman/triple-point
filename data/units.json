@@ -1,27 +1,27 @@
 // Prototype unit types. Every field, its units and its default: docs/data.md.
 {
-  "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 8, "buildTime": 10 },
+  "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 8, "buildTime": 10, "radius": 1 },
   "scout_car": {
     "members": 1, "movement": "wheeled", "speed": 8, "reverseSpeed": 4,
     "acceleration": 4, "braking": 8, "easeIn": 0.3, "easeOut": 0.5, "turnRate": 120, "turretTurnRate": 180,
-    "memberHealth": 140, "weapon": "machine_gun", "cost": 12, "buildTime": 12
+    "memberHealth": 140, "weapon": "machine_gun", "cost": 12, "buildTime": 12, "radius": 1.2
   },
   "builder": {
     "members": 1, "movement": "tracked", "speed": 4, "reverseSpeed": 2,
     "acceleration": 2, "braking": 4, "easeIn": 0.4, "easeOut": 0.6, "turnRate": 70,
     "memberHealth": 180, "cost": 8, "buildTime": 10,
-    "builds": ["barracks", "factory", "gatherer_post", "turret"], "repairSeconds": 5, "repairCost": 4
+    "builds": ["barracks", "factory", "gatherer_post", "turret"], "repairSeconds": 5, "repairCost": 4, "radius": 1.4
   },
-  "engineer": { "members": 1, "speed": 5, "memberHealth": 60, "cost": 6, "buildTime": 8, "repairSeconds": 2.5, "repairCost": 2 },
-  "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun" },
+  "engineer": { "members": 1, "speed": 5, "memberHealth": 60, "cost": 6, "buildTime": 8, "repairSeconds": 2.5, "repairCost": 2, "radius": 0.5 },
+  "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun", "radius": 1 },
   "tank": {
     "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
     "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,
-    "memberHealth": 260, "weapon": "tank_cannon", "cost": 20, "buildTime": 18
+    "memberHealth": 260, "weapon": "tank_cannon", "cost": 20, "buildTime": 18, "radius": 1.5
   },
   "artillery": {
     "members": 1, "movement": "tracked", "speed": 3, "reverseSpeed": 1.5,
     "acceleration": 1.5, "braking": 3, "easeIn": 0.6, "easeOut": 0.8, "turnRate": 45, "turretTurnRate": 40, "turretArc": 30,
-    "memberHealth": 120, "weapon": "artillery_gun", "stopsToFire": true, "cost": 22, "buildTime": 20
+    "memberHealth": 120, "weapon": "artillery_gun", "stopsToFire": true, "cost": 22, "buildTime": 20, "radius": 1.5
   },
 }

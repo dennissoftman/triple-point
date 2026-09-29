@@ -58,8 +58,13 @@ func _process(_delta) -> bool:
 			click(screen(red[0]))
 		580:
 			check("enemy units can't be selected", [selected(blue), selected(red)], [0, 0])
-			box(blue)
+			# The vehicles, already in range of Red's belt; the squads would walk up into Red's guns.
+			click(screen(blue[2]))
+		582:
+			key(KEY_SHIFT, true)
+			click(screen(blue[3]))
 		585:
+			key(KEY_SHIFT, false)
 			key(KEY_CTRL, true)
 			right_click(cam.unproject_position(RED_BELT))
 		590:

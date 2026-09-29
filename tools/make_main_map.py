@@ -12,8 +12,14 @@ line that's equally far from both HQs out to a flank, and leaves the map again, 
 stretch. The two belts meet in the middle, so that's where the fight is, and their tails run out to
 opposite flanks. The rule checks count open belt only.
 
-It rewrites only the map: the belt curves, and the Belts, Gatherers (left empty), Units and Buildings
-nodes, plus the ground size and the camera bounds. Everything else in the scene (views, UI, host
+Rocks (obstacles: solid, nothing crosses or builds on them) stand in the open ground: a ring of four
+round the middle, where the belts cross, leaving lanes between them, and one out on each flank beside a
+belt's tail. They keep clear of the belts (so posts, spills and repairs are never in them) and of the
+bases (room to build).
+
+It rewrites only the map: the belt curves, and the Belts, Gatherers (left empty), Units, Buildings and
+Obstacles nodes, plus the ground size and the camera bounds (the camera's bounds are the map, for the sim's
+navigation too). Everything else in the scene (views, UI, host
 settings) is kept, but hand edits to the map nodes are overwritten: change the layout here instead.
 
 From the repo root:  python tools/make_main_map.py            (checks, then writes)
@@ -36,6 +42,9 @@ SLOT_STEP = 5.0      # m between the belt points the report samples
 SAFE_LEAD = 50.0      # a point leading this much toward its owner's HQ is safe for the owner
 CONTESTED_LEAD = 30.0 # the tail (past the second slot) leads less than this either way
 BUILD_CLEARANCE = 22.0  # m from each HQ's center that no belt comes closer than
+ROCK_BELT_CLEARANCE = 8.0  # m between a rock and any belt
+ROCK_HQ_CLEARANCE = 40.0   # m from each HQ's center to any rock: the AI builds up to this far out
+ROCK_GAP = 10.0            # m at least between two rocks, so every lane takes a tank with room to spare
 
 # Positions are authored in (s, t): s along the center line (the line equally far from both HQs; +s
 # runs toward the south-east), t across it, toward Blue. The HQs sit on the t axis.
@@ -114,6 +123,39 @@ def sample(points, step):
 
 BELTS = {'BlueBelt': handles(BLUE_BELT), 'RedBelt': handles([neg(p) for p in BLUE_BELT])}
 
+# Blue's rocks, each (s, t, length, thickness, turn): the middle in (s, t), its length (m) along the center
+# line turned by `turn` degrees, and its thickness across that. Red's are the same, mirrored.
+BLUE_ROCKS = [
+    (-17, 15, 10, 4, 20),   # the ring round the middle: north-west of the crossing
+    (20, 15, 10, 4, -15),   # and north-east of it, beside Blue's tail
+    (70, 16, 8, 5, 10),     # out on the flank, beside Blue's tail
+]
+ROCK_HEIGHT = 2.2
+
+
+def rocks():
+    """Every rock as (center (x, z), length direction (x, z), length, thickness), Blue's then Red's."""
+    out = []
+    for s, t, length, thick, turn in BLUE_ROCKS:
+        a = math.radians(turn)
+        d = (ALONG[0] * math.cos(a) - AXIS[0] * math.sin(a), ALONG[1] * math.cos(a) - AXIS[1] * math.sin(a))
+        out.append((st(s, t), d, length, thick))
+    return out + [(neg(c), neg(d), length, thick) for c, d, length, thick in out]
+
+
+def rock_distance(p, rock):
+    """From a ground point to a rock's footprint, m (0 inside it)."""
+    c, d, length, thick = rock
+    rel = sub(p, c)
+    u, v = rel[0] * d[0] + rel[1] * d[1], rel[0] * -d[1] + rel[1] * d[0]
+    return math.hypot(max(abs(u) - length / 2, 0), max(abs(v) - thick / 2, 0))
+
+
+def rock_corners(rock):
+    c, d, length, thick = rock
+    n = (-d[1], d[0])
+    return [add(c, add(scale(d, a * length / 2), scale(n, b * thick / 2))) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+
 
 def piece_lengths(points):
     return [sample([a, b], 0.25)[1] for a, b in zip(points, points[1:])]
@@ -166,6 +208,24 @@ def check():
         end_lead = dist(last_open, enemy) - dist(last_open, own)
         if abs(end_lead) >= CONTESTED_LEAD:
             failures.append('%s: its end leads %.0f m, not on a neutral flank' % (name, end_lead))
+    # Rocks keep clear of the belts, the bases, the map's edge and each other.
+    all_rocks = rocks()
+    belt_points = [p for points in BELTS.values() for _, p in sample(points, 1.0)[0]]
+    for i, rock in enumerate(all_rocks):
+        near_belt = min(rock_distance(p, rock) for p in belt_points)
+        near_hq = min(rock_distance(hq, rock) for hq in (BLUE_HQ, neg(BLUE_HQ)))
+        print('Rock %d at (%.1f, %.1f): %.1f m from a belt, %.1f m from an HQ' % (i, rock[0][0], rock[0][1], near_belt, near_hq))
+        if near_belt < ROCK_BELT_CLEARANCE:
+            failures.append('rock %d comes within %.1f m of a belt (keep %g m)' % (i, near_belt, ROCK_BELT_CLEARANCE))
+        if near_hq < ROCK_HQ_CLEARANCE:
+            failures.append('rock %d comes within %.1f m of an HQ (keep %g m)' % (i, near_hq, ROCK_HQ_CLEARANCE))
+        if any(abs(x) > half[0] - 2 or abs(z) > half[1] - 2 for x, z in rock_corners(rock)):
+            failures.append('rock %d reaches the map edge' % i)
+        for j in range(i + 1, len(all_rocks)):
+            gap = min(min(rock_distance(p, all_rocks[j]) for p in rock_corners(rock)), min(rock_distance(p, rock) for p in rock_corners(all_rocks[j])))
+            if gap < ROCK_GAP:
+                failures.append('rocks %d and %d are %.1f m apart (keep %g m)' % (i, j, gap, ROCK_GAP))
+
     # The belts never touch (no junctions, no crossings).
     a, _ = sample(BELTS['BlueBelt'], 1.0)
     b, _ = sample(BELTS['RedBelt'], 1.0)
@@ -224,6 +284,12 @@ def map_nodes():
     s += '[node name="Buildings" type="Node3D" parent="."]\n\n'
     s += '[node name="BlueHQ" type="Marker3D" parent="Buildings"]\n%s\nscript = ExtResource("10_bspawn")\n\n' % transform(*BLUE_HQ, facing=toward_middle)
     s += '[node name="RedHQ" type="Marker3D" parent="Buildings"]\n%s\nscript = ExtResource("10_bspawn")\nPlayer = 1\n\n' % transform(*neg(BLUE_HQ), facing=neg(toward_middle))
+
+    s += '[node name="Obstacles" type="Node3D" parent="."]\n\n'
+    for i, (c, d, length, thick) in enumerate(rocks()):
+        # Size is (width, height, depth), its depth along the node's facing (-Z).
+        s += '[node name="Rock%d" type="Node3D" parent="Obstacles"]\n%s\nscript = ExtResource("17_obstacle")\nSize = Vector3(%s, %s, %s)\n\n' % (
+            i, transform(*c, facing=d), num(thick), num(ROCK_HEIGHT), num(length))
     return s
 
 
@@ -238,10 +304,16 @@ def main():
     if '--check' in sys.argv:
         return
     scene = io.open(SCENE, encoding='utf-8').read()
-    script = '[ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]\n'
-    if script not in scene:
-        first = scene.index('[ext_resource')
-        scene = scene[:first] + script + scene[first:]
+    for script in ('[ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]\n',
+                   '[ext_resource type="Script" path="res://scripts/MapObstacle.cs" id="17_obstacle"]\n'):
+        if script not in scene:
+            first = scene.index('[ext_resource')
+            scene = scene[:first] + script + scene[first:]
+    # SimHost reads the rocks from the Obstacles node.
+    if 'Obstacles = NodePath' not in scene:
+        scene = scene.replace('node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings",',
+                              'node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "Obstacles",', 1)
+        scene = scene.replace('Buildings = NodePath("../Buildings")\n', 'Buildings = NodePath("../Buildings")\nObstacles = NodePath("../Obstacles")\n', 1)
     scene = re.sub(r'\[sub_resource type="Curve3D".*?point_count = \d+\n\n', '', scene, flags=re.S)
     root = '[node name="Main" type="Node3D"]'
     scene = scene.replace(root, curves() + root)
@@ -250,7 +322,7 @@ def main():
     scene = re.sub(r'(id="PlaneMesh_ground"\]\n(?:.*\n)*?)size = Vector2\([^)]*\)', r'\g<1>size = Vector2(%s, %s)' % SIZE, scene, count=1)
     scene = re.sub(r'Bounds = Rect2\([^)]*\)', 'Bounds = Rect2(%s, %s, %s, %s)' % (-SIZE[0] // 2, -SIZE[1] // 2, SIZE[0], SIZE[1]), scene, count=1)
     io.open(SCENE, 'w', encoding='utf-8', newline='\n').write(scene)
-    print('Wrote %s: %d belts.' % (SCENE, len(BELTS)))
+    print('Wrote %s: %d belts, %d rocks.' % (SCENE, len(BELTS), len(rocks())))
 
 
 if __name__ == '__main__':

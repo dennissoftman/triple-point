@@ -1,5 +1,6 @@
 [gd_scene format=3]
 
+[ext_resource type="Script" path="res://scripts/MapObstacle.cs" id="17_obstacle"]
 [ext_resource type="Script" path="res://scripts/BeltPath.cs" id="16_beltpath"]
 [ext_resource type="Script" path="res://scripts/SimHost.cs" id="1_simhost"]
 [ext_resource type="Script" path="res://scripts/BeltView.cs" id="2_beltview"]
@@ -140,6 +141,38 @@ transform = Transform3D(0.555, 0, 0.832, 0, 1, 0, -0.832, 0, 0.555, 49.92, 0, 33
 script = ExtResource("10_bspawn")
 Player = 1
 
+[node name="Obstacles" type="Node3D" parent="."]
+
+[node name="Rock0" type="Node3D" parent="Obstacles"]
+transform = Transform3D(0.592, 0, -0.806, 0, 1, 0, 0.806, 0, 0.592, -21.915, 0, 5.819)
+script = ExtResource("17_obstacle")
+Size = Vector3(4, 2.2, 10)
+
+[node name="Rock1" type="Node3D" parent="Obstacles"]
+transform = Transform3D(0.947, 0, -0.321, 0, 1, 0, 0.321, 0, 0.947, -1.38, 0, -24.965)
+script = ExtResource("17_obstacle")
+Size = Vector3(4, 2.2, 10)
+
+[node name="Rock2" type="Node3D" parent="Obstacles"]
+transform = Transform3D(0.723, 0, -0.691, 0, 1, 0, 0.691, 0, 0.723, 25.538, 0, -67.12)
+script = ExtResource("17_obstacle")
+Size = Vector3(5, 2.2, 8)
+
+[node name="Rock3" type="Node3D" parent="Obstacles"]
+transform = Transform3D(-0.592, 0, 0.806, 0, 1, 0, -0.806, 0, -0.592, 21.915, 0, -5.819)
+script = ExtResource("17_obstacle")
+Size = Vector3(4, 2.2, 10)
+
+[node name="Rock4" type="Node3D" parent="Obstacles"]
+transform = Transform3D(-0.947, 0, 0.321, 0, 1, 0, -0.321, 0, -0.947, 1.38, 0, 24.965)
+script = ExtResource("17_obstacle")
+Size = Vector3(4, 2.2, 10)
+
+[node name="Rock5" type="Node3D" parent="Obstacles"]
+transform = Transform3D(-0.723, 0, 0.691, 0, 1, 0, -0.691, 0, -0.723, -25.538, 0, 67.12)
+script = ExtResource("17_obstacle")
+Size = Vector3(5, 2.2, 8)
+
 [node name="BeltView" type="Node3D" parent="."]
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
@@ -194,7 +227,7 @@ Camera = NodePath("../../Camera")
 script = ExtResource("20_pausemenu")
 Host = NodePath("../../SimHost")
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "Obstacles", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 AiPlayers = PackedInt32Array(1)
 SourceSupply = 900
@@ -204,6 +237,7 @@ Belts = NodePath("../Belts")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
 Buildings = NodePath("../Buildings")
+Obstacles = NodePath("../Obstacles")
 BeltView = NodePath("../BeltView")
 UnitsView = NodePath("../UnitsView")
 BuildingsView = NodePath("../BuildingsView")

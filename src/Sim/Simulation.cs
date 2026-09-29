@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Sim;
 
-public sealed class Simulation
+public sealed partial class Simulation
 {
     public const int TicksPerSecond = 20;
     public const float Dt = 1f / TicksPerSecond;
@@ -94,6 +94,7 @@ public sealed class Simulation
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
         (unit.Builds, unit.RepairSeconds, unit.RepairCost, unit.StopsToFire) = (type.Builds, type.RepairSeconds, type.RepairCost, type.StopsToFire);
+        unit.Radius = type.Radius;
         unit.TurretArc = type.TurretArc * MathF.PI / 180;
         return id;
     }
@@ -107,10 +108,11 @@ public sealed class Simulation
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
         float reverseSpeed = 0, float heading = 0, string type = "",
         float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0, WeaponType? weapon = null,
-        string[]? builds = null, float repairSeconds = 0, int repairCost = 0)
+        string[]? builds = null, float repairSeconds = 0, int repairCost = 0, float radius = 0.5f)
     {
         weapon ??= new WeaponType(WeaponKind.Bullet, dps / members * Dt, Dt, range);
         int id = _nextId++;
+        if (movement == Movement.Static) _navDirty = true;
         State.Units.Add(new Unit
         {
             Id = id,
@@ -152,6 +154,10 @@ public sealed class Simulation
             Builds = builds,
             RepairSeconds = repairSeconds,
             RepairCost = repairCost,
+            Radius = radius,
+            PathSlot = -1,
+            Anchor = position,
+            RestGoal = new Vector3(float.NaN),
         });
         return id;
     }
@@ -185,6 +191,7 @@ public sealed class Simulation
             MaxHealth = health,
             LastGrabTick = int.MinValue / 2,
         });
+        _navDirty = true;
         return id;
     }
 
@@ -197,6 +204,7 @@ public sealed class Simulation
         var building = new Building(_nextId++, owner, type, position, heading, built);
         building.Rally = building.Exit;
         State.Buildings.Add(building);
+        _navDirty = true;
         return building.Id;
     }
 
@@ -332,13 +340,14 @@ public sealed class Simulation
 
     /// <summary>
     /// Whether a building of this type fits at `at`: its footprint clear of other buildings and
-    /// foundations, posts, defenses and belts. A post must also stand within PostReach of a belt, and keep
+    /// foundations, posts, defenses, obstacles and belts, and (with navigation on) inside the map. A post must also stand within PostReach of a belt, and keep
     /// PostSpacing from other posts on it. Anywhere on the map, for now; factions bring their own rules for
     /// where they may build.
     /// </summary>
     public bool CanPlace(BuildingType type, Vector3 at)
     {
         float half = type.Size / 2;
+        if (OnObstacleOrOffMap(at, half)) return false;
         foreach (var b in State.Buildings)
             if (Overlap(at, half, b.Position, b.Type.Size / 2)) return false;
         foreach (var g in State.Gatherers)
@@ -411,7 +420,10 @@ public sealed class Simulation
     {
         _events.Clear();
         foreach (var command in commands) Apply(command);
+        RebuildNav();
+        ResetSearches();
         UpdateUnits();
+        Separate();
         MoveShells();
         RemoveDead();
         for (int l = 0; l < State.Belts.Count; l++) MovePackages(State.Belts[l], l);
@@ -567,12 +579,14 @@ public sealed class Simulation
             if (site.Type.Kind == BuildingKind.Post)
             {
                 State.Buildings.RemoveAt(i);
+                _navDirty = true;
                 became = AddGatherer(site.Owner, site.Position, PostReach, site.MaxHealth);
                 if (became >= 0) CollectionsMarshal.AsSpan(State.Gatherers)[^1].Health = site.Health;
             }
             else if (site.Type is { Kind: BuildingKind.Defense, Defense: { } defense })
             {
                 State.Buildings.RemoveAt(i);
+                _navDirty = true;
                 became = AddUnit(site.Owner, site.Position, defense, site.Heading);
                 ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
                 unit.Health = unit.MaxHealth * site.Health / site.MaxHealth; // damage taken while building stays
@@ -714,8 +728,8 @@ public sealed class Simulation
 
         int id = AddUnit(building.Owner, building.Exit, type, building.Heading);
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
-        int slot = building.Produced++ % 7; // the rally point, then six around it
-        float angle = (slot - 1) * MathF.Tau / 6;
+        int slot = building.Produced++ % 7; // the rally point, then six around it, turned with the building
+        float angle = building.Heading + (slot - 1) * MathF.Tau / 6;
         var spot = building.Rally + (slot == 0 ? Vector3.Zero : new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * RallySpread);
         if (GroundDistanceSq(spot, unit.Position) > VehicleParkRadius * VehicleParkRadius) Start(ref unit, new Order(UnitOrder.Move, spot));
         _events.Add(new SimEvent(SimEventKind.UnitProduced, id, building.Id));
@@ -787,7 +801,8 @@ public sealed class Simulation
 
     void Complete(ref Unit unit)
     {
-        unit.Current = default;
+        (unit.Current, unit.Anchor) = (default, unit.Position); // where it stands idle now, unless it gets another order
+
         if (unit.Pending.TryDequeue(out var next)) Start(ref unit, next);
     }
 
@@ -827,9 +842,10 @@ public sealed class Simulation
                         Start(ref unit, new Order(UnitOrder.Repair, default, dl, ds));
                         break;
                     }
-                    // Stay and fight what's in range; walk back to where it stood after chasing an attacker.
+                    // Stay and fight what's in range; walk back to where it stood after chasing an attacker, or
+                    // after being shoved off its spot (Separate). Back there, that's its spot.
                     if (!ReturnFire(ref unit, units) && !Engage(ref unit) && unit.Returning && Move(ref unit, unit.Anchor))
-                        unit.Returning = false;
+                        (unit.Returning, unit.Anchor) = (false, unit.Position);
                     break;
 
                 case UnitOrder.Move:
@@ -1256,7 +1272,7 @@ public sealed class Simulation
     // Close enough to shoot at `target`, or else moving closer this tick. A unit that stops to fire comes
     // ApproachMargin inside its range before it stops, and once stopped stays while the target is anywhere
     // in range, so a target shuffling a metre doesn't send it driving again.
-    static bool InFiringRange(ref Unit unit, Vector3 target)
+    bool InFiringRange(ref Unit unit, Vector3 target)
     {
         float distance = Vector3.Distance(unit.Position, target);
         bool stopped = MathF.Abs(unit.CurrentSpeed) <= StillSpeed;
@@ -1266,19 +1282,11 @@ public sealed class Simulation
         return false;
     }
 
-    static bool InRange(ref Unit unit, float range)
+    bool InRange(ref Unit unit, float range)
     {
         if (Vector3.Distance(unit.Position, unit.Current.Target) <= range) return true;
         Move(ref unit, unit.Current.Target);
         return false;
-    }
-
-    // Moves the unit toward `target` this tick, by its kind of movement; true on arrival.
-    static bool Move(ref Unit unit, Vector3 target)
-    {
-        if (unit.Movement == Movement.Static) return false;
-        unit.Driving = true;
-        return unit.Movement == Movement.Foot ? Walk(ref unit, target) : Drive(ref unit, target);
     }
 
     // Straight at full speed, turning instantly; arrives exactly.
@@ -1300,8 +1308,9 @@ public sealed class Simulation
     // Steers toward the target at a limited turn rate, speeding up, and braking to come to rest near it,
     // all eased (EaseSpeed, Steer). Tracked vehicles crawl while turning sharply, so they pivot almost on
     // the spot; wheeled ones need speed to steer, so from a standstill they drive off in an arc. A vehicle
-    // standing still with a close target behind it backs up to it instead of turning around.
-    static bool Drive(ref Unit unit, Vector3 target)
+    // standing still with a close target behind it backs up to it instead of turning around. Going
+    // `through` (a waypoint on the way), it neither stops nor brakes for it.
+    static bool Drive(ref Unit unit, Vector3 target, bool through = false)
     {
         float dx = target.X - unit.Position.X, dz = target.Z - unit.Position.Z;
         float distance = MathF.Sqrt(dx * dx + dz * dz);
@@ -1318,8 +1327,8 @@ public sealed class Simulation
 
         // Close enough (a vehicle at rest a bit further off counts too, rather than creeping up), or so
         // close that lining up would take a loop: stop here and coast to a halt.
-        if (distance <= VehicleArriveRadius || (speed < 0.05f && distance <= VehicleParkRadius)
-            || (distance < 2 && sharpness > MathF.PI * 0.6f))
+        if (!through && (distance <= VehicleArriveRadius || (speed < 0.05f && distance <= VehicleParkRadius)
+            || (distance < 2 && sharpness > MathF.PI * 0.6f)))
         {
             unit.Driving = false;
             return true;
@@ -1335,7 +1344,7 @@ public sealed class Simulation
         float top = reverse ? unit.ReverseSpeed : unit.Speed;
         float slack = distance - MathF.Abs(StoppingDistance(unit));
         bool braking = unit.Effort * unit.CurrentSpeed < 0;
-        float want = slack <= StopMargin + (braking ? StopHysteresis : 0) ? 0 : top;
+        float want = !through && slack <= StopMargin + (braking ? StopHysteresis : 0) ? 0 : top;
         if (unit.Movement == Movement.Tracked && sharpness > TrackedPivotAngle) want = MathF.Min(want, top * 0.15f);
         else if (unit.Movement == Movement.Wheeled && sharpness > WheeledSlowAngle) want = MathF.Min(want, top * 0.5f);
         if (reverse) want = -want;
@@ -1451,6 +1460,8 @@ public sealed class Simulation
         {
             if (State.Units[i].Health > 0) continue;
             _events.Add(new SimEvent(SimEventKind.UnitDied, State.Units[i].Id));
+            FreePath(State.Units[i]);
+            if (State.Units[i].Movement == Movement.Static) _navDirty = true;
             State.Units.RemoveAt(i);
         }
         for (int i = State.Gatherers.Count - 1; i >= 0; i--)
@@ -1458,12 +1469,14 @@ public sealed class Simulation
             if (State.Gatherers[i].Health > 0) continue;
             _events.Add(new SimEvent(SimEventKind.GathererDestroyed, State.Gatherers[i].Id));
             State.Gatherers.RemoveAt(i);
+            _navDirty = true;
         }
         for (int i = State.Buildings.Count - 1; i >= 0; i--)
         {
             if (State.Buildings[i].Health > 0) continue;
             _events.Add(new SimEvent(SimEventKind.BuildingDestroyed, State.Buildings[i].Id));
             State.Buildings.RemoveAt(i);
+            _navDirty = true;
         }
     }
 

@@ -22,6 +22,7 @@ public partial class SimHost : Node3D
     [Export] public Node3D Gatherers = null!; // each OwnedMarker child is a player's gatherer post beside a belt
     [Export] public Node3D Units = null!;     // each UnitSpawn child is a player's starting unit
     [Export] public Node3D Buildings = null!; // each BuildingSpawn child is a player's starting building
+    [Export] public Node3D? Obstacles;        // each MapObstacle child is solid ground; the map is the camera's bounds
     [Export] public BeltView BeltView = null!;
     [Export] public UnitsView UnitsView = null!;
     [Export] public BuildingsView BuildingsView = null!;
@@ -85,6 +86,15 @@ public partial class SimHost : Node3D
         {
             _sim.State.Players[_sim.AddPlayer()].Packages = StartingPackages;
             _unitsOf.Add([]);
+        }
+
+        // Navigation covers the map, which is where the camera may look.
+        var map = PlayerInput.Camera.Bounds;
+        _sim.EnableNavigation(map.Position.X, map.Position.Y, map.End.X, map.End.Y);
+        foreach (var rock in Obstacles?.GetChildren().OfType<MapObstacle>() ?? [])
+        {
+            var facing = -rock.GlobalBasis.Z;
+            _sim.AddObstacle(ToSim(rock.GlobalPosition), rock.Size.X / 2, rock.Size.Z / 2, MathF.Atan2(facing.X, facing.Z));
         }
 
         var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply);

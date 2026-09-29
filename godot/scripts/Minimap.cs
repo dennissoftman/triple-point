@@ -20,6 +20,7 @@ public partial class Minimap : Control
     static readonly Color Background = new(0.16f, 0.17f, 0.15f, 0.9f), Border = new(0, 0, 0, 0.8f);
     static readonly Color BeltColor = new(0.55f, 0.55f, 0.55f), BrokenColor = new(0.9f, 0.2f, 0.15f), CoveredColor = new(0.33f, 0.34f, 0.35f);
     static readonly Color PackageColor = new(1, 0.62f, 0.1f), ViewColor = new(1, 1, 1, 0.85f);
+    static readonly Color ObstacleColor = new(0.36f, 0.34f, 0.31f);
 
     [Export] public SimHost Host = null!;
     [Export] public PlayerInput PlayerInput = null!;
@@ -75,6 +76,7 @@ public partial class Minimap : Control
             foreach (var p in line.Packages) AddDot(_packages, ToMap(p.Position), 1);
         if (_packages.Count > 0) DrawMultiline(_packages.ToArray(), PackageColor, 2);
 
+        foreach (var rock in state.Obstacles) DrawObstacle(rock);
         foreach (var post in state.Gatherers)
             DrawRect(new Rect2(ToMap(post.Position) - new Vector2(2, 2), new Vector2(4, 4)), PlayerPalette.Color(post.Owner));
         foreach (var building in state.Buildings)
@@ -87,6 +89,18 @@ public partial class Minimap : Control
         DrawUnits(state);
         DrawView();
         DrawRect(new Rect2(Vector2.Zero, Size), Border, filled: false, width: 1);
+    }
+
+    readonly Vector2[] _corners = new Vector2[4];
+
+    void DrawObstacle(in Sim.Obstacle rock)
+    {
+        var (sin, cos) = System.MathF.SinCos(rock.Heading);
+        var width = new SVector3(cos, 0, -sin) * rock.HalfWidth;
+        var depth = new SVector3(sin, 0, cos) * rock.HalfDepth;
+        (_corners[0], _corners[1]) = (ToMap(rock.Position - width - depth), ToMap(rock.Position + width - depth));
+        (_corners[2], _corners[3]) = (ToMap(rock.Position + width + depth), ToMap(rock.Position - width + depth));
+        DrawColoredPolygon(_corners, ObstacleColor);
     }
 
     // A dot per unit, one draw call per side (and one for the selection, drawn brighter on top).

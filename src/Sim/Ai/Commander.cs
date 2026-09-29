@@ -16,11 +16,12 @@ namespace Sim.Ai;
 /// - Damaged units pull back home; repairers mend broken belt that feeds its posts.
 /// - Spilled packages where no enemy stands get picked up by whoever is idle nearest.
 ///
-/// Deterministic: no randomness, and it thinks on fixed ticks. Nothing it keeps allocates once warm.
+/// Deterministic: no randomness, and it thinks on fixed ticks, the same ones for every player: thinking a
+/// tick apart handed one side a steady edge in mirror matches. Nothing it keeps allocates once warm.
 /// </summary>
 public sealed class Commander
 {
-    public const int ThinkTicks = 10;               // twice a second
+    public const int ThinkTicks = 10;               // twice a second, on ticks that are multiples of it
     const float PostSearchStep = 4f;                // m along free belt between the post spots it weighs
     const float ThreatRadius = 30f;                 // m around its posts and buildings that counts as under attack
     const float SpotDangerRadius = 22f;             // m: no post where enemy fighters stand this close
@@ -30,7 +31,7 @@ public sealed class Commander
     const int RaidSize = 4, PushSize = 8;           // fighters before it raids, and before it pushes
     const float PushRatio = 1.5f;                   // its strength over the enemy's before it pushes
     const int WantedEngineers = 1, WantedBuilders = 2;
-    const float BuildClearance = 4f;                // m of extra room around its own buildings, so units get out
+    const float BuildClearance = 8f;                // m added to a new building's side when it looks for room: 4 m between buildings, so tanks get out
     const float PostWorthMin = 6f;                  // packages to keep in hand beyond a post's cost, once it has two posts
     const float CollectReach = 45f;                 // m an idle unit goes out of its way for a spilled package
     const float CollectDanger = 20f;                // m: no package this close to enemy fighters is worth fetching
@@ -65,7 +66,7 @@ public sealed class Commander
     {
         _out.Clear();
         var state = _sim.State;
-        if (state.GameOver || state.Players[_me].Lost || state.Tick % ThinkTicks != _me % ThinkTicks) return _out;
+        if (state.GameOver || state.Players[_me].Lost || state.Tick % ThinkTicks != 0) return _out;
         Survey();
         Build();
         Produce();

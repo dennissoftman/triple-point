@@ -31,7 +31,7 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters, under F3).
 3. [built] Break, spill and repair segments. (Merges and switches were built, then removed: see Rejected.) Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack). The AI came first, so there is an opponent to test navigation against; its orders don't change when pathing arrives.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose, and navigation (see Units: Navigation), built after the AI so there was an opponent to test it against.
 5. [built] **A basic commander AI that fights over the belt** (v1, scripted), playing Red on the main map:
    - Economy: two builders; posts on its own half, nearest home first, never where enemy fighters stand; a barracks, then a factory; more posts while money allows. It saves for a building it wants instead of training.
    - Army: one engineer once it has a post, then whichever fighter it has fewest of (artillery counts double). Rally at a staging point in front of home.
@@ -102,6 +102,13 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Turret arc:** a turret can be limited to so far either side of the nose (artillery). For a target beyond it, a vehicle that isn't driving anywhere pivots its hull round. The view raises a heavy gun's barrel with the distance of the shot.
   - **Wrecks:** a destroyed vehicle blows up and leaves a burnt wreck that smokes for a while and sinks away after 45 s. It's look only, not sim state. [idea] Keep every wreck on the map for salvage.
   - **Lean:** the view leans the hull on its suspension (look only).
+- [built] **Navigation:** units go round anything solid: buildings and foundations, posts, turrets, rocks and the map's edge. Belts stand on legs, so they never block.
+  - **Size:** paths keep each unit its `radius` (data) from anything solid, so a tank needs a gap of about 4 m and a squad 2 m. Paths run on ground cells half the building grid's (1 m).
+  - **Pushing, not steering:** units push each other apart (soft: a crowd overlaps for a moment). One under way or firing holds its ground; an idle one gives way to the side, then walks back to its spot once free. Two meeting head on pass each other.
+  - A crowd sent to one point settles into a blob round it instead of shoving for the middle; units sent to spots of their own (a formation) each go to theirs.
+  - A building put up on units pushes them out. A move into something solid ends at the nearest spot beside it, on the side the unit comes from.
+  - **Fairness:** nothing breaks a tie by map direction, so mirrored sides of a map get mirrored paths (a test plays mirror matches and checks that both sides win some).
+  - Not yet: flow fields for big group moves, units steering round each other, terrain costs (roads).
 - [built] **Start:** each player starts with an HQ, one builder and a little money: no army, no posts. Everything else gets built. (The small test map keeps starting units for its tests.)
 - [built] **Production:** buildings train units. The HQ trains builders, the barracks squads and engineers, the factory cars, tanks and artillery.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
@@ -109,7 +116,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Repeat:** one toggle per building. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
   - **Rally point:** finished units leave by the building's exit and spread out around its rally point.
   - **Targets:** buildings and foundations are targets like posts. Losing them can lose the game (Win and lose).
-  - **Not yet:** Energy (it comes with several building types), squad reinforcement, and collision with buildings (units drive through them until navigation exists).
+  - **Not yet:** Energy (it comes with several building types) and squad reinforcement.
 - [decided] **Veterancy** (after the commander AI, outside the MVP): units rank up from kills, C&C-style, so keeping a unit alive, and repairing it, is worth more than its replacement cost.
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
@@ -170,24 +177,25 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - It costs money and time: a unit repairs at its own rate, paying as the segment heals, and stalls while its owner is broke.
   - **Auto-repair:** an idle repairer fixes damaged open belt within a small radius on its own, while its owner has packages. An order sets priorities.
   - [decided] **What each type repairs is a list:** builders belt and buildings (posts and defenses too), engineers belt, buildings and vehicles. Medics later heal infantry through the same code. A full repair costs a share of the target's own cost, set per repairer type.
-- [decided] Buildings snap to the navigation grid, rotated in 90° steps. [built] with a 2 m grid, before navigation exists.
+- [built] Buildings snap to a 2 m grid, rotated in 90° steps; navigation's cells are half that (1 m), so every building edge is a cell edge.
 - [built] **Construction prototype** (generic, before factions):
   - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
   - Cost is paid as it grows and it stalls if the money runs out after it started, like production. A foundation starts at a tenth of its health and is a target.
   - Types: barracks, factory, gatherer post (it must stand beside a belt, and becomes a post), turret (it becomes a gun that can't move; tanks outrange it).
-  - Placement: anywhere on the map that's clear of buildings, posts, defenses and belts. Posts also keep the post spacing. A post snaps beside the nearest open belt near the cursor, facing it, and slides along it as the cursor moves; away from a belt it can't be placed.
+  - Placement: anywhere on the map that's clear of buildings, posts, defenses, rocks and belts. Posts also keep the post spacing. A post snaps beside the nearest open belt near the cursor, facing it, and slides along it as the cursor moves; away from a belt it can't be placed.
   - **Post guidance (like RA3's refinery spots):** while a post is being placed, green strips beside the belts mark every free stretch, and a ghost over a spot that's too close to another post jumps along the belt to the nearest free one (within the post spacing).
   - Known risk of "anywhere": a post on the enemy's home stretch, or a turret beside the enemy's home post, in minute one. Acceptable for the prototype.
 - [decided] **Factions replace "anywhere" with their own build-area rules** (see Factions): Western relays extend the build area, Asian foundations need reinforcing, Eastern civilian buildings go only near supply routes or in existing rural areas. This removes minute-one exploits and makes players plan their way out of the start.
 - [proposed] Belt buildings (posts, relays) snap to sockets beside segments. Posts snap to the belt already [built], continuously rather than to fixed sockets; sockets are for when relays exist.
-- [built] **Playable map** (`main.tscn`), generated by `tools/make_main_map.py`: 256×180 m, flat until navigation exists. Its layout rules, which any map should follow:
+- [built] **Playable map** (`main.tscn`), generated by `tools/make_main_map.py`: 256×180 m, flat, with rocks. Its layout rules, which any map should follow:
   1. **Point-symmetric** (Blue's half turned 180° is Red's), so it's fair by construction.
   2. **One belt per side,** starting in front of its owner's base. Its **home stretch** is shorter than the post spacing, so exactly one safe post fits: half of your belt, yours as long as you defend it. It runs parallel to the center line (the line equally far from both HQs), so it stays equally safe along its length.
   3. **Then it jogs into the middle,** where the other half is up for grabs: your second post goes there, exposed. An enemy post on your belt has to stand upstream of yours to take anything, so each side is stronger on its own belt, and symmetry evens it out.
   4. **The belts meet in the middle,** close enough (about 17 m) that raiding one puts you next to the other: one front. A band where both run side by side can't also give each a safe home stretch (a band's ends are equally far from both HQs, so a home stretch can't start there), so they meet at one point instead.
   5. **Past the middle, each belt follows the center line out to a flank** and ends at the map edge, equally far from both HQs. Every slot there is contested, and what's left at the end is lost, not anyone's safe income: each side has half a belt guaranteed, and a whole belt's worth is contested. Holding the middle is 3:1.
   6. **Build space** around each HQ stays clear of belts, and both sides are equally far from the middle.
-  7. **The generator checks it:** it prints how far each point along each belt leans toward either HQ, and refuses to write the map unless each belt's safe stretch fits one post only, everything past its second slot is contested, its end is neutral, the belts stay apart, and the HQs keep their build space.
+  7. **Rocks** (solid: nothing crosses or builds on them) shape the open ground: a ring of four round the middle, where the belts cross, with lanes between them, and one on each flank beside a belt's tail. They keep 8 m from any belt (posts, spills and repairs are never in them), 40 m from each HQ (room to build), and 10 m from each other (every lane takes a tank).
+  8. **The generator checks it:** it prints how far each point along each belt leans toward either HQ, and refuses to write the map unless each belt's safe stretch fits one post only, everything past its second slot is contested, its end is neutral, the belts stay apart, the HQs keep their build space, and the rocks keep their distances.
   - Belts come in covered from beyond the map edge through each owner's back field and open where the home stretch starts; past the flank they're covered again out to beyond the edge. The generator's rules count open belt only, and it checks that each belt starts and ends beyond the map.
   - No prebuilt posts: players build them.
 - [proposed] **Income vs spending:** full production of the dearest unit costs more than a side's income from its home post alone, so extra belt income always buys something. Costs live in `data/units.json`.
@@ -248,8 +256,8 @@ Still [decided], for when their systems exist:
 
 ## Open decisions (defaults until changed)
 
-1. **Grid and MVP map:** 2 m cells. The playable map is 200×140 m for now (256 m square was the earlier default); grow it if fights feel cramped. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. No map has a grid yet.
-2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
+1. **Grid and MVP map:** [built] a 2 m building grid and 1 m navigation cells; units are sized by a radius in their data, not by cell footprints (a tank fits a 4 m gap, not only 6 m). The playable map is 256×180 m; grow it if fights feel cramped.
+2. **Belt flow:** [built] fixed-rate sources, finite on the main map; packages reaching an end go back into their source's reserve (see Belt economy).
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
 4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall.
 5. **Fog of war:** [decided] grid-based, on the navigation grid, so it comes after navigation. The AI already asks `AiView.Sees` before acting on anything of an enemy's; fog only has to answer it.

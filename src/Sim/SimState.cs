@@ -78,7 +78,8 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in packages, paid over BuildTime seconds of
 /// production. Builds lists the building types (ids in buildings.json) it can construct: builders only.
 /// RepairSeconds and RepairCost make it repair belt (0: it doesn't): how long and how much a segment from 0 to full takes.
-/// StopsToFire: it only fires while standing still (artillery). Fields: docs/data.md.
+/// StopsToFire: it only fires while standing still (artillery). Radius, m: the room it takes (paths keep
+/// it that far from anything solid, and units push apart to it). Fields: docs/data.md.
 /// No Weapon: unarmed. Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
@@ -86,7 +87,7 @@ public sealed record UnitType(
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
     float TurnRate = 0, float TurretTurnRate = 0, float TurretArc = 0, float ReverseSpeed = 0,
     int Cost = 0, float BuildTime = 0, string[]? Builds = null, float RepairSeconds = 0, int RepairCost = 0,
-    bool StopsToFire = false, string Id = "")
+    bool StopsToFire = false, float Radius = 0.5f, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
     public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
@@ -186,7 +187,8 @@ public struct Unit
     public Vector3 FireAt;                 // what it's engaging
     // Return fire. LastAttacker (a unit id, -1 none) is who hit it last, at LastHitTick. RespondTo is the
     // attacker it's answering, chasing it no further than the leash from Anchor, where the response began;
-    // Returning, an idle unit walking back there. GaveUpOn is an attacker it left at the leash, so it
+    // Returning, an idle unit walking back there. Anchor is also where an idle unit last stopped, which it
+    // walks back to if shoved off it (with navigation on). GaveUpOn is an attacker it left at the leash, so it
     // doesn't bounce on the leash under that attacker's fire; a new order clears it.
     public int LastAttacker, LastHitTick, RespondTo, GaveUpOn;
     public string[]? Builds;               // building type ids it can construct; null: not a builder
@@ -196,6 +198,9 @@ public struct Unit
     public bool Returning;
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
+    public float Radius;                   // m: the room it takes, for paths and pushing (with navigation on)
+    internal int PathSlot;                 // its path in the simulation's pool; -1 until it first moves
+    internal Vector3 RestGoal;             // where its last move was headed when it stopped (NaN: none), for crowds settling
 
     /// <summary>Along the heading, m/s² (positive speeds it up forward); what the effort gives right now.</summary>
     public readonly float CurrentAcceleration =>
@@ -352,6 +357,12 @@ public struct Pickup
     public bool Smashed;       // broke in the fall: nobody gets it, and it's gone when it lands
 }
 
+/// <summary>
+/// Solid ground nothing crosses or is built on: a rectangle with half sizes along its own axes, its width
+/// along (cos h, 0, -sin h) and its depth along (sin h, 0, cos h) for its Heading h.
+/// </summary>
+public readonly record struct Obstacle(Vector3 Position, float HalfWidth, float HalfDepth, float Heading);
+
 public sealed class SimState
 {
     public int Tick;
@@ -362,6 +373,7 @@ public sealed class SimState
     public readonly List<Building> Buildings = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last
     public readonly List<Projectile> Projectiles = []; // unordered
+    public readonly List<Obstacle> Obstacles = [];
     public bool GameOver;           // at most one player left standing (Simulation.EndConditions)
     public int Winner = Player.None; // once GameOver: the last player standing, or None for a draw
 }

@@ -48,6 +48,7 @@ Named by `produces` and `unit` in buildings.json, and by `UnitType` on a map's u
 | `repairSeconds` | s | 0 | It repairs belt, taking this long for a segment from 0 to full health. 0: it doesn't repair. An idle one repairs damaged belt close by on its own. |
 | `repairCost` | packages | 0 | What a full repair of a segment costs it, paid as it goes; repair stalls while broke. 0 with `repairSeconds`: free. |
 | `stopsToFire` | bool | false | It only fires while standing still, never on the move (artillery). |
+| `radius` | m | 0.5 | The room it takes on the ground: paths keep its middle this far from anything solid (buildings, posts, defenses, obstacles, the map edge), so it only fits through gaps twice as wide, and two units push apart until their circles of this radius no longer overlap. With navigation off (test maps), it does nothing. |
 
 ## buildings.json
 

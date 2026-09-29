@@ -13,7 +13,8 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 | `godot/scripts/BeltView.cs` | Source gauge (a bar and a Label3D), spill hop and tumble, shard burst, collection flight and +1 label | Built-in meshes, default font, in code | No | Real UI and VFX |
 | `godot/assets/belt.png`, `godot/assets/supplies.png` | Source sheets: belt parts, crate faces | ChatGPT (OpenAI image generation) | Yes | Real textures |
 | `godot/assets/textures/belt_atlas.png`, `package_crates.png` | Atlases cut from the source sheets | `tools/make_textures.py` | Yes (from the sheets above) | Real textures |
-| `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots and squares | Canvas drawing in code | No | Real minimap art |
+| `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots, squares and rock shapes | Canvas drawing in code | No | Real minimap art |
+| `godot/scripts/MapObstacle.cs` | Rocks: a flat grey box each | Built-in mesh and flat color, in code | No | Real rock models |
 | `godot/scripts/PackagePanel.cs` | Packages panel: a flat dark box with a player-colored edge, default font | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |
 | `godot/scripts/GameOverOverlay.cs` | Game-over banner: a flat dark box, default font and buttons | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |
 | `godot/scripts/UnitView.cs` | Builder (hull with a blade), turret (squat base with a gun), artillery (long hull, raised heavy barrel) and engineer (a single figure with a tool pack) looks, like all unit looks | Built-in meshes, in code | No | Real models |

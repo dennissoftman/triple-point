@@ -285,7 +285,10 @@ public partial class UnitsView : Node3D
             if (unit.Current.Kind == UnitOrder.None || !selection.Contains(unit.Id)) continue;
             var start = _positions[unit.Id];
             var target = unit.Current.Target;
-            AddLeg(ref start, ToGodot(target), unit.Current.Kind);
+            // The way it's actually going, round what's in the way, then on to the target if that's further.
+            if (sim.PathOf(unit, out int next) is { } path)
+                for (int i = next; i < path.Count; i++) AddLeg(ref start, ToGodot(path[i]), unit.Current.Kind);
+            if (start.DistanceSquaredTo(ToGodot(target)) > 1) AddLeg(ref start, ToGodot(target), unit.Current.Kind);
             foreach (var order in unit.Pending)
             {
                 target = sim.OrderPoint(order, target);

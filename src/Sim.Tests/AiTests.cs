@@ -77,27 +77,36 @@ public class AiTests(ITestOutputHelper output)
         Assert.True(brokenBlueBelt + blueLosses > 0, "it went for the economy");
     }
 
-    [Theory]
-    [InlineData(1u)]
-    [InlineData(2u)]
-    [InlineData(3u)]
-    [InlineData(4u)]
-    public void Two_commanders_finish_a_match(uint seed)
+    [Fact]
+    public void Mirror_matches_end_with_either_side_winning()
     {
-        var sim = MainMap.Load(seed);
-        int broken = 0, collected = 0;
-        Play(sim, [new Commander(sim, Blue), new Commander(sim, Red)], 30 * 60, (_, events) =>
+        // The map is point-symmetric and both sides run the same commander, so which side wins should come
+        // down to the seed. One side winning nearly all means something treats the two halves differently:
+        // so far, ties broken by map direction, and the two commanders thinking a tick apart.
+        var seeds = Enumerable.Range(1, 16).ToArray();
+        var results = new (int Seconds, int Winner, int Broken, int Collected)[seeds.Length];
+        Parallel.For(0, seeds.Length, i =>
         {
-            foreach (var e in events)
+            var sim = MainMap.Load((uint)seeds[i]);
+            int broken = 0, collected = 0;
+            Play(sim, [new Commander(sim, Blue), new Commander(sim, Red)], 30 * 60, (_, events) =>
             {
-                if (e.Kind == SimEventKind.SegmentBroken) broken++;
-                if (e.Kind == SimEventKind.PickupCollected) collected++;
-            }
+                foreach (var e in events)
+                {
+                    if (e.Kind == SimEventKind.SegmentBroken) broken++;
+                    if (e.Kind == SimEventKind.PickupCollected) collected++;
+                }
+            });
+            results[i] = (sim.State.GameOver ? sim.State.Tick / T : -1, sim.State.Winner, broken, collected);
         });
-        output.WriteLine($"seed {seed}: {sim.State.Tick / T} s, winner {sim.State.Winner}, {broken} segments broken, {collected} spilled packages picked up");
-        Assert.True(sim.State.GameOver, Summary(sim, Blue) + " / " + Summary(sim, Red));
-        Assert.NotEqual(Player.None, sim.State.Winner);
-        Assert.True(broken > 0, "belts get fought over");
+        for (int i = 0; i < seeds.Length; i++)
+            output.WriteLine($"seed {seeds[i]}: {results[i].Seconds} s, winner {results[i].Winner}, {results[i].Broken} segments broken, {results[i].Collected} spilled packages picked up");
+
+        Assert.All(results, r => Assert.True(r.Seconds > 0, "every match ends within 30 minutes"));
+        Assert.All(results, r => Assert.NotEqual(Player.None, r.Winner));
+        Assert.True(results.Sum(r => r.Broken) > seeds.Length, "belts get fought over");
+        Assert.True(results.Count(r => r.Winner == Blue) >= 4 && results.Count(r => r.Winner == Red) >= 4,
+            $"Blue won {results.Count(r => r.Winner == Blue)} of {seeds.Length}");
     }
 
     [Fact]
