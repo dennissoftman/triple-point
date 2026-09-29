@@ -32,6 +32,8 @@ public partial class UnitView : Node3D
     readonly List<Vector3> _muzzles = [];
     readonly HealthBar _health = new();
     Node3D? _hull, _turret;                        // vehicles only
+    Node3D? _hinge;                                // a heavy gun's barrel, raised by how far it's shooting
+    float _gunRange, _elevation = RestElevation;   // heavy guns: m; degrees, as drawn
     float _turretHeight, _barrelLength;
     float _pitchPerAccel, _rollPerAccel;           // degrees per m/s²: tracks pitch more, wheels roll more
     Vector2 _lean, _leanSpeed;                     // (pitch, roll) in degrees, and how fast it's changing
@@ -43,6 +45,23 @@ public partial class UnitView : Node3D
 
     /// <summary>Where shots come from this frame: the barrel tip, or each living member.</summary>
     public IReadOnlyList<Vector3> Muzzles => _muzzles;
+
+    /// <summary>A vehicle (or a defense): it leaves a wreck when destroyed; squads just fall.</summary>
+    public bool IsVehicle => _hull is not null;
+
+    /// <summary>
+    /// Turns a destroyed vehicle into its wreck: every part burnt to one dark material, no selection ring or
+    /// health bar, the turret knocked askew and a raised barrel dropped. It never syncs again.
+    /// </summary>
+    public void Wreck(Material burnt)
+    {
+        SelectionRing.Visible = false;
+        _health.Visible = false;
+        foreach (var node in FindChildren("*", nameof(MeshInstance3D), true, false))
+            if (node is MeshInstance3D mesh && node != SelectionRing) mesh.MaterialOverride = burnt;
+        if (_turret is not null) _turret.Basis *= new Basis(Vector3.Up, 0.5f) * new Basis(Vector3.Right, 0.12f);
+        if (_hinge is not null) _hinge.RotationDegrees = new Vector3(-6, 0, 0);
+    }
 
     public bool Selected
     {
@@ -56,12 +75,22 @@ public partial class UnitView : Node3D
         }
     }
 
-    public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed)
+    // A heavy gun's barrel (artillery): at rest, and from its lowest to its highest, across its range.
+    const float RestElevation = 12f, LowElevation = 18f, HighElevation = 45f, ElevationSpeed = 30f; // degrees; °/s
+
+    /// <summary>`heavyGunRange` above 0: a long barrel that raises with the distance it shoots, up to that range.</summary>
+    public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed, float heavyGunRange = 0)
     {
         PlayerIndex = player;
         var (body, turret) = materials.For(player);
-        if (members > 1) BuildSquad(members, body);
-        else BuildVehicle(movement, armed, body, turret, materials.Dark);
+        if (members > 1 || movement == Movement.Foot)
+        {
+            BuildSquad(members, body);
+            // A lone unarmed soldier (an engineer) carries a tool pack on its back (+Z: forward is -Z).
+            if (!armed) _members[0].AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.36f, 0.42f, 0.24f) }, MaterialOverride = materials.Dark, Position = new Vector3(0, 0.1f, 0.3f) });
+        }
+        else BuildVehicle(movement, armed, body, turret, materials.Dark, heavyGunRange > 0);
+        _gunRange = heavyGunRange;
 
         float ringRadius = members > 1 ? 2.1f : 1.9f;
         SelectionRing.Scale = new Vector3(ringRadius / 0.9f, 0.2f, ringRadius / 0.9f); // the ring mesh is 0.9 m
@@ -83,7 +112,7 @@ public partial class UnitView : Node3D
     }
 
     // Forward is -Z throughout, as Basis.LookingAt expects.
-    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark)
+    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark, bool heavyGun)
     {
         bool tracked = movement == Movement.Tracked, fixedBase = movement == Movement.Static;
         (_pitchPerAccel, _rollPerAccel) = tracked ? (0.9f, 0.3f) : (0.7f, 0.45f);
@@ -120,10 +149,17 @@ public partial class UnitView : Node3D
         if (!armed) return;
         _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
         AddChild(_turret);
-        var turret = tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
+        var turret = heavyGun ? new Vector3(1.2f, 0.55f, 1.4f) : tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
         AddBox(_turret, turret, turretBody, new Vector3(0, turret.Y / 2, 0));
-        _barrelLength = tracked ? 1.4f : 0.8f;
-        AddBox(_turret, new Vector3(0.14f, 0.14f, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
+        _barrelLength = heavyGun ? 2.6f : tracked ? 1.4f : 0.8f;
+        if (heavyGun)
+        {
+            // A long barrel raised toward the sky, hinged at the front of the turret.
+            _hinge = new Node3D { Position = new Vector3(0, turret.Y * 0.7f, -turret.Z / 2), RotationDegrees = new Vector3(RestElevation, 0, 0) };
+            _turret.AddChild(_hinge);
+            AddBox(_hinge, new Vector3(0.2f, 0.2f, _barrelLength), dark, new Vector3(0, 0, -_barrelLength / 2));
+        }
+        else AddBox(_turret, new Vector3(0.14f, 0.14f, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
     }
 
     static void AddBox(Node3D parent, Vector3 size, Material material, Vector3 at) =>
@@ -140,6 +176,7 @@ public partial class UnitView : Node3D
         GlobalPosition = position;
         _muzzles.Clear();
         if (_hull is not null) SyncVehicle(position, heading, turret, moved, Lean(acceleration, lateral, delta));
+        if (_hinge is not null) Elevate(position, firing, fireAt, delta);
         else SyncSquad(position, delta, members, firing, fireAt);
         _lastPosition = position;
         _placed = true;
@@ -150,6 +187,22 @@ public partial class UnitView : Node3D
             _health.Set(health, HealthBar.HealthColor(health));
             _health.Visible = _selected || health < 1;
         }
+    }
+
+    // A heavy gun raises its barrel with the distance to what it's shooting at, low for close targets and
+    // up to HighElevation at full range, and lowers it to rest when it isn't shooting; it eases between.
+    void Elevate(Vector3 position, bool firing, Vector3 fireAt, float delta)
+    {
+        float want = RestElevation;
+        if (firing)
+        {
+            float share = Mathf.Clamp(new Vector2(fireAt.X - position.X, fireAt.Z - position.Z).Length() / _gunRange, 0, 1);
+            want = Mathf.Lerp(LowElevation, HighElevation, share);
+        }
+        float next = Mathf.MoveToward(_elevation, want, ElevationSpeed * delta);
+        if (next == _elevation) return;
+        _elevation = next;
+        _hinge!.RotationDegrees = new Vector3(_elevation, 0, 0);
     }
 
     // The sim aims the turret (it tracks targets before they're in range, and fires once on them), so the

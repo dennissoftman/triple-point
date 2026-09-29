@@ -247,7 +247,7 @@ public partial class SimHost : Node3D
         }
 
         var players = string.Join("      ", state.Players.Select(p =>
-            $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected})"));
+            $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected}, spent {p.Spent})"));
 
         return $"Resources   {players}\n"
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
@@ -282,7 +282,7 @@ public partial class SimHost : Node3D
     // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. Blue
     // raids Red's belt beside Red's post: it breaks a segment, kills the post on the way (fire on the
     // move), and walks over the spill to collect it. Blue pulls back (its vehicles back up, then turn
-    // round) while Red's squads repair the break and its vehicles break Blue's belt; Red goes for Blue's
+    // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's belt; Red goes for Blue's
     // post, turrets swinging onto it on the way; then Blue attack-moves
     // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
     // beside the HQ, and the barracks trains squads on repeat, as income allows; they gather at its rally
@@ -310,7 +310,7 @@ public partial class SimHost : Node3D
                     _commands.Add(new BuildCommand(unit.Owner, unit.Id, "barracks", hq.Position + new SVector3(-8, 0, 0), hq.Heading));
         if (tick % T == 0) // a barracks just finished: train squads there
             foreach (var barracks in _sim.State.Buildings)
-                if (barracks is { Built: true, Type.Id: "barracks", Repeat: false })
+                if (barracks is { Built: true, Type.Id: "barracks", Repeat: false } && !(barracks.Owner == Red && tick >= 40 * T))
                 {
                     _commands.Add(new ProduceCommand(barracks.Owner, barracks.Id, "rifle_squad"));
                     _commands.Add(new SetRepeatCommand(barracks.Owner, barracks.Id, true));
@@ -325,7 +325,13 @@ public partial class SimHost : Node3D
         }
         if (tick == 40 * T)
         {
-            SegmentOrder(Red, new SVector3(28, 0, 11), repair: true, squadsOnly: true);
+            SegmentOrder(Red, new SVector3(28, 0, 11), repair: true);
+            foreach (var barracks in _sim.State.Buildings) // Red stops training to afford the repair
+                if (barracks is { Owner: Red, Type.Id: "barracks" })
+                {
+                    _commands.Add(new SetRepeatCommand(Red, barracks.Id, false));
+                    for (int i = barracks.Queue.Count - 1; i >= 0; i--) _commands.Add(new CancelProductionCommand(Red, barracks.Id, i));
+                }
             SegmentOrder(Red, new SVector3(0, 0, -11), repair: false, vehiclesOnly: true);
         }
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
@@ -340,16 +346,23 @@ public partial class SimHost : Node3D
             foreach (var u in _sim.State.Units) if (u.Owner == Red && u.Builds is not null) _commands.Add(new DestroyCommand(u.Id));
     }
 
-    // The starting units of a side attack, or repair, the belt segment at a point.
+    // The starting units of a side attack the belt segment at a point; or its units that repair (its
+    // builders) repair it.
     void SegmentOrder(int player, SVector3 at, bool repair, bool squadsOnly = false, bool vehiclesOnly = false)
     {
         if (!_sim.FindSegment(at, 2, out int line, out int segment)) return;
+        if (repair)
+        {
+            foreach (var u in _sim.State.Units)
+                if (u.Owner == player && u.RepairSeconds > 0) _commands.Add(new RepairSegmentCommand(player, u.Id, line, segment));
+            return;
+        }
         foreach (int id in _unitsOf[player])
         {
             if (_sim.State.Units.FindIndex(u => u.Id == id) is not (>= 0 and var i)) continue;
             bool foot = _sim.State.Units[i].Movement == Movement.Foot;
             if ((squadsOnly && !foot) || (vehiclesOnly && foot)) continue;
-            _commands.Add(repair ? new RepairSegmentCommand(player, id, line, segment) : new AttackSegmentCommand(player, id, line, segment));
+            _commands.Add(new AttackSegmentCommand(player, id, line, segment));
         }
     }
 

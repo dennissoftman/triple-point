@@ -57,4 +57,33 @@ public class NetworkTests
         Assert.Equal(10f, at.X, 0.01f);
         Assert.False(sim.FindSegment(new Vector3(4, 0, 1), 1.5f, out _, out _, openOnly: true));
     }
+
+    [Fact]
+    public void Idle_builders_repair_damaged_belt_nearby_by_themselves_while_their_owner_can_pay()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1));
+        var segments = sim.State.Belts[0].Segments;
+        int near = sim.AddUnit(Blue, new Vector3(15, 0, 8), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);  // 8 m from segment 1
+        int far = sim.AddUnit(Red, new Vector3(5, 0, 30), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);    // 30 m from both
+        sim.State.Players[Red].Resources = 10;
+
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        Run(sim, 20);
+        Assert.Equal(UnitOrder.None, UnitById(sim, near).Current.Kind); // Blue is broke: it stays put
+
+        sim.State.Players[Blue].Resources = 2; // half a repair
+        Run(sim, 20);
+        Assert.Equal(UnitOrder.Repair, UnitById(sim, near).Current.Kind);
+        Run(sim, 200);
+        Assert.Equal(0, sim.State.Players[Blue].Resources);
+        Assert.Equal(segments[1].MaxHealth / 2, segments[1].Health, 1f); // stalled halfway when the money ran out
+        Assert.Equal(SegmentState.Broken, segments[1].State);
+        Assert.Equal(UnitOrder.Repair, UnitById(sim, near).Current.Kind); // still on it, waiting for money
+
+        sim.State.Players[Blue].Resources = 5;
+        Run(sim, 60);
+        Assert.Equal(SegmentState.Normal, segments[1].State);
+        Assert.Equal(new Vector3(5, 0, 30), UnitById(sim, far).Position); // out of reach: never went
+    }
 }

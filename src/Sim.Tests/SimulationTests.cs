@@ -57,7 +57,7 @@ public class SimulationTests
     {
         var sim = NewSim();
         sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], Belt(1));
-        int id = sim.AddUnit(Blue, new Vector3(0, 0, 5), speed: 5);
+        int id = sim.AddUnit(Blue, new Vector3(0, 0, 5), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);
 
         sim.Tick([
             new BreakSegmentCommand(0, 0),
@@ -213,12 +213,13 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Unit_walks_to_broken_segment_repairs_it_and_flow_resumes()
+    public void Builder_walks_to_broken_segment_repairs_it_paying_as_it_goes_and_flow_resumes()
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1));
         var line = sim.State.Belts[0];
-        int unit = sim.AddUnit(Blue, new Vector3(10, 0, 5), speed: 5); // 5 m from the segment start
+        sim.State.Players[Blue].Resources = 10;
+        int unit = sim.AddUnit(Blue, new Vector3(10, 0, 5), speed: 5, builds: [], repairSeconds: 5, repairCost: 4); // 5 m from the segment start
 
         var events = sim.Tick([new BreakSegmentCommand(0, 1), new RepairSegmentCommand(Blue, unit, 0, 1)]);
         int repairedAt = -1;
@@ -232,6 +233,7 @@ public class SimulationTests
         Assert.InRange(repairedAt, 110, 112);
         Assert.Equal(SegmentState.Normal, line.Segments[1].State);
         Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+        Assert.Equal(10 - 4, sim.State.Players[Blue].Resources);
         Assert.Equal(0, line.Lost);
 
         Run(sim, 200);
@@ -279,10 +281,16 @@ public class SimulationTests
         Assert.True(line.Lost > 0); // packages still cross it
         Assert.Equal(0, line.Spilled);
 
+        // Only builders repair: the gunner can't, a builder can.
+        sim.State.Players[Blue].Resources = 10;
         sim.Tick([new RepairSegmentCommand(Blue, unit, 0, 1)]);
+        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+        int builder = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);
+        sim.Tick([new RepairSegmentCommand(Blue, builder, 0, 1)]);
         Run(sim, 100); // walk ~2.5 m, then half of the 5 s full repair
         Assert.Equal(segment.MaxHealth, segment.Health);
-        Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
+        Assert.Equal(UnitOrder.None, UnitById(sim, builder).Current.Kind);
+        Assert.Equal(10 - 4 / 2, sim.State.Players[Blue].Resources); // half the damage, half the cost
     }
 
     [Fact]

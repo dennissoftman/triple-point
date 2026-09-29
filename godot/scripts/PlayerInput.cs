@@ -277,7 +277,7 @@ public partial class PlayerInput : Node
         {
             if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
             var s = sim.State.Belts[line].Segments[segment];
-            if (s.Health < s.MaxHealth) return new(Act.Repair, point, Line: line, Segment: segment);
+            if (s.Health < s.MaxHealth && SelectionRepairs()) return new(Act.Repair, point, Line: line, Segment: segment);
         }
         return new(Act.Move, point);
     }
@@ -306,7 +306,10 @@ public partial class PlayerInput : Node
                 Act.AttackMove => new AttackMoveCommand(LocalPlayer, id, spread, queued),
                 Act.Attack => new AttackCommand(LocalPlayer, id, intent.Target, queued),
                 Act.AttackSegment => new AttackSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued),
-                Act.Repair => new RepairSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued),
+                // Only builders and engineers repair; the rest of the selection goes along.
+                Act.Repair => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
+                    ? new RepairSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued)
+                    : new MoveCommand(LocalPlayer, id, spread, queued),
                 _ => null,
             };
             if (command is not null) Host.Issue(command);
@@ -339,6 +342,14 @@ public partial class PlayerInput : Node
         Cursors.Apply(kind);
     }
 
+    // Whether any selected unit repairs belt (builders and engineers).
+    bool SelectionRepairs()
+    {
+        foreach (var u in Host.Sim.State.Units)
+            if (u.RepairSeconds > 0 && _selection.Contains(u.Id)) return true;
+        return false;
+    }
+
     // While a post is being placed, the belt view marks every free spot along the belts (PostSpots),
     // recomputed only when posts or foundations come or go.
     void ShowPostSpots(bool show)
@@ -365,7 +376,7 @@ public partial class PlayerInput : Node
             && sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             var s = sim.State.Belts[line].Segments[segment];
-            bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth;
+            bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth && SelectionRepairs();
             hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
             string act = CommandCard.KeyOf("act");
             hint = $"{(s.State == SegmentState.Broken ? "Broken belt" : hurt ? "Damaged belt" : "Belt")}  {s.Health:0}/{s.MaxHealth:0}\n"

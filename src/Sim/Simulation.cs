@@ -10,7 +10,8 @@ public sealed class Simulation
 
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
-    public const float RepairSeconds = 5f;          // for one unit, from 0 to full health
+    public const float AutoRepairRadius = 12f;      // m; an idle unit that repairs goes for damaged belt this close by itself
+    const int AutoRepairCheckTicks = 10;            // how often it looks
     public const float GatherSeconds = 2f;          // a gatherer post's work per package
     public const float GathererHealth = 300f;
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
@@ -23,6 +24,8 @@ public sealed class Simulation
     const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
     const float SquadFootprint = 1.5f;              // m, radius; the area a squad's members spread over, for splash
     const float SplashEdge = 0.5f;                  // share of full splash damage at the blast's edge
+    const float StillSpeed = 0.1f;                  // m/s; a unit that stops to fire counts as stopped below this
+    const float ApproachMargin = 2f;                // m inside its range that a unit that stops to fire drives to
     const float AimTolerance = 0.1f;                // rad (~6°); a turret this close to its target fires
     const float ReturnFireLeash = 15f;              // m from where it began that a unit chases an attacker it can't reach
     const float AssistRadius = 8f;                  // m; idle allies this close to a unit under fire answer it too
@@ -84,7 +87,9 @@ public sealed class Simulation
         int id = AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, 0, 0,
             type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, heading, type.Id,
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
-        CollectionsMarshal.AsSpan(State.Units)[^1].Builds = type.Builds;
+        ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
+        (unit.Builds, unit.RepairSeconds, unit.RepairCost, unit.StopsToFire) = (type.Builds, type.RepairSeconds, type.RepairCost, type.StopsToFire);
+        unit.TurretArc = type.TurretArc * MathF.PI / 180;
         return id;
     }
 
@@ -96,7 +101,8 @@ public sealed class Simulation
     public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
         float reverseSpeed = 0, float heading = 0, string type = "",
-        float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0, WeaponType? weapon = null)
+        float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0, WeaponType? weapon = null,
+        string[]? builds = null, float repairSeconds = 0, int repairCost = 0)
     {
         weapon ??= new WeaponType(WeaponKind.Bullet, dps / members * Dt, Dt, range);
         int id = _nextId++;
@@ -128,6 +134,9 @@ public sealed class Simulation
             Range = weapon.Range,
             ShellSpeed = weapon.ShellSpeed,
             SplashRadius = weapon.Hit == HitKind.Splash ? weapon.SplashRadius : 0,
+            MinRange = weapon.MinRange,
+            Ballistic = weapon.Kind == WeaponKind.Shell && weapon.Ballistic,
+            Scatter = weapon.Scatter,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
             LastAttacker = -1,
@@ -135,6 +144,9 @@ public sealed class Simulation
             RespondTo = -1,
             GaveUpOn = -1,
             Pending = new(),
+            Builds = builds,
+            RepairSeconds = repairSeconds,
+            RepairCost = repairCost,
         });
         return id;
     }
@@ -449,6 +461,7 @@ public sealed class Simulation
                 if (c.Index == 0)
                 {
                     State.Players[building.Owner].Resources += building.Paid;
+                    State.Players[building.Owner].Spent -= building.Paid;
                     (building.Progress, building.Paid, building.Stalled) = (0, 0, false);
                 }
                 building.Queue.RemoveAt(c.Index);
@@ -540,7 +553,7 @@ public sealed class Simulation
                 site.BuildStalled = true;
                 continue;
             }
-            (owner.Resources, site.BuildPaid) = (owner.Resources - due, site.BuildPaid + due);
+            (owner.Resources, owner.Spent, site.BuildPaid) = (owner.Resources - due, owner.Spent + due, site.BuildPaid + due);
             site.Health = MathF.Min(site.MaxHealth, site.Health + site.MaxHealth * (1 - FoundationHealth) / ticks);
             if (++site.BuildProgress < ticks) continue;
 
@@ -687,7 +700,7 @@ public sealed class Simulation
             building.Stalled = true;
             return;
         }
-        (owner.Resources, building.Paid) = (owner.Resources - due, building.Paid + due);
+        (owner.Resources, owner.Spent, building.Paid) = (owner.Resources - due, owner.Spent + due, building.Paid + due);
         if (++building.Progress < ticks) return;
 
         building.Queue.RemoveAt(0);
@@ -711,6 +724,7 @@ public sealed class Simulation
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[i];
         if (unit.Movement == Movement.Static && order.Kind != UnitOrder.Attack) return; // defenses only aim
         if (order.Kind == UnitOrder.Build && (unit.Builds is null || (order.Structure is not null && Array.IndexOf(unit.Builds, order.Structure) < 0))) return;
+        if (order.Kind == UnitOrder.Repair && unit.RepairSeconds <= 0) return; // only builders and engineers repair
         if (!queued)
         {
             unit.Pending.Clear();
@@ -725,6 +739,40 @@ public sealed class Simulation
         // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
         unit.Current = order with { Target = OrderPoint(order, unit.Position) };
         (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
+    }
+
+    // Repair is paid a Resource at a time, each buying MaxHealth / cost of health (at the rate of whoever
+    // pays); what's bought and not yet used stays with the segment. False if the owner can't pay for this
+    // step. A cost of 0 is free.
+    static bool PayForRepair(Player owner, BeltSegment segment, float step, int cost)
+    {
+        if (cost <= 0) return true;
+        if (segment.RepairCredit < step)
+        {
+            if (owner.Resources < 1) return false;
+            (owner.Resources, owner.Spent) = (owner.Resources - 1, owner.Spent + 1);
+            segment.RepairCredit += segment.MaxHealth / cost;
+        }
+        segment.RepairCredit -= step;
+        return true;
+    }
+
+    // The nearest damaged open segment within AutoRepairRadius, for an idle builder.
+    bool FindDamagedSegment(Vector3 from, out int line, out int segment)
+    {
+        (line, segment) = (-1, -1);
+        float best = AutoRepairRadius;
+        for (int l = 0; l < State.Belts.Count; l++)
+        {
+            var segments = State.Belts[l].Segments;
+            for (int s = 0; s < segments.Length; s++)
+            {
+                if (segments[s].Covered || segments[s].Health >= segments[s].MaxHealth) continue;
+                segments[s].Curve.ClosestDistanceAlong(from, out float d);
+                if (d <= best) (best, line, segment) = (d, l, s);
+            }
+        }
+        return line >= 0;
     }
 
     // A segment that exists and isn't covered: what segment orders can name.
@@ -767,6 +815,13 @@ public sealed class Simulation
             switch (unit.Current.Kind)
             {
                 case UnitOrder.None:
+                    // An idle unit that repairs goes for damaged belt close by, while its owner can pay for it.
+                    if (unit.RepairSeconds > 0 && (State.Tick + unit.Id) % AutoRepairCheckTicks == 0
+                        && State.Players[unit.Owner].Resources > 0 && FindDamagedSegment(unit.Position, out int dl, out int ds))
+                    {
+                        Start(ref unit, new Order(UnitOrder.Repair, default, dl, ds));
+                        break;
+                    }
                     // Stay and fight what's in range; walk back to where it stood after chasing an attacker.
                     if (!ReturnFire(ref unit, units) && !Engage(ref unit) && unit.Returning && Move(ref unit, unit.Anchor))
                         unit.Returning = false;
@@ -788,8 +843,10 @@ public sealed class Simulation
                     var segment = State.Belts[l].Segments[s];
                     if (segment.Health >= segment.MaxHealth) { Complete(ref unit); break; }
                     if (!InRange(ref unit, RepairRange)) break;
+                    float step = MathF.Min(segment.MaxHealth / unit.RepairSeconds * Dt, segment.MaxHealth - segment.Health);
+                    if (!PayForRepair(State.Players[unit.Owner], segment, step, unit.RepairCost)) break; // stalls while broke
 
-                    segment.Health = MathF.Min(segment.MaxHealth, segment.Health + segment.MaxHealth / RepairSeconds * Dt);
+                    segment.Health = MathF.Min(segment.MaxHealth, segment.Health + step);
                     if (segment.Health >= segment.MaxHealth)
                     {
                         segment.State = SegmentState.Normal;
@@ -804,8 +861,8 @@ public sealed class Simulation
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
                     if (segment.State == SegmentState.Broken) { Complete(ref unit); break; }
-                    bool onTarget = AimAt(ref unit, unit.Current.Target);
-                    if (!InRange(ref unit, unit.Range) || !onTarget) break;
+                    bool onTarget = AimAt(ref unit, unit.Current.Target, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
+                    if (!InFiringRange(ref unit, unit.Current.Target) || !onTarget) break;
 
                     if (Fire(ref unit, -1, unit.Current.Target, l, s)) Complete(ref unit);
                     break;
@@ -844,18 +901,19 @@ public sealed class Simulation
             return;
         }
         unit.Current = unit.Current with { Target = at with { Y = unit.Position.Y } };
-        bool onTarget = AimAt(ref unit, at);
+        bool onTarget = AimAt(ref unit, at, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
         // The killing shot ends the order at once, so a queued one starts without a wasted tick.
-        if (InRange(ref unit, unit.Range) && onTarget && Fire(ref unit, targetId, at)) Complete(ref unit);
+        if (InFiringRange(ref unit, unit.Current.Target) && onTarget && Fire(ref unit, targetId, at)) Complete(ref unit);
     }
 
     // Turns the turret to the best enemy in range (FindTarget), or back over the nose if there's none, and
     // fires once the turret is on it. Nothing out of range draws the turret: only an attack order aims
-    // ahead. Every unit does this whatever it's doing, idle or on the move (a later exception: heavy or
-    // emplaced weapons that must stop first), but none stops or chases for it; attack-move is the order
-    // that stops to fight. Returns whether an enemy is in range: what attack-move stops for.
+    // ahead. Every unit does this whatever it's doing, idle or on the move (except ones that stop to fire:
+    // they only fire standing still), but none stops or chases for it; attack-move is the order that
+    // stops to fight. Returns whether an enemy is in range: what attack-move stops for.
     bool Engage(ref Unit unit)
     {
+        if (unit.Damage <= 0) return false; // unarmed: nothing to shoot with
         if (!FindTarget(unit, out int target, out var at))
         {
             // Being shot is the exception: the turret watches whoever hit it for a while.
@@ -864,7 +922,8 @@ public sealed class Simulation
             else TurnTurret(ref unit, unit.Heading);
             return false;
         }
-        if (AimAt(ref unit, at)) Fire(ref unit, target, at);
+        // Idle, or attack-move stopping for it: free to swing the hull round if the turret can't reach.
+        if (AimAt(ref unit, at, turnHull: unit.Current.Kind is UnitOrder.None or UnitOrder.AttackMove)) Fire(ref unit, target, at);
         return true;
     }
 
@@ -898,9 +957,14 @@ public sealed class Simulation
             (unit.GaveUpOn, unit.RespondTo, unit.Returning) = (unit.RespondTo, -1, unit.Current.Kind == UnitOrder.None);
             return false;
         }
-        bool onTarget = AimAt(ref unit, at);
-        if (GroundDistanceSq(unit.Position, at) > unit.Range * unit.Range) Move(ref unit, at with { Y = unit.Position.Y });
-        else if (onTarget) Fire(ref unit, unit.RespondTo, at);
+        float sq = GroundDistanceSq(unit.Position, at);
+        if (sq < unit.MinRange * unit.MinRange || (unit.StopsToFire && sq > unit.Range * unit.Range))
+        {
+            (unit.GaveUpOn, unit.RespondTo, unit.Returning) = (unit.RespondTo, -1, unit.Current.Kind == UnitOrder.None);
+            return false; // inside the minimum range, or out of reach of one that holds its ground: let it be
+        }
+        bool onTarget = AimAt(ref unit, at, turnHull: GroundDistanceSq(unit.Position, at) <= unit.Range * unit.Range);
+        if (InFiringRange(ref unit, at with { Y = unit.Position.Y }) && onTarget) Fire(ref unit, unit.RespondTo, at);
         return true;
     }
 
@@ -914,9 +978,15 @@ public sealed class Simulation
             GroundDistanceSq(unit.Position, at) <= ReturnFireLeash * ReturnFireLeash);
     }
 
-    // Armed, mobile, free to leave, nothing in range to fight where it is, and the attacker still alive.
-    bool CanAnswer(in Unit unit, int attacker) =>
-        unit.Damage > 0 && unit.Speed > 0 && !FindTarget(unit, out _, out _) && TryGetTarget(attacker, out _, out _);
+    // Armed, mobile, free to leave, nothing in range to fight where it is, and the attacker still alive
+    // and not inside its minimum range (artillery can't answer what's on top of it). A unit that stops to
+    // fire holds its ground: it answers only what it can already reach, and never chases.
+    bool CanAnswer(in Unit unit, int attacker)
+    {
+        if (unit.Damage <= 0 || unit.Speed <= 0 || FindTarget(unit, out _, out _) || !TryGetTarget(attacker, out var at, out _)) return false;
+        float sq = GroundDistanceSq(unit.Position, at);
+        return sq >= unit.MinRange * unit.MinRange && (!unit.StopsToFire || sq <= unit.Range * unit.Range);
+    }
 
     static void Answer(ref Unit unit, int attacker)
     {
@@ -930,12 +1000,12 @@ public sealed class Simulation
     bool FindTarget(in Unit unit, out int target, out Vector3 at)
     {
         (target, at) = (-1, Vector3.Zero);
-        float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range;
+        float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range, minSq = unit.MinRange * unit.MinRange;
         foreach (var other in State.Units)
         {
             if (other.Owner == unit.Owner || other.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
-            if (sq > rangeSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
+            if (sq > rangeSq || sq < minSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
             (target, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
         }
         if (target >= 0) return true;
@@ -943,14 +1013,14 @@ public sealed class Simulation
         {
             if (post.Owner == unit.Owner || post.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, post.Position);
-            if (sq > rangeSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
+            if (sq > rangeSq || sq < minSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
             (target, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
         }
         foreach (var building in State.Buildings)
         {
             if (building.Owner == unit.Owner || building.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, building.Position);
-            if (sq > rangeSq || building.Health > bestHealth || (building.Health == bestHealth && sq >= bestSq)) continue;
+            if (sq > rangeSq || sq < minSq || building.Health > bestHealth || (building.Health == bestHealth && sq >= bestSq)) continue;
             (target, bestHealth, bestSq, at) = (building.Id, building.Health, sq, building.Position);
         }
         return target >= 0;
@@ -970,14 +1040,32 @@ public sealed class Simulation
         return MathF.Abs(off) - step <= AimTolerance;
     }
 
-    static bool AimAt(ref Unit unit, Vector3 at) =>
-        TurnTurret(ref unit, MathF.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z));
+    // Turns the turret toward `at`; true once it's on it. A turret with an arc only reaches that far either
+    // side of the nose: beyond it, the turret waits at the edge and, with `turnHull` (the unit isn't
+    // driving anywhere this tick), the hull pivots toward the target at its turn rate.
+    static bool AimAt(ref Unit unit, Vector3 at, bool turnHull = false)
+    {
+        float yaw = MathF.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z);
+        if (unit.TurretArc <= 0) return TurnTurret(ref unit, yaw);
+        float off = WrapAngle(yaw - unit.Heading);
+        if (turnHull && MathF.Abs(off) > unit.TurretArc && unit.TurnRate > 0)
+        {
+            float step = unit.TurnRate * Dt;
+            unit.Heading = WrapAngle(unit.Heading + Math.Clamp(off, -step, step));
+            off = WrapAngle(yaw - unit.Heading);
+        }
+        bool reached = TurnTurret(ref unit, unit.Heading + Math.Clamp(off, -unit.TurretArc, unit.TurretArc));
+        return reached && MathF.Abs(off) <= unit.TurretArc + AimTolerance;
+    }
 
     // Engages a target (a unit or post by id, or else a belt segment) and shoots if the weapon has reloaded:
     // every living member's Damage in one shot. A bullet hits at once; a shell flies (MoveShells). Returns
     // true if this shot destroyed the target, which only a bullet can: a shell's kill lands later.
     bool Fire(ref Unit unit, int targetId, Vector3 at, int line = -1, int segment = -1)
     {
+        float distance = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
+        if (distance < unit.MinRange) return false;
+        if (unit.StopsToFire && MathF.Abs(unit.CurrentSpeed) > StillSpeed) return false; // not while moving
         (unit.Firing, unit.FireAt) = (true, at);
         if (State.Tick < unit.ReadyAtTick) return false;
         (unit.ReadyAtTick, unit.LastShotTick) = (State.Tick + unit.ReloadTicks, State.Tick);
@@ -985,26 +1073,37 @@ public sealed class Simulation
         if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius);
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
+        var aim = at with { Y = HitHeight };
+        if (unit.Ballistic && unit.Scatter > 0)
+        {
+            // Off by up to Scatter at full range, less closer in, anywhere around the aim point.
+            float off = unit.Scatter * MathF.Min(1, distance / unit.Range) * MathF.Sqrt(_random.Range(0, 1));
+            float angle = _random.Range(0, MathF.Tau);
+            aim += new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * off;
+        }
         State.Projectiles.Add(new Projectile
         {
             Id = _nextId++,
             Owner = unit.Owner,
             Shooter = unit.Id,
-            TargetId = targetId,
-            Line = line,
-            Segment = segment,
+            TargetId = unit.Ballistic ? -2 : targetId, // a ballistic shell hits wherever it lands
+            Line = unit.Ballistic ? -1 : line,
+            Segment = unit.Ballistic ? -1 : segment,
             Position = muzzle,
             PrevPosition = muzzle,
-            Target = at with { Y = HitHeight },
+            Origin = muzzle,
+            Target = aim,
             Speed = unit.ShellSpeed,
             Damage = damage,
             SplashRadius = unit.SplashRadius,
+            Ballistic = unit.Ballistic,
         });
         return false;
     }
 
     // Shells fly at the target, where it is now while it lives, and hit when they get there. One whose
-    // target died on the way lands where it last was, harmlessly.
+    // target died on the way lands where it last was, harmlessly (a splash one still bursts). A ballistic
+    // shell flies to the point it was aimed at and bursts there, whatever moved.
     void MoveShells()
     {
         var shells = State.Projectiles;
@@ -1013,7 +1112,8 @@ public sealed class Simulation
             var p = shells[i];
             p.PrevPosition = p.Position;
             bool alive = true; // a segment target always is; broken ones just take no damage
-            if (p.TargetId >= 0 && (alive = TryGetTarget(p.TargetId, out var at, out _))) p.Target = at with { Y = HitHeight };
+            if (!p.Ballistic && p.TargetId >= 0 && (alive = TryGetTarget(p.TargetId, out var at, out _))) p.Target = at with { Y = HitHeight };
+            if (p.Ballistic) alive = false;
 
             var toTarget = p.Target - p.Position;
             float distance = toTarget.Length(), step = p.Speed * Dt;
@@ -1038,7 +1138,27 @@ public sealed class Simulation
         if (radius <= 0) return targetId != -2 && Hit(shooter, targetId, line, segment, damage);
         bool destroyed = targetId == -1 && Hit(shooter, -1, line, segment, damage);
         Splash(owner, shooter, at, damage, radius, targetId, ref destroyed);
+        SplashBelts(at, damage, radius, targetId == -1 ? line : -1, segment);
         return destroyed;
+    }
+
+    // Splash damages belt too, anyone's: every open segment within the radius of the blast, less toward the
+    // edge, except one the shot was aimed at (it took its hit directly). What that breaks spills as usual.
+    void SplashBelts(Vector3 at, float damage, float radius, int aimedLine, int aimedSegment)
+    {
+        for (int l = 0; l < State.Belts.Count; l++)
+        {
+            var segments = State.Belts[l].Segments;
+            for (int s = 0; s < segments.Length; s++)
+            {
+                var segment = segments[s];
+                if (segment.Covered || segment.State == SegmentState.Broken || (l == aimedLine && s == aimedSegment)) continue;
+                segment.Curve.ClosestDistanceAlong(at with { Y = segment.Curve.PositionAt(0).Y }, out float d);
+                if (d > radius) continue;
+                segment.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+                if (segment.Health <= 0) Break(l, s);
+            }
+        }
     }
 
     // Full damage at the center, falling to SplashEdge of it at the radius. A squad takes it on the members
@@ -1118,6 +1238,19 @@ public sealed class Simulation
     }
 
     // Moves toward the order target until within `range`; true once there.
+    // Close enough to shoot at `target`, or else moving closer this tick. A unit that stops to fire comes
+    // ApproachMargin inside its range before it stops, and once stopped stays while the target is anywhere
+    // in range, so a target shuffling a metre doesn't send it driving again.
+    static bool InFiringRange(ref Unit unit, Vector3 target)
+    {
+        float distance = Vector3.Distance(unit.Position, target);
+        bool stopped = MathF.Abs(unit.CurrentSpeed) <= StillSpeed;
+        float reach = unit.StopsToFire && !stopped ? unit.Range - ApproachMargin : unit.Range;
+        if (distance <= reach) return true;
+        Move(ref unit, target);
+        return false;
+    }
+
     static bool InRange(ref Unit unit, float range)
     {
         if (Vector3.Distance(unit.Position, unit.Current.Target) <= range) return true;

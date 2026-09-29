@@ -1,12 +1,9 @@
-// Prototype weapons, named by units.json.
-// kind: "bullet" hits the moment it fires (drawn as tracers); "shell" flies at shellSpeed (m/s) and hits on arrival.
-// damage is per shot, per member for a squad; reload is seconds between shots (rounded to 1/20 s ticks); range in m.
-// hit: "direct" (default) damages only the target; "splash" every enemy within splashRadius (m) of the impact,
-// down to half at the edge, a squad on the share of its footprint the blast covers. No friendly fire yet.
-// Rockets, artillery and heavier guns come later as more entries (and kinds); splash is meant for those.
+// Prototype weapons, named by units.json. Every field, its units and its default: docs/data.md.
 {
   "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8 },                      // 2 dps a member
   "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12 },           // 9 dps
   "turret_gun": { "kind": "bullet", "damage": 2, "reload": 0.2, "range": 13 },                // 10 dps; tanks outrange it
   "tank_cannon": { "kind": "shell", "hit": "direct", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40 }, // 14 dps, in big hits
+  "artillery_gun": { "kind": "shell", "hit": "splash", "damage": 30, "splashRadius": 3.5, "reload": 5, "range": 28,
+                     "minRange": 8, "shellSpeed": 22, "ballistic": true, "scatter": 3 }, // 6 dps, slow, lands near the aim
 }

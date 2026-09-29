@@ -24,11 +24,11 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 - `System.Numerics` inside `Sim`; convert to Godot types only in `SimConvert`. One seeded RNG (`SimRandom`) owned by the sim.
 - No allocations or LINQ inside the tick. Batch calls across the C#/engine boundary; never read engine properties back just to compare them.
 - Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`, `slot_1`..`slot_4`, `produce_repeat`, `cancel_production`, `rotate_building`, `toggle_debug`), never literal keys or buttons in code.
-- Game data is JSON in `/data` (`units.json`, `weapons.json`, `buildings.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. Godot reads the files (`SimHost.DataDirectory`) and passes the text in.
+- Game data is JSON in `/data` (`units.json`, `weapons.json`, `buildings.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. Godot reads the files (`SimHost.DataDirectory`) and passes the text in. Its schema is `docs/data.md`, checked by `DataSchemaTests`: change a record, its file and that page together.
 
 ## Current state
 
-- **Built:** belts with breakable segments, spill and repair; gatherer posts (built by players, spaced along the belt, with free spots shown while placing); belts as plain lines, no junctions, coming from beyond the map through covered stretches; belt visuals (rails, joints, wrecked halves when broken, hover hint); two players, each starting with an HQ and a builder; production at buildings (paid as they build, one queue, repeat, rally point); a construction prototype (builder, barracks, factory, post, turret; placement anywhere, grid-snapped, posts snapped beside belts; needs the whole cost to start, paid as it grows); win/lose (`CanStillRecover`, a 60 s rebuild clock, game-over banner); a command card, a minimap and a Resources panel; a one-line HUD with debug text under F3; a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
+- **Built:** belts with breakable segments, spill and paid repair (builders and engineers, auto-repair nearby); gatherer posts (built by players, spaced along the belt, with free spots shown while placing); belts as plain lines, no junctions, coming from beyond the map through covered stretches; belt visuals (rails, joints, wrecked halves when broken, hover hint); two players, each starting with an HQ and a builder; production at buildings (paid as they build, one queue, repeat, rally point); a construction prototype (builder, barracks, factory, post, turret; placement anywhere, grid-snapped, posts snapped beside belts; needs the whole cost to start, paid as it grows); win/lose (`CanStillRecover`, a 60 s rebuild clock, game-over banner); a command card, a minimap and a Resources panel; a one-line HUD with debug text under F3; a rifle squad, an engineer, a scout car, a tank and artillery (stops to fire, minimum range, holds ground, range rings); data-driven weapons (bullets and shells, direct and splash, ballistic arcs with scatter; splash breaks belt), schema in `docs/data.md`; eased vehicle driving with sim turrets (optionally arc-limited, the hull swings round); vehicle wrecks (view only); fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
 - **Next in the MVP:** minimal navigation (grid, blocking buildings, A*, separation), then the commander AI.
 
 ## Layout
@@ -39,7 +39,7 @@ src/Sim/            simulation library, net10.0
 src/Sim.Tests/      xUnit, headless
 godot/              Godot project: scenes/ (main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
-docs/               doctrine.md, architecture.md (story documents are kept out of the repo)
+docs/               doctrine.md, architecture.md, data.md (story documents are kept out of the repo)
 tools/              input smoke test, main map generator
 ```
 

@@ -1,13 +1,4 @@
-// Prototype unit types. Members is 1 for a vehicle; a squad's health is per member, and every member
-// carries the weapon (an id in weapons.json, which sets damage and range).
-// Movement: foot (default), wheeled, tracked, or static (defenses: never moves, built from a foundation). Vehicles also take:
-//   acceleration and braking (m/s² at full throttle or brake; braking defaults to twice acceleration),
-//   easeIn and easeOut (s): how long speeding up, braking and turning take to build up to full, and to
-//     settle again. This is what gives a vehicle weight; 0 is instant, and looks like a toy.
-//   turnRate (°/s), reverseSpeed (m/s; 0 or missing: it always turns around),
-//   turretTurnRate (°/s; 0 or missing: no turret, it aims instantly). A turret fires once it's on target.
-// cost (Resources) is paid bit by bit over buildTime (s) while a building produces it; production stalls while broke.
-// No weapon: unarmed. builds: the building types (ids in buildings.json) a builder can put up.
+// Prototype unit types. Every field, its units and its default: docs/data.md.
 {
   "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 8, "buildTime": 10 },
   "scout_car": {
@@ -19,12 +10,18 @@
     "members": 1, "movement": "tracked", "speed": 4, "reverseSpeed": 2,
     "acceleration": 2, "braking": 4, "easeIn": 0.4, "easeOut": 0.6, "turnRate": 70,
     "memberHealth": 180, "cost": 8, "buildTime": 10,
-    "builds": ["barracks", "factory", "gatherer_post", "turret"]
+    "builds": ["barracks", "factory", "gatherer_post", "turret"], "repairSeconds": 5, "repairCost": 4
   },
+  "engineer": { "members": 1, "speed": 5, "memberHealth": 60, "cost": 6, "buildTime": 8, "repairSeconds": 2.5, "repairCost": 2 },
   "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun" },
   "tank": {
     "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
     "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,
     "memberHealth": 260, "weapon": "tank_cannon", "cost": 20, "buildTime": 18
+  },
+  "artillery": {
+    "members": 1, "movement": "tracked", "speed": 3, "reverseSpeed": 1.5,
+    "acceleration": 1.5, "braking": 3, "easeIn": 0.6, "easeOut": 0.8, "turnRate": 45, "turretTurnRate": 40, "turretArc": 30,
+    "memberHealth": 120, "weapon": "artillery_gun", "stopsToFire": true, "cost": 22, "buildTime": 20
   },
 }

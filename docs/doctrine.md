@@ -42,7 +42,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 - [built] Belts are fixed lines, authored per map, each running from a source to an end, with no junctions (see Rejected). Players never build belt.
 - [built] Lines are cubic Bezier curves, cut at load into short breakable segments. Packages move by arc length at constant speed and keep a minimum spacing. A queue that reaches a source blocks spawning, and those packages never exist. Packages reaching a line's end are lost.
-- [built] **Segment health.** Units shoot a segment to break it, only when ordered to (Ctrl+right-click): nothing targets belts on its own, and splash doesn't hurt them. A damaged segment still works. A broken one stays broken until repaired back to full health, by a unit standing next to it.
+- [built] **Segment health.** Units shoot a segment to break it when ordered to (Ctrl+right-click): nothing picks a belt as its target on its own. Splash is the exception: it hurts any open segment in its radius, whoever's belt it is, so artillery fighting beside a belt breaks it by accident. A damaged segment still works. A broken one stays broken until repaired back to full health (Repair).
 - [built] **Belts come from beyond the map and leave it again.** Where a belt runs outside the playable area, and through its owner's back field to where the open belt starts, it's **covered**: it can't be shot or broken (nobody could reach it to repair it) and takes no posts (so the back field adds no safe post slots). Maps set each line's covered start and end.
 - [built] **A belt reads as a machine made of breakable pieces:** raised rails, a crossbar at every joint between segments, a health bar over a damaged one, and a broken one buckled into two halves torn up at the break with debris in the gap, settling back flat as it's repaired. Covered stretches are a closed housing. With units selected, the segment under the cursor lights up in the color of what a right-click would do, and a hint beside the cursor gives its health and the keys.
 - [built] **A broken segment spills.** Packages on it, and every package that reaches it, fall beside it. A share is destroyed in the fall (spill loss, per belt), so holding a break never captures the whole stream. The rest become ground pickups: any unit walking over one collects it for its owner, and uncollected pickups fade. Downstream gets nothing until the repair.
@@ -61,23 +61,26 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 ## Units, orders and combat
 
-- [built] **Orders:** move, attack (a unit or post), attack-move, attack a segment, repair a segment. Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
+- [built] **Orders:** move, attack (a unit or post), attack-move, attack a segment, repair a segment (repairers only). Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
 - [decided] Belt-targeted orders still to come: guard segment, raid segment, escort convoy.
-- [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before posts), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. Attack chases into range and fires until the target dies. [decided] Heavy or emplaced weapons that must stop before firing become a per-type flag once such a unit exists.
+- [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before posts), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. Attack chases into range and fires until the target dies. [built] A unit type that **stops to fire** (artillery) only fires standing still.
 - [built] **Return fire.** An idle or attack-moving unit hit by an enemy while nothing is in range to shoot back at chases the attacker into range and fires on it, and idle or attack-moving allies close by join in.
   - **Leash:** it gives up past a leash distance from where the chase began and ignores that attacker until it comes back within the leash. Idle units walk back to their spot; attack-move carries on to its point.
   - **Exceptions:** a move order is never diverted, and no other explicit order is either. Immobile and unarmed units don't answer.
   - After a hit, a unit with nothing in range keeps its turret on the attacker for a few seconds, the one exception to turrets ignoring enemies out of range.
   - Being outranged still loses: the answer is retreat automation (below), not return fire.
+  - Units that stop to fire **hold their ground**: they answer only attackers already in range and never chase, so artillery doesn't wander off after whatever shot it.
 - [built] **Weapons are data.** Each unit type names a weapon. Damage comes as discrete shots with a reload, not a steady stream.
-  - **Delivery:** a bullet hits at once and draws a tracer. A shell is a projectile that homes on its target and hits on arrival.
-  - **Hit:** direct hits only the target. Splash hits every enemy within its radius, less toward the edge.
+  - **Delivery:** a bullet hits at once and draws a tracer. A shell is a projectile that homes on its target and hits on arrival. A **ballistic** shell flies an arc to where the target stood when it fired, lands off that point by up to its scatter (less closer in) and bursts there, so a moving target can get away.
+  - **Hit:** direct hits only the target. Splash hits every enemy within its radius, less toward the edge, and any open belt segment there.
+  - **Minimum range:** a weapon can have one; nothing closer is picked, fired at or answered.
   - **Squads:** a squad's shot is every living member's damage. Under splash, a squad takes damage on the share of its footprint the blast covers, so bunched squads suffer.
-  - No friendly fire yet; decide it with artillery.
-  - **Assignments:** rifle squad bullets; scout car a light machine gun (bullets); tank cannon shells, **direct**.
-  - [decided] Splash is for later artillery and rockets: they're the counter to infantry, and tanks stay anti-vehicle.
+  - **No friendly fire** on units, posts or buildings; belts are the one thing splash hurts whoever owns it.
+  - **Assignments:** rifle squad bullets; scout car a light machine gun (bullets); tank cannon shells, **direct**; artillery ballistic shells with splash.
+  - [decided] Splash is for artillery and later rockets: they're the counter to infantry, and tanks stay anti-vehicle.
   - [decided] Armor classes with a damage-vs-armor table, and ground/air targeting (only anti-air weapons hit air), plug into the same weapon record. One weapon per unit until a unit needs two.
-- [built] **Vehicles outrange infantry** (tank > scout car > squad).
+- [built] **Vehicles outrange infantry** (tank > scout car > squad), and artillery outranges everything.
+- [built] **Artillery:** slow, fragile, long-ranged, trained at the factory. It stops to fire, has a minimum range and holds its ground (above). Ordered to attack, it closes to a little inside its range, not just to the outer ring, so a target stepping back a meter doesn't move it again. Selected, it shows its range as two rings, minimum and maximum.
   - [decided] The rifle squad lost its unique job (capturing) with the switches. For the MVP it's the cheap unit; it needs a real role before factions.
 - [built] **Squads:** fixed size per type, indivisible, one sim entity (one position, one order). Members are slices of one health pool and die one by one, each taking its share of damage with it.
   - Members are formation slots drawn by the view; they become sim state only if that looks wrong in play.
@@ -87,9 +90,11 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Easing:** everything is eased (ease in, ease out), as physics that reacts to new orders mid-move, not as tween curves.
   - **Reversing:** a stopped vehicle backs up to a close target behind it.
   - **Turrets:** turrets are sim state. They turn at their own rate and fire only once on target. An attack order swings the turret onto its target while the vehicle drives there. Otherwise turrets only turn to enemies already in range, or to whoever just hit them.
+  - **Turret arc:** a turret can be limited to so far either side of the nose (artillery). For a target beyond it, a vehicle that isn't driving anywhere pivots its hull round. The view raises a heavy gun's barrel with the distance of the shot.
+  - **Wrecks:** a destroyed vehicle blows up and leaves a burnt wreck that smokes for a while and sinks away after 45 s. It's look only, not sim state. [idea] Keep every wreck on the map for salvage.
   - **Lean:** the view leans the hull on its suspension (look only).
 - [built] **Start:** each player starts with an HQ, one builder and a little money: no army, no posts. Everything else gets built. (The small test map keeps starting units for its tests.)
-- [built] **Production:** buildings train units. The HQ trains builders, the barracks squads, the factory cars and tanks.
+- [built] **Production:** buildings train units. The HQ trains builders, the barracks squads and engineers, the factory cars, tanks and artillery.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
   - **Queue:** one per building, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
   - **Repeat:** one toggle per building. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
@@ -149,7 +154,10 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 - [decided] One system: infrastructure objects with states (intact, damaged, broken) that can be repaired or improved. Belt segments are the first user [built]; roads and bridges reuse it.
 - [decided] Roads come in two states, worn and improved, which set movement cost. Bridges only over impassable terrain, never over roads, so navigation stays single-layer.
-- [decided] Engineers repair: it costs money and time, they're unarmed, auto-repair works in a limited radius, and the player sets priorities. Prototype repair is any unit, free.
+- [built] **Repair** is what builders and engineers do, per unit type (`repairSeconds`, `repairCost`); other units can't. The engineer (barracks, unarmed) repairs but doesn't build, quicker and cheaper than the builder.
+  - It costs money and time: a unit repairs at its own rate, paying as the segment heals, and stalls while its owner is broke.
+  - **Auto-repair:** an idle repairer fixes damaged open belt within a small radius on its own, while its owner has Resources. An order sets priorities.
+  - [proposed] Engineers also repair vehicles and buildings, builders only buildings and belt: one list of what each type repairs, with medics later healing infantry through the same code. Cost as a share of the target's own cost.
 - [decided] Buildings snap to the navigation grid, rotated in 90° steps. [built] with a 2 m grid, before navigation exists.
 - [built] **Construction prototype** (generic, before factions):
   - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
@@ -231,11 +239,10 @@ Still [decided], for when their systems exist:
 1. **Grid and MVP map:** 2 m cells. The playable map is 200×140 m for now (256 m square was the earlier default); grow it if fights feel cramped. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. No map has a grid yet.
 2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
-4. **Friendly fire** for splash: decide with artillery.
-5. **Fog of war:** post-MVP, grid-based.
-6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
-7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
-8. **Tax and unrest balance, final faction names:** later, Denys's call.
+4. **Fog of war:** post-MVP, grid-based.
+5. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
+6. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
+7. **Tax and unrest balance, final faction names:** later, Denys's call.
 
 ## Rejected (don't re-propose without a new reason)
 

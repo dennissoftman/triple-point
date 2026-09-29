@@ -12,6 +12,7 @@ public static class GameData
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
         Converters = { new JsonStringEnumConverter() }, // "movement": "tracked"
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, // a misspelled or undocumented field fails loudly
     };
 
     /// <summary>Weapon types by id, from the contents of weapons.json. Each knows its own id.</summary>
@@ -20,9 +21,13 @@ public static class GameData
         var weapons = JsonSerializer.Deserialize<Dictionary<string, WeaponType>>(json, Options)
             ?? throw new InvalidDataException("weapons.json has no weapons.");
         foreach (var (id, w) in weapons)
+        {
             if (w.Reload <= 0 || w.Range <= 0 || (w.Kind == WeaponKind.Shell && w.ShellSpeed <= 0) || (w.Hit == HitKind.Splash) != (w.SplashRadius > 0))
                 throw new InvalidDataException(
                     $"Weapon '{id}' needs a reload and range above 0, a shell a shellSpeed above 0, and a splashRadius above 0 exactly when its hit is splash.");
+            if (w.MinRange < 0 || w.MinRange >= w.Range || w.Scatter < 0 || ((w.Ballistic || w.Scatter > 0) && w.Kind != WeaponKind.Shell))
+                throw new InvalidDataException($"Weapon '{id}' needs a minRange from 0 up to below its range, and ballistic and scatter only on a shell.");
+        }
         return weapons.ToDictionary(w => w.Key, w => w.Value with { Id = w.Key });
     }
 

@@ -69,7 +69,7 @@ func _process(_delta) -> bool:
 			check("Ctrl+right-click on an enemy belt segment breaks it", root.get_node("Main/SimHost").get("BrokenSegments"), 1)
 			motion(cam.unproject_position(RED_BELT))
 		1125:
-			check("cursor over a broken segment: repair", player.get("CursorName"), "Repair")
+			check("cursor over a broken segment, nobody selected who repairs: move", player.get("CursorName"), "Move")
 		1130:
 			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
@@ -165,16 +165,23 @@ func _process(_delta) -> bool:
 			builder = new_blue_unit()
 			check("the HQ trained a builder", builder != null, true)
 			click(screen(builder))
-		2405:
+		2401:
+			cam.set("Focus", Vector2(0, 0)) # Red's broken belt in view
+		2404:
+			motion(cam.unproject_position(RED_BELT))
+		2409:
+			check("a builder over a broken segment: repair", player.get("CursorName"), "Repair")
+			cam.set("Focus", Vector2(-10, -17)) # back over Blue's HQ
+		2415:
 			check("selecting a builder shows its build card", root.get_node("Main/Ui/CommandCard").visible, true)
 			key(KEY_Q, true) # the first thing it builds: a barracks
 			key(KEY_Q, false)
 			motion(cam.unproject_position(SITE))
-		2410:
+		2420:
 			check("its build key arms a ghost under the cursor", ghost().visible, true)
 			check("the ghost snaps to the grid over the site", (ghost().global_position * Vector3(1, 0, 1)).distance_to(SITE) < 0.5, true)
 			click(cam.unproject_position(SITE))
-		2415:
+		2425:
 			check("clicking places it and disarms the ghost", ghost().visible, false)
 		3200:
 			# ~16 m from the rally point, at a tracked builder's pace.

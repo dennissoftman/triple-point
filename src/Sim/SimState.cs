@@ -10,6 +10,7 @@ public sealed class Player
     public readonly int Index;
     public int Resources;           // the one spendable currency: 1 per package
     public int Gathered, Collected; // where Resources came from: gatherer posts, ground pickups
+    public int Spent;               // on construction, production and repair, less refunds
     // End conditions (Simulation.EndConditions). With no buildings left but a rebuild still possible, the
     // grace timer counts down (GraceTicksLeft, -1 while not running), paused on ticks a builder works on
     // one of its foundations. Lost: out of the game, everything it had destroyed.
@@ -47,18 +48,20 @@ public enum WeaponKind { Bullet, Shell }
 
 /// <summary>
 /// What a shot damages. Direct: only its target. Splash: every enemy within SplashRadius of where it
-/// lands, less toward the edge; a squad takes it on the share of its footprint the blast covers. No
-/// friendly fire, for now.
+/// lands, and every open belt segment there (anyone's), less toward the edge; a squad takes it on the
+/// share of its footprint the blast covers. No friendly fire on units, posts or buildings, for now.
 /// </summary>
 public enum HitKind { Direct, Splash }
 
 /// <summary>
-/// A weapon type, as loaded from /data/weapons.json: Damage per shot (per member, for a squad), Reload
-/// seconds between shots, Range in m, for shells their speed in m/s, and for splash its radius in m. Id
-/// is its key in the file.
+/// A weapon type, as loaded from /data/weapons.json (fields: docs/data.md): Damage per shot (per member,
+/// for a squad), Reload seconds between shots, Range and MinRange in m, for shells their speed in m/s,
+/// for splash its radius in m. A Ballistic shell flies to where its target stood, off by up to Scatter m,
+/// instead of homing on it. Id is its key in the file.
 /// </summary>
 public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
-    HitKind Hit = HitKind.Direct, float SplashRadius = 0, string Id = "")
+    HitKind Hit = HitKind.Direct, float SplashRadius = 0, float MinRange = 0, bool Ballistic = false, float Scatter = 0,
+    string Id = "")
 {
     /// <summary>No weapon: builders and the like. It never finds anything in range to shoot.</summary>
     public static readonly WeaponType Unarmed = new(WeaponKind.Bullet, 0, 1, 0, Id: "");
@@ -74,13 +77,16 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
 /// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in Resources, paid over BuildTime seconds of
 /// production. Builds lists the building types (ids in buildings.json) it can construct: builders only.
+/// RepairSeconds and RepairCost make it repair belt (0: it doesn't): how long and how much a segment from 0 to full takes.
+/// StopsToFire: it only fires while standing still (artillery). Fields: docs/data.md.
 /// No Weapon: unarmed. Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
     int Members, float Speed, float MemberHealth, string? Weapon = null,
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
-    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0,
-    int Cost = 0, float BuildTime = 0, string[]? Builds = null, string Id = "")
+    float TurnRate = 0, float TurretTurnRate = 0, float TurretArc = 0, float ReverseSpeed = 0,
+    int Cost = 0, float BuildTime = 0, string[]? Builds = null, float RepairSeconds = 0, int RepairCost = 0,
+    bool StopsToFire = false, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
     public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
@@ -159,6 +165,7 @@ public struct Unit
     public float Acceleration, Braking;    // m/s² at full effort
     public float EaseIn, EaseOut;          // s
     public float TurnRate, TurretTurnRate; // rad/s; TurretTurnRate 0: no turret
+    public float TurretArc;                // rad either side of the nose the turret reaches; 0: all the way round
     public float ReverseSpeed;             // m/s; 0 for units that can't back up
     public float CurrentSpeed;             // m/s; negative while reversing
     public float Effort;
@@ -171,6 +178,9 @@ public struct Unit
     public WeaponKind WeaponKind;
     public float Damage, Range, ShellSpeed; // per shot per member; m; m/s
     public float SplashRadius;             // m; 0 for a direct hit
+    public float MinRange, Scatter;        // m: won't fire closer; how far off a ballistic shell may land
+    public bool Ballistic;                 // its shells fly to a point instead of homing
+    public bool StopsToFire;               // fires only while standing still
     public int ReloadTicks, ReadyAtTick, LastShotTick;
     public bool Firing;                    // engaging something this tick (on target, in range), reloading or not
     public Vector3 FireAt;                 // what it's engaging
@@ -180,6 +190,8 @@ public struct Unit
     // doesn't bounce on the leash under that attacker's fire; a new order clears it.
     public int LastAttacker, LastHitTick, RespondTo, GaveUpOn;
     public string[]? Builds;               // building type ids it can construct; null: not a builder
+    public float RepairSeconds;            // to repair a segment from 0 to full; 0: it doesn't repair
+    public int RepairCost;                 // Resources that full repair costs, paid as it goes
     public Vector3 Anchor;
     public bool Returning;
     public Order Current;
@@ -208,6 +220,7 @@ public sealed class BeltSegment
     public float Health; // a damaged segment still works; at 0 it breaks and stays broken until fully repaired
     public SegmentState State;
     public readonly bool Covered; // can't be damaged, takes no posts (see BeltLine)
+    public float RepairCredit { get; internal set; } // health already paid for and not yet repaired
 
     public BeltSegment(BezierSegment curve, float start, float maxHealth, bool covered = false) =>
         (Curve, Start, MaxHealth, Health, Covered) = (curve, start, maxHealth, maxHealth, covered);
@@ -308,8 +321,9 @@ public struct Gatherer
 public struct Projectile
 {
     public int Id, Owner, Shooter, TargetId, Line, Segment; // Shooter: the unit that fired it, for return fire
-    public Vector3 Position, PrevPosition, Target;
+    public Vector3 Position, PrevPosition, Target, Origin; // Origin: where it was fired from, for drawing an arc
     public float Speed, Damage, SplashRadius; // SplashRadius 0: a direct hit
+    public bool Ballistic;                    // flies to Target, a point, and never homes
 }
 
 public struct Package

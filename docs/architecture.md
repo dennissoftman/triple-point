@@ -24,14 +24,15 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 
 | Concern | Sim (`src/Sim`) | View and host (`godot/scripts`) |
 |---|---|---|
-| Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, order paths of the selection, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
+| Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section; `InFiringRange` with the approach margin, `AimAt` with the turret arc, `SplashBelts`), `SimState.cs` | `UnitsView` (instances, order paths of the selection, tracers, shells with arcs, smoke and shadows, flashes, range rings, wrecks), `UnitView` (one unit's look, barrel elevation, suspension lean, wreck), `UnitMaterials`, `HealthBar` |
+| Repair and auto-repair | `Simulation.cs` (`PayForRepair`, `FindDamagedSegment`), `SimState.cs` (`BeltSegment.RepairCredit`, `Player.Spent`) | `PlayerInput` (repair intent only with a repairer selected) |
 | Belts, spill, pickups, gatherers, post spacing, covered stretches | `Simulation.cs` (`TooCloseToPost`, `PostSpots`, `SnapPost`; `FindSegment(openOnly)`), `SimState.cs` (`BeltSegment.Covered`), `BezierSegment.cs` | `BeltView` (segments as rails, joints and housings, wrecks, health bars, hover, post spots; packages, posts), `BeltPath` (a map's belt, with its covered ends), `InstanceBatch` |
 | Buildings, production queue, rally points | `Simulation.cs` (`UpdateProduction`), `SimState.cs` (`Building`) | `BuildingsView` (blocks, bars, rally flag), `CommandCard` |
 | Construction: builders, foundations, placement, grid snap, posts snapped to belts | `Simulation.cs` (`Construct`, `UpdateConstruction`, `CanPlace`, `CanAfford`, `SnapToGrid`, `SnapToBelt`) | `PlayerInput` (placement), `BuildingsView` (foundations, ghost), `CommandCard` |
 | Win and lose: rebuild clock, losing, game over | `Simulation.cs` (`UpdateEndConditions`, `CanStillRecover`, `Lose`; `EndConditions` switches it on), `SimState.cs` (`Player.GraceTicksLeft`, `Lost`; `GameOver`, `Winner`) | `GameOverOverlay` (banner, Restart, Quit), the HUD line (rebuild clocks) |
 | Minimap | | `Minimap` (canvas drawing; click, drag, right-click) |
 | Local player's Resources and income | | `ResourcePanel` (top center; income from a 30 s ring buffer of what was gathered and collected) |
-| Game data | `GameData.cs` (parses `data/units.json`, `data/weapons.json`, `data/buildings.json`) | `SimHost.LoadData` reads the files |
+| Game data | `GameData.cs` (parses `data/units.json`, `data/weapons.json`, `data/buildings.json`); the schema is `docs/data.md` | `SimHost.LoadData` reads the files |
 | Host: ticks, game speed, map building, HUD (one line, debug text under `toggle_debug`), perf readout, demo script | `DestroyCommand` (a host-only tool: the demo's scripted kills) | `SimHost` |
 | Input, selection (units, or one building), placement, cursor, hotseat | | `PlayerInput`, `Cursors` |
 | Camera | | `RtsCamera` (`CameraView`, `FlyTo`) |
@@ -47,12 +48,10 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 
 JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing commas, case-insensitive names, enums as strings. Godot reads the file text (`SimHost.DataDirectory`, relative to the Godot project) and passes it in, because the sim can't use Godot's `res://` paths.
 
-- `weapons.json`: kind (bullet or shell), hit (direct or splash), damage, reload, range, shell speed, splash radius.
-- `units.json`: members, speed, member health, weapon id, movement, and vehicle driving values (acceleration, braking, ease in and out, turn rates, reverse speed), cost and build time.
-- `buildings.json`: health, footprint size, the unit types it produces (in button order), queue limit, cost and build time, and what it becomes when finished (kind: building, post, or defense with its unit).
+- **The schema is [data.md](data.md):** every field of the three files, its unit, default and meaning. Parsing is strict (an unknown field fails the load), and `DataSchemaTests` checks the tables against the records' constructor parameters both ways, so the page can't drift from the code. Change the record, the file and the page together.
 - A defense is a unit type with `static` movement: finished turrets are units, so they reuse targeting, turrets and firing. The sim drops every order to them but attack.
 - The sim gets building types by id (`Simulation.BuildingTypes`, set by the host), because build commands carry type ids.
-- Loading rejects bad data: an unknown weapon, unit or building type, a shell without speed, splash without a radius, a negative cost, a defense without a unit. A test loads the repo's real files.
+- Loading rejects bad data: an unknown field, an unknown weapon, unit or building type, a shell without speed, splash without a radius, a minimum range not below the range, ballistic or scatter on a bullet, a negative cost, a defense without a unit. A test loads the repo's real files.
 - Why not TOML: game data nests (units with weapon lists, factions with unit lists), which TOML handles awkwardly. JSON needs no dependency, and this loader allows comments. TOML stays an option for flat settings.
 
 ## Rendering
