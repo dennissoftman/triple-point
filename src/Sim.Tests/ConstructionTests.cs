@@ -78,16 +78,50 @@ public class ConstructionTests
     }
 
     [Fact]
-    public void Construction_stalls_while_the_owner_is_broke()
+    public void Construction_stalls_when_the_money_runs_out_after_it_started()
     {
-        var sim = NewConstructionSim(resources: 1);
+        var sim = NewConstructionSim(resources: 10); // enough to start the 10-Resource barracks
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
 
-        sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(4, 0, 0))]);
+        sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(4, 0, 0))]); // laid, and 1 paid
+        sim.State.Players[Blue].Resources = 1;                                          // spent elsewhere
         Run(sim, 20);
         var foundation = sim.State.Buildings.Single();
-        Assert.Equal(2, foundation.BuildProgress); // 1 paid covers 2 of 20 ticks of a 10-Resource build
+        Assert.Equal(4, foundation.BuildProgress); // 2 paid in all covers 4 of its 20 ticks
         Assert.True(foundation.BuildStalled);
+        Assert.Equal(0, sim.State.Players[Blue].Resources);
+    }
+
+    [Fact]
+    public void A_building_its_owner_cannot_afford_in_full_is_never_started()
+    {
+        var sim = NewConstructionSim(resources: 9);
+        int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
+
+        int blockedAt = TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder, Simulation.BlockedByMoney), T,
+            [new BuildCommand(Blue, builder, "barracks", new Vector3(4, 0, 0))]);
+
+        Assert.True(blockedAt > 0);
+        Assert.Empty(sim.State.Buildings);
+        Assert.Equal(9, sim.State.Players[Blue].Resources);
+    }
+
+    [Fact]
+    public void Posts_snap_beside_the_nearest_belt_on_the_cursor_side_facing_it()
+    {
+        var sim = NewConstructionSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1)); // along x, from 0 to 20
+
+        Assert.True(sim.SnapToBelt(new Vector3(10.3f, 0, 3), 6, out var at, out float heading));
+        Assert.Equal(new Vector3(10, 0, 2.5f), at);   // a whole meter along, 2.5 m off the middle
+        Assert.Equal(MathF.PI, MathF.Abs(heading), 0.001f); // facing -z, toward the belt
+        Assert.True(sim.CanPlace(Post, at));
+
+        Assert.True(sim.SnapToBelt(new Vector3(4.6f, 0, -1), 6, out at, out heading));
+        Assert.Equal(new Vector3(5, 0, -2.5f), at);   // the other side
+        Assert.Equal(0f, heading, 0.001f);
+
+        Assert.False(sim.SnapToBelt(new Vector3(10, 0, 9), 6, out _, out _)); // no belt that close
     }
 
     [Fact]
@@ -98,7 +132,7 @@ public class ConstructionTests
         sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(20, 0, 0))]);
         sim.AddBuilding(Red, new Vector3(22, 0, 0), Hq); // overlaps the site
 
-        int blockedAt = TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder), 5 * T);
+        int blockedAt = TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder, Simulation.BlockedByTheSite), 5 * T);
 
         Assert.True(blockedAt > 0);
         Assert.Single(sim.State.Buildings);

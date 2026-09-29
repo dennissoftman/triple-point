@@ -34,11 +34,14 @@ public sealed class Simulation
     const float RallySpread = 2.5f;                 // m; produced units stand around the rally point, not on it
     public const float GridCell = 2f;               // m; buildings snap to this grid (SnapToGrid)
     public const float PostReach = 4f;              // m; a post must stand this close to a belt, and pulls from it
+    public const float PostOffset = 2.5f;           // m from the belt's middle that a placed post snaps to (SnapToBelt)
+    const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
     const float BuildReach = 2f;                    // m beyond a footprint's edge that a builder works from
     const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
     const float JunctionClearance = 1.5f;           // m around a junction's disc
     const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
+    public const float GraceSeconds = 60f;          // to rebuild, once a player has no buildings left
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
     const float VehicleParkRadius = 1.2f;           // m; a vehicle at rest this close to its target is there too, rather than creeping up on it
     const float StopMargin = 0.3f;                  // m short of the target that a vehicle eases to a stop
@@ -52,6 +55,12 @@ public sealed class Simulation
     const float ReverseKeepAngle = 1.75f;           // rad (100°); keeps backing up while the target is within this of its rear
 
     public SimState State { get; } = new();
+
+    /// <summary>
+    /// Whether players can lose, and the game end (see CanStillRecover). Off by default: maps and tests
+    /// without buildings would end on the first tick.
+    /// </summary>
+    public bool EndConditions { get; set; }
 
     /// <summary>Building types by id, from buildings.json: what BuildCommand can put up. Set at setup.</summary>
     public IReadOnlyDictionary<string, BuildingType> BuildingTypes { get; set; } = new Dictionary<string, BuildingType>();
@@ -204,6 +213,34 @@ public sealed class Simulation
 
     // ---- Queries ----
 
+    /// <summary>BuildBlocked reasons (its Index): the spot is taken, or its owner can't pay the whole cost.</summary>
+    public const int BlockedByTheSite = 0, BlockedByMoney = 1;
+
+    /// <summary>Whether a player has the whole cost of a building in hand, as starting one needs.</summary>
+    public bool CanAfford(int player, BuildingType type) => State.Players[player].Resources >= type.Cost;
+
+    /// <summary>
+    /// Where a post placed near `near` goes: beside the nearest belt within `maxDistance`, PostOffset from
+    /// its middle on `near`'s side, at a whole PostStep along the line, facing the belt. False if no belt
+    /// is that close.
+    /// </summary>
+    public bool SnapToBelt(Vector3 near, float maxDistance, out Vector3 at, out float heading)
+    {
+        (at, heading) = (near, 0);
+        if (!FindSegment(near, maxDistance, out int l, out int s)) return false;
+        var line = State.Belts[l];
+        var segment = line.Segments[s];
+        float along = segment.Start + segment.Curve.ClosestDistanceAlong(near, out _);
+        along = Math.Clamp(MathF.Round(along / PostStep) * PostStep, 0, line.Length);
+        var point = line.PositionAt(along) with { Y = near.Y };
+        var direction = line.DirectionAt(along);
+        var side = Vector3.Normalize(new Vector3(direction.Z, 0, -direction.X)); // perpendicular, on the ground
+        if (Vector3.Dot(side, near - point) < 0) side = -side;
+        at = point + side * PostOffset;
+        heading = MathF.Atan2(-side.X, -side.Z); // facing the belt
+        return true;
+    }
+
     /// <summary>
     /// Where a building of this size goes near `at`: its footprint's edges on the grid lines, so an even
     /// number of cells across centers on a grid line and an odd number on a cell's middle.
@@ -316,6 +353,7 @@ public sealed class Simulation
         UpdateGatherers();
         UpdateConstruction();
         foreach (var building in State.Buildings) UpdateProduction(building);
+        UpdateEndConditions();
         foreach (var line in State.Belts) SpawnPackage(line);
         UpdatePickups();
         State.Tick++;
@@ -346,6 +384,9 @@ public sealed class Simulation
                 break;
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
+                break;
+            case DestroyCommand d:
+                Destroy(d.TargetId);
                 break;
             case BuildCommand b:
                 Issue(b.Player, b.UnitId, new Order(UnitOrder.Build, b.Position, Structure: b.BuildingType, Facing: b.Heading), b.Queued);
@@ -414,9 +455,11 @@ public sealed class Simulation
         }
         if (site is null)
         {
-            if (!CanPlace(type, at))
+            // Only a building its owner can afford is started: the whole cost in hand, though it's paid as it grows.
+            int blocked = !CanPlace(type, at) ? BlockedByTheSite : !CanAfford(unit.Owner, type) ? BlockedByMoney : -1;
+            if (blocked >= 0)
             {
-                _events.Add(new SimEvent(SimEventKind.BuildBlocked, unit.Id));
+                _events.Add(new SimEvent(SimEventKind.BuildBlocked, unit.Id, blocked));
                 Complete(ref unit);
                 return;
             }
@@ -473,6 +516,110 @@ public sealed class Simulation
             }
             _events.Add(new SimEvent(SimEventKind.BuildingCompleted, site.Id, became));
         }
+    }
+
+    // ---- End conditions ----
+
+    /// <summary>
+    /// Whether a player can still get back into the game: it has a building (a finished production
+    /// building or a post; foundations and defenses don't count), or it could put one up again: a builder,
+    /// and Resources for the cheapest building its builders can build. Packages still on a belt don't count.
+    /// </summary>
+    public bool CanStillRecover(int player) => HasBuilding(player) || CanRebuild(player);
+
+    bool HasBuilding(int player)
+    {
+        foreach (var b in State.Buildings)
+            if (b.Owner == player && b.Built && b.Type.Kind == BuildingKind.Building) return true;
+        foreach (var g in State.Gatherers)
+            if (g.Owner == player) return true;
+        return false;
+    }
+
+    // A builder, and the money for the cheapest way back: a new building its builders can put up, or what's
+    // still owed on one of its foundations (what's been paid into one counts, so starting one isn't losing).
+    bool CanRebuild(int player)
+    {
+        int cheapest = int.MaxValue;
+        bool builder = false;
+        foreach (var unit in State.Units)
+        {
+            if (unit.Owner != player || unit.Health <= 0 || unit.Builds is null) continue;
+            builder = true;
+            foreach (string id in unit.Builds)
+                if (BuildingTypes.TryGetValue(id, out var type) && type.Kind != BuildingKind.Defense) cheapest = Math.Min(cheapest, type.Cost);
+        }
+        if (!builder) return false;
+        foreach (var b in State.Buildings)
+            if (b.Owner == player && !b.Built && b.Type.Kind != BuildingKind.Defense) cheapest = Math.Min(cheapest, b.Type.Cost - b.BuildPaid);
+        return cheapest != int.MaxValue && State.Players[player].Resources >= cheapest;
+    }
+
+    // A player with no buildings loses at once if it can't rebuild, and otherwise has GraceSeconds to get
+    // a building up again: the clock pauses on ticks a builder works on one of its foundations (an
+    // abandoned foundation doesn't save it), and a finished building stops it. Losing destroys everything
+    // the player still has. The game is over when at most one player is left: the winner, or a draw.
+    void UpdateEndConditions()
+    {
+        if (!EndConditions || State.GameOver) return;
+        int standing = 0, last = Player.None;
+        foreach (var player in State.Players)
+        {
+            if (player.Lost) continue;
+            int p = player.Index;
+            if (HasBuilding(p))
+            {
+                if (player.GraceTicksLeft >= 0) _events.Add(new SimEvent(SimEventKind.GraceEnded, p));
+                (player.GraceTicksLeft, player.GracePaused) = (-1, false);
+            }
+            else if (!CanRebuild(p)) Lose(player);
+            else
+            {
+                if (player.GraceTicksLeft < 0)
+                {
+                    player.GraceTicksLeft = (int)MathF.Round(GraceSeconds * TicksPerSecond);
+                    _events.Add(new SimEvent(SimEventKind.GraceStarted, p));
+                }
+                player.GracePaused = BeingBuilt(p);
+                if (!player.GracePaused && --player.GraceTicksLeft <= 0) Lose(player);
+            }
+            if (!player.Lost) (standing, last) = (standing + 1, p);
+        }
+        if (standing > 1) return;
+        (State.GameOver, State.Winner) = (true, last);
+        _events.Add(new SimEvent(SimEventKind.GameOver, last));
+    }
+
+    bool BeingBuilt(int player)
+    {
+        foreach (var b in State.Buildings)
+            if (b.Owner == player && !b.Built && b.WorkedTick == State.Tick) return true;
+        return false;
+    }
+
+    // Out of the game: its units (defenses too), posts and foundations are destroyed; they go, with their
+    // events, when the dead are removed next tick.
+    void Lose(Player player)
+    {
+        (player.Lost, player.GraceTicksLeft, player.GracePaused) = (true, -1, false);
+        _events.Add(new SimEvent(SimEventKind.PlayerLost, player.Index));
+        foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
+            if (unit.Owner == player.Index) unit.Health = 0;
+        foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
+            if (post.Owner == player.Index) post.Health = 0;
+        foreach (var building in State.Buildings)
+            if (building.Owner == player.Index) building.Health = 0;
+    }
+
+    // A scripted kill of a unit, post or building by id; it's removed with the rest of the dead.
+    void Destroy(int id)
+    {
+        foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
+            if (unit.Id == id) unit.Health = 0;
+        foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
+            if (post.Id == id) post.Health = 0;
+        foreach (var building in State.Buildings)
+            if (building.Id == id) building.Health = 0;
     }
 
     // What's due in all, in whole Resources, after `progress + 1` of `ticks` ticks of work on something

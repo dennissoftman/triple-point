@@ -10,6 +10,12 @@ public sealed class Player
     public readonly int Index;
     public int Resources;           // the one spendable currency: 1 per package
     public int Gathered, Collected; // where Resources came from: gatherer posts, ground pickups
+    // End conditions (Simulation.EndConditions). With no buildings left but a rebuild still possible, the
+    // grace timer counts down (GraceTicksLeft, -1 while not running), paused on ticks a builder works on
+    // one of its foundations. Lost: out of the game, everything it had destroyed.
+    public int GraceTicksLeft = -1;
+    public bool GracePaused;
+    public bool Lost;
 
     public Player(int index) => Index = index;
 }
@@ -348,4 +354,6 @@ public sealed class SimState
     public readonly List<Building> Buildings = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last
     public readonly List<Projectile> Projectiles = []; // unordered
+    public bool GameOver;           // at most one player left standing (Simulation.EndConditions)
+    public int Winner = Player.None; // once GameOver: the last player standing, or None for a draw
 }

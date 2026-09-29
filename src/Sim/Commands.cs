@@ -51,19 +51,25 @@ public sealed record ResumeBuildCommand(int Player, int UnitId, int BuildingId, 
 /// <summary>Breaks a segment instantly. For tests and scripted events; players break segments by attacking them.</summary>
 public sealed record BreakSegmentCommand(int Line, int Segment) : Command(Sim.Player.None);
 
+/// <summary>Destroys a unit, post or building instantly. For tests and scripted events.</summary>
+public sealed record DestroyCommand(int TargetId) : Command(Sim.Player.None);
+
 public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, GathererDestroyed,
     SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched, ShellHit,
     UnitProduced, BuildingDestroyed, BuildingPlaced, BuildingCompleted, BuildBlocked,
+    GraceStarted, GraceEnded, PlayerLost, GameOver,
 }
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked); the line index for segment events; the junction index for junction
+/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked);
+/// the player for GraceStarted, GraceEnded and PlayerLost; the winner (Player.None: a draw) for GameOver; the line index for segment events; the junction index for junction
 /// events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
 /// Index: the segment for segment events, the gatherer id for PackageGathered, the new owner for
-/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced, the builder for BuildingPlaced, and for
+/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced, the builder for BuildingPlaced, why for BuildBlocked
+/// (Simulation.BlockedByTheSite or BlockedByMoney), and for
 /// BuildingCompleted what the building became: itself, or the gatherer post or defense unit that replaced it.
 /// </summary>
 public readonly record struct SimEvent(SimEventKind Kind, int Id, int Index = -1);
