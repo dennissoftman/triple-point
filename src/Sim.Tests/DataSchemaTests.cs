@@ -73,7 +73,7 @@ public class DataSchemaTests
         var sim = NewSim();
         sim.BuildingTypes = buildings;
         var barracks = buildings["barracks"];
-        sim.State.Players[Blue].Resources = barracks.Cost + 4;
+        sim.State.Players[Blue].Packages = barracks.Cost + 4;
         int builder = sim.AddUnit(Blue, Vector3.Zero, units["builder"]);
 
         sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(12, 0, 0))]);
@@ -83,7 +83,7 @@ public class DataSchemaTests
                 if (e.Kind == SimEventKind.BuildingCompleted) done = t;
 
         Assert.True(done >= 0);
-        Assert.Equal(4, sim.State.Players[Blue].Resources);
+        Assert.Equal(4, sim.State.Players[Blue].Packages);
         Assert.Equal(barracks.Cost, sim.State.Players[Blue].Spent);
     }
 }

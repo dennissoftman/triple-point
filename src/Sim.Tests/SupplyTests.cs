@@ -54,7 +54,7 @@ public class SupplyTests
         Assert.Equal(40 - line.Destroyed, left);
         Assert.True(line.Destroyed > 0);
 
-        sim.State.Players[Blue].Resources = 100;
+        sim.State.Players[Blue].Packages = 100;
         int builder = sim.AddUnit(Blue, new Vector3(15, 0, 2), speed: 5, repairSeconds: 1);
         sim.Tick([new RepairSegmentCommand(Blue, builder, 0, 1)]);
         Run(sim, 5 * T);

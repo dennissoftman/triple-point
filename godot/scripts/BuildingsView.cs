@@ -6,7 +6,7 @@ using static SimConvert;
 /// <summary>
 /// Draws buildings: a block in the owner's colors (a production building gets a door on its exit side),
 /// a health bar once damaged, and a progress bar while it trains a unit or, as a foundation, while it's
-/// built (amber while stalled for Resources). A foundation rises as it's built. The selected building
+/// built (amber while stalled for packages). A foundation rises as it's built. The selected building
 /// gets an outline and a flag on its rally point, and a building being placed shows as a ghost, green
 /// where it fits and red where it doesn't. Placeholder look, built in code.
 /// </summary>

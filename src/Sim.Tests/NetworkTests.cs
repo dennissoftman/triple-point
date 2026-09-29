@@ -17,7 +17,7 @@ public class NetworkTests
 
         // One per 2 s over the ~55 s after the first package reaches 10 m.
         Assert.InRange(sim.State.Players[Blue].Gathered, 26, 29);
-        Assert.Equal(sim.State.Players[Blue].Gathered, sim.State.Players[Blue].Resources);
+        Assert.Equal(sim.State.Players[Blue].Gathered, sim.State.Players[Blue].Packages);
         Assert.True(sim.State.Belts[0].Lost > sim.State.Players[Blue].Gathered); // most of 2/s passes a 0.5/s post
     }
 
@@ -66,22 +66,22 @@ public class NetworkTests
         var segments = sim.State.Belts[0].Segments;
         int near = sim.AddUnit(Blue, new Vector3(15, 0, 8), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);  // 8 m from segment 1
         int far = sim.AddUnit(Red, new Vector3(5, 0, 30), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);    // 30 m from both
-        sim.State.Players[Red].Resources = 10;
+        sim.State.Players[Red].Packages = 10;
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Run(sim, 20);
         Assert.Equal(UnitOrder.None, UnitById(sim, near).Current.Kind); // Blue is broke: it stays put
 
-        sim.State.Players[Blue].Resources = 2; // half a repair
+        sim.State.Players[Blue].Packages = 2; // half a repair
         Run(sim, 20);
         Assert.Equal(UnitOrder.Repair, UnitById(sim, near).Current.Kind);
         Run(sim, 200);
-        Assert.Equal(0, sim.State.Players[Blue].Resources);
+        Assert.Equal(0, sim.State.Players[Blue].Packages);
         Assert.Equal(segments[1].MaxHealth / 2, segments[1].Health, 1f); // stalled halfway when the money ran out
         Assert.Equal(SegmentState.Broken, segments[1].State);
         Assert.Equal(UnitOrder.Repair, UnitById(sim, near).Current.Kind); // still on it, waiting for money
 
-        sim.State.Players[Blue].Resources = 5;
+        sim.State.Players[Blue].Packages = 5;
         Run(sim, 60);
         Assert.Equal(SegmentState.Normal, segments[1].State);
         Assert.Equal(new Vector3(5, 0, 30), UnitById(sim, far).Position); // out of reach: never went

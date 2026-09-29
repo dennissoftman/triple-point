@@ -81,16 +81,16 @@ msgstr "{0} has no buildings: {1} s to rebuild"
 msgid "hud.rebuild.paused"
 msgstr " (paused while building)"
 
-# --- Resources panel
-msgid "resources.label"
-msgstr "RESOURCES"
+# --- Packages panel
+msgid "packages.label"
+msgstr "PACKAGES"
 
-msgid "resources.rate"
+msgid "packages.rate"
 msgstr "+{0}/min"
 
 # {0} the income window, s
-msgid "resources.tip"
-msgstr "What you have to spend. Your posts gather packages off the belt, and your units pick up spilled ones.\n+N/min: what you earned per minute over the last {0} s"
+msgid "packages.tip"
+msgstr "Packages to spend. Your posts take them off the belt, and your units pick up spilled ones.\n+N/min: what you took per minute over the last {0} s"
 
 # --- Command card
 msgid "card.repeat"
@@ -104,7 +104,7 @@ msgid "card.site"
 msgstr "{0} {1}%, {2}"
 
 msgid "card.site.stalled"
-msgstr "stalled: not enough Resources"
+msgstr "stalled: not enough packages"
 
 msgid "card.site.building"
 msgstr "building"
@@ -124,7 +124,7 @@ msgstr "stalled"
 
 # {0} unit, {1} cost, {2} build time s, {3} its key, {4} the cancel-last key
 msgid "card.train.tip"
-msgstr "{0}: {1} Resources, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nRMB the ground: set the rally point"
+msgstr "{0}: {1} packages, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nRMB the ground: set the rally point"
 
 # {0} cost, {1} how much is missing
 msgid "card.short"
@@ -135,7 +135,7 @@ msgstr "placing"
 
 # {0} building, {1} cost, {2} build time s, {3} what it is, {4} its key, {5} the rotate key
 msgid "card.build.tip"
-msgstr "{0}: {1} Resources, {2} s. {3}\nStarting one needs the whole cost in hand; it's paid as it grows\n{4} or click: place it   Shift: place more   {5}: rotate   RMB/Esc: cancel\nRMB your unfinished foundation: build it"
+msgstr "{0}: {1} packages, {2} s. {3}\nStarting one needs the whole cost in hand; it's paid as it grows\n{4} or click: place it   Shift: place more   {5}: rotate   RMB/Esc: cancel\nRMB your unfinished foundation: build it"
 
 msgid "card.describe.post"
 msgstr "Stands beside a belt."
@@ -164,7 +164,7 @@ msgstr "something's in the way"
 
 # {0} its cost
 msgid "place.money"
-msgstr "not enough Resources (needs {0})"
+msgstr "not enough packages (needs {0})"
 
 # --- The hint beside the cursor over a belt: {0} what it is, {1} health, {2} full health
 msgid "belt.hint"

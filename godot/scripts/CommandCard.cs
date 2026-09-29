@@ -92,7 +92,7 @@ public partial class CommandCard : PanelContainer
         {
             var type = types[i];
             string armed = PlayerInput.PlacingType == type.Id ? "  " + L.T("card.placing") : "";
-            int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Resources;
+            int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Packages;
             string cost = short_ > 0 ? L.T("card.short", type.Cost, short_) : $"{type.Cost}";
             string key = KeyOf(PlayerInput.SlotActions[i]);
             SetText(i, L.T("card.button", L.Building(type.Id), key, cost) + armed);

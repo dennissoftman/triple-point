@@ -16,7 +16,6 @@ public sealed class Simulation
     public const float GatherSeconds = 2f;          // a gatherer post's work per package
     public const float GathererHealth = 300f;
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
-    public const float PickupLifetimeSeconds = 60f;
     public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
     const float GrabReach = 0.5f;                   // m either side of a post's pull point
     // A break's pile: spots beside the start of the broken segment, 2 sides x 2 rows x 3 along, far
@@ -207,7 +206,7 @@ public sealed class Simulation
     public const int BlockedByTheSite = 0, BlockedByMoney = 1;
 
     /// <summary>Whether a player has the whole cost of a building in hand, as starting one needs.</summary>
-    public bool CanAfford(int player, BuildingType type) => State.Players[player].Resources >= type.Cost;
+    public bool CanAfford(int player, BuildingType type) => State.Players[player].Packages >= type.Cost;
 
     /// <summary>
     /// Where a post placed near `near` goes: beside the nearest belt within `maxDistance`, PostOffset from
@@ -466,7 +465,7 @@ public sealed class Simulation
                 if (c.Index < 0 || c.Index >= building.Queue.Count) break;
                 if (c.Index == 0)
                 {
-                    State.Players[building.Owner].Resources += building.Paid;
+                    State.Players[building.Owner].Packages += building.Paid;
                     State.Players[building.Owner].Spent -= building.Paid;
                     (building.Progress, building.Paid, building.Stalled) = (0, 0, false);
                 }
@@ -554,12 +553,12 @@ public sealed class Simulation
             if (site.Built || site.WorkedTick != State.Tick) continue;
             var owner = State.Players[site.Owner];
             int ticks = site.Type.BuildTicks, due = Due(site.Type.Cost, site.BuildProgress, ticks) - site.BuildPaid;
-            if (owner.Resources < due)
+            if (owner.Packages < due)
             {
                 site.BuildStalled = true;
                 continue;
             }
-            (owner.Resources, owner.Spent, site.BuildPaid) = (owner.Resources - due, owner.Spent + due, site.BuildPaid + due);
+            (owner.Packages, owner.Spent, site.BuildPaid) = (owner.Packages - due, owner.Spent + due, site.BuildPaid + due);
             site.Health = MathF.Min(site.MaxHealth, site.Health + site.MaxHealth * (1 - FoundationHealth) / ticks);
             if (++site.BuildProgress < ticks) continue;
 
@@ -587,7 +586,7 @@ public sealed class Simulation
     /// <summary>
     /// Whether a player can still get back into the game: it has a building (a finished production
     /// building or a post; foundations and defenses don't count), or it could put one up again: a builder,
-    /// and Resources for the cheapest building its builders can build. Packages still on a belt don't count.
+    /// and packages for the cheapest building its builders can build. Packages still on a belt don't count.
     /// </summary>
     public bool CanStillRecover(int player) => HasBuilding(player) || CanRebuild(player);
 
@@ -616,7 +615,7 @@ public sealed class Simulation
         if (!builder) return false;
         foreach (var b in State.Buildings)
             if (b.Owner == player && !b.Built && b.Type.Kind != BuildingKind.Defense) cheapest = Math.Min(cheapest, b.Type.Cost - b.BuildPaid);
-        return cheapest != int.MaxValue && State.Players[player].Resources >= cheapest;
+        return cheapest != int.MaxValue && State.Players[player].Packages >= cheapest;
     }
 
     // A player with no buildings loses at once if it can't rebuild, and otherwise has GraceSeconds to get
@@ -686,12 +685,12 @@ public sealed class Simulation
             if (building.Id == id) building.Health = 0;
     }
 
-    // What's due in all, in whole Resources, after `progress + 1` of `ticks` ticks of work on something
+    // What's due in all, in whole packages, after `progress + 1` of `ticks` ticks of work on something
     // costing `cost`: paid a share a tick, the total comes out exact.
     static int Due(int cost, int progress, int ticks) => (cost * (progress + 1) + ticks - 1) / ticks;
 
     // Trains the front unit of the queue: each tick pays the share of the cost due by then (in whole
-    // Resources, so the total comes out exact), or stalls until the owner can. A finished unit leaves by
+    // packages, so the total comes out exact), or stalls until the owner can. A finished unit leaves by
     // the exit for its spot around the rally point; with Repeat on, its type rejoins the back of the queue.
     // Foundations don't produce.
     void UpdateProduction(Building building)
@@ -701,12 +700,12 @@ public sealed class Simulation
         var type = building.Queue[0];
         var owner = State.Players[building.Owner];
         int ticks = type.BuildTicks, due = Due(type.Cost, building.Progress, ticks) - building.Paid;
-        if (owner.Resources < due)
+        if (owner.Packages < due)
         {
             building.Stalled = true;
             return;
         }
-        (owner.Resources, owner.Spent, building.Paid) = (owner.Resources - due, owner.Spent + due, building.Paid + due);
+        (owner.Packages, owner.Spent, building.Paid) = (owner.Packages - due, owner.Spent + due, building.Paid + due);
         if (++building.Progress < ticks) return;
 
         building.Queue.RemoveAt(0);
@@ -747,7 +746,7 @@ public sealed class Simulation
         (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
     }
 
-    // Repair is paid a Resource at a time, each buying MaxHealth / cost of health (at the rate of whoever
+    // Repair is paid a package at a time, each buying MaxHealth / cost of health (at the rate of whoever
     // pays); what's bought and not yet used stays with the segment. False if the owner can't pay for this
     // step. A cost of 0 is free.
     static bool PayForRepair(Player owner, BeltSegment segment, float step, int cost)
@@ -755,8 +754,8 @@ public sealed class Simulation
         if (cost <= 0) return true;
         if (segment.RepairCredit < step)
         {
-            if (owner.Resources < 1) return false;
-            (owner.Resources, owner.Spent) = (owner.Resources - 1, owner.Spent + 1);
+            if (owner.Packages < 1) return false;
+            (owner.Packages, owner.Spent) = (owner.Packages - 1, owner.Spent + 1);
             segment.RepairCredit += segment.MaxHealth / cost;
         }
         segment.RepairCredit -= step;
@@ -823,7 +822,7 @@ public sealed class Simulation
                 case UnitOrder.None:
                     // An idle unit that repairs goes for damaged belt close by, while its owner can pay for it.
                     if (unit.RepairSeconds > 0 && (State.Tick + unit.Id) % AutoRepairCheckTicks == 0
-                        && State.Players[unit.Owner].Resources > 0 && FindDamagedSegment(unit.Position, out int dl, out int ds))
+                        && State.Players[unit.Owner].Packages > 0 && FindDamagedSegment(unit.Position, out int dl, out int ds))
                     {
                         Start(ref unit, new Order(UnitOrder.Repair, default, dl, ds));
                         break;
@@ -1560,7 +1559,7 @@ public sealed class Simulation
             (g.ReadyAtTick, g.LastGrabTick) = (State.Tick + (int)(GatherSeconds * TicksPerSecond), State.Tick);
             g.Gathered++;
             var owner = State.Players[g.Owner];
-            (owner.Gathered, owner.Resources) = (owner.Gathered + 1, owner.Resources + 1);
+            (owner.Gathered, owner.Packages) = (owner.Gathered + 1, owner.Packages + 1);
             _events.Add(new SimEvent(SimEventKind.PackageGathered, packageId, g.Id));
         }
     }
@@ -1598,7 +1597,6 @@ public sealed class Simulation
             From = at,
             SpilledAtTick = State.Tick,
             LandsAtTick = State.Tick + (int)(SpillFallSeconds * TicksPerSecond),
-            ExpiresAtTick = smashed ? State.Tick + (int)(SpillFallSeconds * TicksPerSecond) : State.Tick + (int)(PickupLifetimeSeconds * TicksPerSecond),
             Smashed = smashed,
         });
         return true;
@@ -1630,7 +1628,7 @@ public sealed class Simulation
         if (line.Finite) line.Reserve--;
     }
 
-    // Whoever's unit is on a landed pickup gets it; unclaimed ones fade, and smashed ones go when they land.
+    // Whoever's unit is on a landed pickup gets it; the rest wait, however long, and smashed ones go when they land.
     void UpdatePickups()
     {
         var pickups = State.Pickups;
@@ -1641,10 +1639,10 @@ public sealed class Simulation
             if (collector >= 0)
             {
                 var player = State.Players[State.Units[collector].Owner];
-                (player.Collected, player.Resources) = (player.Collected + 1, player.Resources + 1);
+                (player.Collected, player.Packages) = (player.Collected + 1, player.Packages + 1);
                 _events.Add(new SimEvent(SimEventKind.PickupCollected, pickups[i].Id, State.Units[collector].Id));
             }
-            else if (State.Tick < pickups[i].ExpiresAtTick) continue;
+            else if (!pickups[i].Smashed || State.Tick < pickups[i].LandsAtTick) continue; // only a smashed one goes, as it lands
             pickups[i] = pickups[^1];
             pickups.RemoveAt(pickups.Count - 1);
         }

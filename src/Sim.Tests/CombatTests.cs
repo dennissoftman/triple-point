@@ -124,7 +124,7 @@ public class CombatTests
         Assert.Equal(0, blue.Collected);
         Assert.True(red.Collected > 0);
         Assert.Equal(0, red.Gathered);
-        Assert.Equal(red.Collected, red.Resources);
+        Assert.Equal(red.Collected, red.Packages);
     }
 
     [Fact]

@@ -2,11 +2,11 @@ using Godot;
 using Sim;
 
 /// <summary>
-/// The local player's Resources, just above the minimap and as wide: the amount, and what they've earned
+/// The local player's packages, just above the minimap and as wide: the amount, and what they've earned
 /// per minute over the last half minute (posts and pickups), which is what winning or losing the belt
 /// changes. Styled in the player's color. Placeholder look.
 /// </summary>
-public partial class ResourcePanel : PanelContainer
+public partial class PackagePanel : PanelContainer
 {
     const int WindowSeconds = 30; // the income rate's window
     const float Gap = 6f;         // px above the minimap
@@ -26,7 +26,7 @@ public partial class ResourcePanel : PanelContainer
     {
         (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 0, 0); // placed over the minimap in _Process
         MouseFilter = MouseFilterEnum.Pass; // for its tooltip
-        TooltipText = L.T("resources.tip", WindowSeconds);
+        TooltipText = L.T("packages.tip", WindowSeconds);
         _style = new StyleBoxFlat
         {
             BgColor = new Color(0.08f, 0.09f, 0.1f, 0.82f),
@@ -41,7 +41,7 @@ public partial class ResourcePanel : PanelContainer
         AddChild(row);
         row.AddChild(new Label
         {
-            Text = L.T("resources.label"),
+            Text = L.T("packages.label"),
             VerticalAlignment = VerticalAlignment.Center,
             LabelSettings = new LabelSettings { FontSize = 11, FontColor = new Color(0.75f, 0.77f, 0.8f) },
         });
@@ -73,10 +73,10 @@ public partial class ResourcePanel : PanelContainer
             _player = local;
             _style.BorderColor = PlayerPalette.Color(local);
         }
-        int amount = state.Players[local].Resources;
+        int amount = state.Players[local].Packages;
         if (amount != Shown) _amount.Text = (Shown = amount).ToString();
         int rate = Rate(local);
-        if (rate != _rate) _income.Text = L.T("resources.rate", _rate = rate);
+        if (rate != _rate) _income.Text = L.T("packages.rate", _rate = rate);
     }
 
     // Once a sim second, every player's earnings so far, into a ring buffer.

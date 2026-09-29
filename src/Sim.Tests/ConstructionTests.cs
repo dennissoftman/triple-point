@@ -15,10 +15,10 @@ public class ConstructionTests
     static readonly BuildingType GunnerNest = new(Health: 400, Size: 2, Cost: 4, BuildTime: 1, Kind: BuildingKind.Defense, Unit: "gunner", Id: "gunner") { Defense = Gunner };
     static readonly BuildingType Hq = new(Health: 1000, Size: 4, Id: "hq"); // no builder builds it
 
-    static Simulation NewConstructionSim(int resources = 100)
+    static Simulation NewConstructionSim(int packages = 100)
     {
         var sim = NewSim();
-        sim.State.Players[Blue].Resources = resources;
+        sim.State.Players[Blue].Packages = packages;
         sim.BuildingTypes = new Dictionary<string, BuildingType> { ["barracks"] = Barracks, ["post"] = Post, ["gunner"] = GunnerNest, ["hq"] = Hq };
         return sim;
     }
@@ -28,7 +28,7 @@ public class ConstructionTests
     [Fact]
     public void Builder_walks_to_the_site_lays_the_foundation_and_builds_it_paying_as_it_grows()
     {
-        var sim = NewConstructionSim(resources: 20);
+        var sim = NewConstructionSim(packages: 20);
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
         var site = new Vector3(10, 0, 0);
 
@@ -47,7 +47,7 @@ public class ConstructionTests
         Assert.InRange(doneAt, 18, 20); // 20 ticks of work in all (1 s)
         Assert.True(foundation.Built);
         Assert.Equal(500f, foundation.Health, 1f);
-        Assert.Equal(10, sim.State.Players[Blue].Resources);
+        Assert.Equal(10, sim.State.Players[Blue].Packages);
 
         sim.Tick(NoCommands);
         Assert.Equal(UnitOrder.None, UnitById(sim, builder).Current.Kind); // done
@@ -80,22 +80,22 @@ public class ConstructionTests
     [Fact]
     public void Construction_stalls_when_the_money_runs_out_after_it_started()
     {
-        var sim = NewConstructionSim(resources: 10); // enough to start the 10-Resource barracks
+        var sim = NewConstructionSim(packages: 10); // enough to start the 10-package barracks
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
 
         sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(4, 0, 0))]); // laid, and 1 paid
-        sim.State.Players[Blue].Resources = 1;                                          // spent elsewhere
+        sim.State.Players[Blue].Packages = 1;                                          // spent elsewhere
         Run(sim, 20);
         var foundation = sim.State.Buildings.Single();
         Assert.Equal(4, foundation.BuildProgress); // 2 paid in all covers 4 of its 20 ticks
         Assert.True(foundation.BuildStalled);
-        Assert.Equal(0, sim.State.Players[Blue].Resources);
+        Assert.Equal(0, sim.State.Players[Blue].Packages);
     }
 
     [Fact]
     public void A_building_its_owner_cannot_afford_in_full_is_never_started()
     {
-        var sim = NewConstructionSim(resources: 9);
+        var sim = NewConstructionSim(packages: 9);
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
 
         int blockedAt = TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder, Simulation.BlockedByMoney), T,
@@ -103,7 +103,7 @@ public class ConstructionTests
 
         Assert.True(blockedAt > 0);
         Assert.Empty(sim.State.Buildings);
-        Assert.Equal(9, sim.State.Players[Blue].Resources);
+        Assert.Equal(9, sim.State.Players[Blue].Packages);
     }
 
     [Fact]

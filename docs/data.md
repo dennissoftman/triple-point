@@ -4,7 +4,7 @@ The three files in `/data` are JSON with comments and trailing commas allowed, p
 
 This page is checked by `DataSchemaTests`: every field the parser accepts must be in a table below, and every field in a table must exist. Change the record in `src/Sim/SimState.cs`, the file, and this page together.
 
-Units: m, s, m/s, degrees per second, Resources. Ticks are 1/20 s; times are rounded to ticks.
+Units: m, s, m/s, degrees per second, packages (the currency). Ticks are 1/20 s; times are rounded to ticks.
 
 ## weapons.json
 
@@ -42,11 +42,11 @@ Named by `produces` and `unit` in buildings.json, and by `UnitType` on a map's u
 | `turretTurnRate` | °/s | 0 | How fast the turret turns; 0: no turret, it aims instantly. A turret fires once it's on target. |
 | `turretArc` | ° | 0 | How far the turret turns either side of the hull's nose; 0: all the way round. For a target beyond it, a unit that isn't driving anywhere pivots its hull toward it at `turnRate`. |
 | `reverseSpeed` | m/s | 0 | Vehicles: how fast it backs up; 0: it always turns around. |
-| `cost` | Resources | 0 | Paid bit by bit over `buildTime` while a building produces it; production stalls while broke. |
+| `cost` | packages | 0 | Paid bit by bit over `buildTime` while a building produces it; production stalls while broke. |
 | `buildTime` | s | 0 | How long it takes to produce. |
 | `builds` | building ids | none | What it can construct (a builder). None: it doesn't build. |
 | `repairSeconds` | s | 0 | It repairs belt, taking this long for a segment from 0 to full health. 0: it doesn't repair. An idle one repairs damaged belt close by on its own. |
-| `repairCost` | Resources | 0 | What a full repair of a segment costs it, paid as it goes; repair stalls while broke. 0 with `repairSeconds`: free. |
+| `repairCost` | packages | 0 | What a full repair of a segment costs it, paid as it goes; repair stalls while broke. 0 with `repairSeconds`: free. |
 | `stopsToFire` | bool | false | It only fires while standing still, never on the move (artillery). |
 
 ## buildings.json
@@ -59,7 +59,7 @@ Named by `builds` in units.json, and by `BuildingType` on a map's building spawn
 | `size` | m | required | The side of its square footprint, snapped to the 2 m grid. |
 | `produces` | unit ids | none | What it trains, in the order the command card shows them. |
 | `queueLimit` | integer | 5 | How many units its queue holds. |
-| `cost` | Resources | 0 | Paid bit by bit over `buildTime` while a builder works on the foundation; starting one needs the whole cost in hand, and it stalls if the money runs out after that. |
+| `cost` | packages | 0 | Paid bit by bit over `buildTime` while a builder works on the foundation; starting one needs the whole cost in hand, and it stalls if the money runs out after that. |
 | `buildTime` | s | 0 | How long a builder takes to put it up. |
 | `kind` | `building`, `post` or `defense` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. |
 | `unit` | unit id | none | A defense: the unit it becomes. |

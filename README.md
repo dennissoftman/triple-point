@@ -4,7 +4,7 @@
 
 Godot 4.7 (.NET) and C#. The whole game simulation is a plain C# library with no engine dependency, ticking at a fixed 20 Hz; Godot only draws it and turns input into commands.
 
-**Status:** early prototype, no art. The current milestone asks one question: is fighting over the belt fun?
+**Status:** early prototype, placeholder art only. The current milestone asks one question: is fighting over the belt fun?
 
 ## What's in it
 

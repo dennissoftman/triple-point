@@ -15,7 +15,7 @@ public class ProductionTests
     static (Simulation sim, int hq) NewHq(int resources)
     {
         var sim = NewSim();
-        sim.State.Players[Blue].Resources = resources;
+        sim.State.Players[Blue].Packages = resources;
         return (sim, sim.AddBuilding(Blue, Vector3.Zero, Hq));
     }
 
@@ -27,16 +27,16 @@ public class ProductionTests
         var (sim, hq) = NewHq(10);
 
         sim.Tick([new ProduceCommand(Blue, hq, "squad")]);
-        Assert.Equal(9, sim.State.Players[Blue].Resources); // the first share is due at once
+        Assert.Equal(9, sim.State.Players[Blue].Packages); // the first share is due at once
         Run(sim, 9);
-        Assert.Equal(8, sim.State.Players[Blue].Resources); // half built, half paid
+        Assert.Equal(8, sim.State.Players[Blue].Packages); // half built, half paid
         Assert.Empty(sim.State.Units);
 
         var events = sim.Tick(NoCommands);
         for (int i = 11; i < 20; i++) events = sim.Tick(NoCommands);
         var squad = Assert.Single(sim.State.Units);
         Assert.Contains(new SimEvent(SimEventKind.UnitProduced, squad.Id, hq), events);
-        Assert.Equal(6, sim.State.Players[Blue].Resources); // 4 in all
+        Assert.Equal(6, sim.State.Players[Blue].Packages); // 4 in all
         Assert.Equal(new Vector3(0, 0, 3.5f), squad.Position);
         Assert.Equal(Blue, squad.Owner);
         Assert.Empty(BuildingById(sim, hq).Queue);
@@ -54,10 +54,10 @@ public class ProductionTests
         Assert.Equal(5, building.Progress);  // the 1 paid covers the first 5 of 20 ticks
         Assert.Empty(sim.State.Units);
 
-        sim.State.Players[Blue].Resources = 3;
+        sim.State.Players[Blue].Packages = 3;
         Run(sim, 15);
         Assert.Single(sim.State.Units);
-        Assert.Equal(0, sim.State.Players[Blue].Resources);
+        Assert.Equal(0, sim.State.Players[Blue].Packages);
     }
 
     [Fact]
@@ -82,13 +82,13 @@ public class ProductionTests
 
         sim.Tick([new ProduceCommand(Blue, hq, "tank"), new ProduceCommand(Blue, hq, "squad")]);
         Run(sim, 19); // half the tank: 5 paid
-        Assert.Equal(15, sim.State.Players[Blue].Resources);
+        Assert.Equal(15, sim.State.Players[Blue].Packages);
 
         sim.Tick([new CancelProductionCommand(Blue, hq, 0)]);
         var building = BuildingById(sim, hq);
         Assert.Equal(["squad"], building.Queue.Select(t => t.Id)); // the squad moved up and started
         Assert.Equal(1, building.Progress);
-        Assert.Equal(19, sim.State.Players[Blue].Resources);       // 20, minus the squad's first share
+        Assert.Equal(19, sim.State.Players[Blue].Packages);       // 20, minus the squad's first share
     }
 
     [Fact]

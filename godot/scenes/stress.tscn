@@ -11,7 +11,7 @@
 [ext_resource type="Script" path="res://scripts/BuildingsView.cs" id="11_bview"]
 [ext_resource type="Script" path="res://scripts/CommandCard.cs" id="12_panel"]
 [ext_resource type="Script" path="res://scripts/Minimap.cs" id="13_minimap"]
-[ext_resource type="Script" path="res://scripts/ResourcePanel.cs" id="14_resources"]
+[ext_resource type="Script" path="res://scripts/PackagePanel.cs" id="14_packages"]
 [ext_resource type="Script" path="res://scripts/PauseMenu.cs" id="20_pausemenu"]
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -130,8 +130,8 @@ color = Color(0.55, 1, 0.6, 0.18)
 script = ExtResource("12_panel")
 PlayerInput = NodePath("../../PlayerInput")
 
-[node name="ResourcePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Minimap")]
-script = ExtResource("14_resources")
+[node name="PackagePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Minimap")]
+script = ExtResource("14_packages")
 Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Minimap = NodePath("../Minimap")

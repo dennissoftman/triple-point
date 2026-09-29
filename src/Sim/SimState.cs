@@ -8,8 +8,8 @@ public sealed class Player
     public const int None = -1; // the owner of neutral things, and the issuer of scripted commands
 
     public readonly int Index;
-    public int Resources;           // the one spendable currency: 1 per package
-    public int Gathered, Collected; // where Resources came from: gatherer posts, ground pickups
+    public int Packages;            // the one spendable currency: 1 per package
+    public int Gathered, Collected; // where packages came from: gatherer posts, ground pickups
     public int Spent;               // on construction, production and repair, less refunds
     // End conditions (Simulation.EndConditions). With no buildings left but a rebuild still possible, the
     // grace timer counts down (GraceTicksLeft, -1 while not running), paused on ticks a builder works on
@@ -75,7 +75,7 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// vehicles: Acceleration and Braking in m/s² (Braking 0: twice Acceleration); EaseIn and EaseOut in
 /// seconds, how long speeding up, braking and turning take to build up to full and to settle (0:
 /// instant); TurnRate and TurretTurnRate in degrees per second (TurretTurnRate 0: no turret, aims
-/// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in Resources, paid over BuildTime seconds of
+/// instantly); ReverseSpeed in m/s (0: can't back up). Cost is in packages, paid over BuildTime seconds of
 /// production. Builds lists the building types (ids in buildings.json) it can construct: builders only.
 /// RepairSeconds and RepairCost make it repair belt (0: it doesn't): how long and how much a segment from 0 to full takes.
 /// StopsToFire: it only fires while standing still (artillery). Fields: docs/data.md.
@@ -102,7 +102,7 @@ public enum BuildingKind { Building, Post, Defense }
 /// <summary>
 /// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
 /// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), how many
-/// units its queue holds, and for building it, its Cost in Resources paid over BuildTime seconds of a
+/// units its queue holds, and for building it, its Cost in packages paid over BuildTime seconds of a
 /// builder's work. Kind and Unit: what it becomes when finished. Id is its key in the file.
 /// </summary>
 public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int QueueLimit = 5, int Cost = 0,
@@ -128,13 +128,13 @@ public sealed class Building
     public readonly float Heading;      // radians, like a unit's; the exit is on this side
     public float Health;
     public readonly List<UnitType> Queue = []; // the front one is in production
-    public int Progress, Paid;          // ticks into the front unit, and Resources paid toward it
+    public int Progress, Paid;          // ticks into the front unit, and packages paid toward it
     public bool Stalled;                // couldn't pay this tick
     public bool Repeat;
     public Vector3 Rally;
     internal int Produced;              // spreads units out around the rally point
     public bool Built;
-    public int BuildProgress, BuildPaid; // ticks of a builder's work so far, and Resources paid for them
+    public int BuildProgress, BuildPaid; // ticks of a builder's work so far, and packages paid for them
     public bool BuildStalled;           // a builder was there but its owner couldn't pay this tick
     public int WorkedTick { get; internal set; } = -1; // the last tick a builder worked on it; more builders don't add up
 
@@ -191,7 +191,7 @@ public struct Unit
     public int LastAttacker, LastHitTick, RespondTo, GaveUpOn;
     public string[]? Builds;               // building type ids it can construct; null: not a builder
     public float RepairSeconds;            // to repair a segment from 0 to full; 0: it doesn't repair
-    public int RepairCost;                 // Resources that full repair costs, paid as it goes
+    public int RepairCost;                 // packages that full repair costs, paid as it goes
     public Vector3 Anchor;
     public bool Returning;
     public Order Current;
@@ -348,7 +348,7 @@ public struct Pickup
     public Vector3 Position;   // where it landed
     public Vector3 From;       // the belt point it fell off
     public int Line, Segment, Slot; // the break whose pile it's in, and its spot there
-    public int SpilledAtTick, LandsAtTick, ExpiresAtTick; // collectable once landed
+    public int SpilledAtTick, LandsAtTick; // collectable once landed, and it waits there until someone collects it
     public bool Smashed;       // broke in the fall: nobody gets it, and it's gone when it lands
 }
 

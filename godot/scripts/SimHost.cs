@@ -29,7 +29,7 @@ public partial class SimHost : Node3D
     [Export] public Label Hud = null!;
 
     [Export] public int PlayerCount = 2;
-    [Export] public int StartingResources = 20;
+    [Export] public int StartingPackages = 20;
     [Export] public bool EndConditions = true; // players can lose and the game end; off for maps without buildings
     [Export] public bool ShowDebug;            // the debug text under the HUD line; toggle_debug flips it
     [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools
@@ -81,7 +81,7 @@ public partial class SimHost : Node3D
 
         for (int p = 0; p < PlayerCount; p++)
         {
-            _sim.State.Players[_sim.AddPlayer()].Resources = StartingResources;
+            _sim.State.Players[_sim.AddPlayer()].Packages = StartingPackages;
             _unitsOf.Add([]);
         }
 
@@ -219,8 +219,8 @@ public partial class SimHost : Node3D
     }
 
     // One line of what matters in play (speed, time, whose side you're on, anyone's rebuild clock); the
-    // rest (every side's Resources, belt counters, controls, performance) under toggle_debug.
-    // The local player's Resources have their own panel (ResourcePanel).
+    // rest (every side's packages, belt counters, controls, performance) under toggle_debug.
+    // The local player's packages have their own panel (PackagePanel).
     void UpdateHud()
     {
         var state = _sim.State;
@@ -254,9 +254,9 @@ public partial class SimHost : Node3D
         }
 
         var players = string.Join("      ", state.Players.Select(p =>
-            $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected}, spent {p.Spent})"));
+            $"{PlayerPalette.Name(p.Index)} {p.Packages}  (gathered {p.Gathered}, collected {p.Collected}, spent {p.Spent})"));
 
-        return $"Resources   {players}\n"
+        return $"packages   {players}\n"
                  + $"Sources: {string.Join(" / ", state.Belts.Select(l => l.Finite ? $"{l.Reserve} of {l.Supply}" : "unlimited"))}   "
                  + $"Belt: {onBelt} on it   returned at end {returned}   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
@@ -277,7 +277,7 @@ public partial class SimHost : Node3D
             case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] building {e.Id} destroyed"); break;
             case SimEventKind.BuildingPlaced: GD.Print($"[{t}] building {e.Id} placed by unit {e.Index}"); break;
             case SimEventKind.BuildingCompleted: GD.Print($"[{t}] building {e.Id} completed" + (e.Index != e.Id ? $", now {e.Index}" : "")); break;
-            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough Resources" : "the site is taken")); break;
+            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough packages" : "the site is taken")); break;
             case SimEventKind.GraceStarted: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} has no buildings: {Simulation.GraceSeconds:0} s to rebuild"); break;
             case SimEventKind.GraceEnded: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} rebuilt"); break;
             case SimEventKind.PlayerLost: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} lost"); break;

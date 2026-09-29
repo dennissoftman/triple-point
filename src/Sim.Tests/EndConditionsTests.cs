@@ -20,12 +20,12 @@ public class EndConditionsTests
     static readonly int Grace = (int)(Simulation.GraceSeconds * T);
 
     // Two players with end conditions on; Red keeps an HQ far away, so only Blue's fate is in question.
-    static Simulation NewGame(int blueResources = 0)
+    static Simulation NewGame(int bluePackages = 0)
     {
         var sim = NewSim();
         sim.EndConditions = true;
         sim.BuildingTypes = new Dictionary<string, BuildingType> { ["hq"] = Hq, ["barracks"] = Barracks, ["post"] = Post, ["gunner"] = GunnerNest };
-        sim.State.Players[Blue].Resources = blueResources;
+        sim.State.Players[Blue].Packages = bluePackages;
         sim.AddBuilding(Red, new Vector3(100, 0, 100), Hq);
         return sim;
     }
@@ -48,7 +48,7 @@ public class EndConditionsTests
     [Fact]
     public void No_buildings_and_no_builder_loses_at_once_and_the_other_side_wins()
     {
-        var sim = NewGame(blueResources: 100);
+        var sim = NewGame(bluePackages: 100);
         sim.AddUnit(Blue, Vector3.Zero, dps: 0); // a unit, but not one that can build
 
         var events = sim.Tick(NoCommands);
@@ -63,7 +63,7 @@ public class EndConditionsTests
     public void A_builder_without_the_money_for_the_cheapest_building_loses_at_once()
     {
         // 3 would pay for the defense (2), but defenses don't count: the cheapest real building is the post (5).
-        var sim = NewGame(blueResources: 3);
+        var sim = NewGame(bluePackages: 3);
         sim.AddUnit(Blue, Vector3.Zero, Builder);
 
         sim.Tick(NoCommands);
@@ -74,7 +74,7 @@ public class EndConditionsTests
     [Fact]
     public void A_builder_with_the_money_gets_the_grace_time_then_loses()
     {
-        var sim = NewGame(blueResources: 5);
+        var sim = NewGame(bluePackages: 5);
         sim.AddUnit(Blue, Vector3.Zero, Builder);
 
         var events = sim.Tick(NoCommands);
@@ -90,7 +90,7 @@ public class EndConditionsTests
     [Fact]
     public void The_clock_pauses_only_while_a_builder_works_on_a_foundation()
     {
-        var sim = NewGame(blueResources: 20);
+        var sim = NewGame(bluePackages: 20);
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
 
         sim.Tick([new BuildCommand(Blue, builder, "barracks", new Vector3(4, 0, 0))]); // within reach: laid at once
@@ -107,7 +107,7 @@ public class EndConditionsTests
     [Fact]
     public void Finishing_a_post_stops_the_clock_and_posts_keep_a_player_in_the_game()
     {
-        var sim = NewGame(blueResources: 5);
+        var sim = NewGame(bluePackages: 5);
         sim.AddBeltLine(TwoSegments(), Belt(1));
         int builder = sim.AddUnit(Blue, new Vector3(10, 0, 4), Builder);
 
@@ -135,7 +135,7 @@ public class EndConditionsTests
     [Fact]
     public void Losing_destroys_everything_the_player_still_has()
     {
-        var sim = NewGame(blueResources: 20);
+        var sim = NewGame(bluePackages: 20);
         sim.AddBeltLine(TwoSegments(), Belt(1));
         int builder = sim.AddUnit(Blue, Vector3.Zero, Builder);
         sim.AddUnit(Blue, new Vector3(0, 0, 10), Gunner);

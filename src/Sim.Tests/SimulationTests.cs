@@ -216,20 +216,20 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Uncollected_pickups_expire()
+    public void Uncollected_pickups_wait_to_be_picked_up()
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single package
         Run(sim, 120); // ~12 m along, on segment 1
         sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Assert.Single(sim.State.Pickups);
+        var pickup = Assert.Single(sim.State.Pickups);
 
-        int lifetime = (int)(Simulation.PickupLifetimeSeconds * Simulation.TicksPerSecond);
-        Run(sim, lifetime - 2);
+        Run(sim, 10 * 60 * T); // ten minutes
         Assert.Single(sim.State.Pickups);
+        sim.AddUnit(Blue, pickup.Position, speed: 0);
         Run(sim, 2);
         Assert.Empty(sim.State.Pickups);
-        Assert.Equal(0, sim.State.Players[Blue].Collected);
+        Assert.Equal(1, sim.State.Players[Blue].Collected);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ public class SimulationTests
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1));
         var line = sim.State.Belts[0];
-        sim.State.Players[Blue].Resources = 10;
+        sim.State.Players[Blue].Packages = 10;
         int unit = sim.AddUnit(Blue, new Vector3(10, 0, 5), speed: 5, builds: [], repairSeconds: 5, repairCost: 4); // 5 m from the segment start
 
         var events = sim.Tick([new BreakSegmentCommand(0, 1), new RepairSegmentCommand(Blue, unit, 0, 1)]);
@@ -253,7 +253,7 @@ public class SimulationTests
         Assert.InRange(repairedAt, 110, 112);
         Assert.Equal(SegmentState.Normal, line.Segments[1].State);
         Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
-        Assert.Equal(10 - 4, sim.State.Players[Blue].Resources);
+        Assert.Equal(10 - 4, sim.State.Players[Blue].Packages);
         Assert.Equal(0, line.Lost);
 
         Run(sim, 200);
@@ -302,7 +302,7 @@ public class SimulationTests
         Assert.Equal(0, line.Spilled);
 
         // Only builders repair: the gunner can't, a builder can.
-        sim.State.Players[Blue].Resources = 10;
+        sim.State.Players[Blue].Packages = 10;
         sim.Tick([new RepairSegmentCommand(Blue, unit, 0, 1)]);
         Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
         int builder = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 5, builds: [], repairSeconds: 5, repairCost: 4);
@@ -310,7 +310,7 @@ public class SimulationTests
         Run(sim, 100); // walk ~2.5 m, then half of the 5 s full repair
         Assert.Equal(segment.MaxHealth, segment.Health);
         Assert.Equal(UnitOrder.None, UnitById(sim, builder).Current.Kind);
-        Assert.Equal(10 - 4 / 2, sim.State.Players[Blue].Resources); // half the damage, half the cost
+        Assert.Equal(10 - 4 / 2, sim.State.Players[Blue].Packages); // half the damage, half the cost
     }
 
     [Fact]

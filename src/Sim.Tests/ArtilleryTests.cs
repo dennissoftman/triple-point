@@ -138,13 +138,13 @@ public class ArtilleryTests
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1));
-        sim.State.Players[Blue].Resources = 10;
+        sim.State.Players[Blue].Packages = 10;
         int engineer = sim.AddUnit(Blue, new Vector3(15, 0, 2), speed: 5, repairSeconds: 2.5f, repairCost: 2); // repairs, doesn't build
 
         sim.Tick([new BreakSegmentCommand(0, 1), new RepairSegmentCommand(Blue, engineer, 0, 1)]);
         int repairedAt = TicksUntil(sim, new SimEvent(SimEventKind.SegmentRepaired, 0, 1), 5 * T);
         Assert.InRange(repairedAt, 48, 51); // 2.5 s of work (50 ticks)
-        Assert.Equal(8, sim.State.Players[Blue].Resources);
+        Assert.Equal(8, sim.State.Players[Blue].Packages);
 
         sim.BuildingTypes = new Dictionary<string, BuildingType> { ["post"] = new(Health: 100, Size: 2, Cost: 1, BuildTime: 1, Kind: BuildingKind.Post, Id: "post") };
         sim.Tick([new BuildCommand(Blue, engineer, "post", new Vector3(5, 0, 2))]);
