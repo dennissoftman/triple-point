@@ -265,6 +265,14 @@ public partial class PlayerInput : Node
 
     // What a right-click here orders the selection to do: attack an enemy, force-attack a segment,
     // repair a damaged one, otherwise move. With a building selected, it sets the rally point.
+    // The point under the cursor at the belts' height (they stand on legs), for picking a segment.
+    SVector3? BeltPoint(Vector2 screen)
+    {
+        var belts = Host.Sim.State.Belts;
+        float height = belts.Count > 0 ? belts[0].Segments[0].Curve.PositionAt(0).Y : 0;
+        return Camera.PointAt(screen, height) is Vector3 p ? ToSim(p) : null;
+    }
+
     Intent RightClickIntent(Vector2 screen, SVector3 point)
     {
         if (SelectedBuilding >= 0) return new(Act.Rally, point);
@@ -273,7 +281,7 @@ public partial class PlayerInput : Node
         if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
             return new(Act.Resume, point, site);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
-        if (sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
+        if (BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
             var s = sim.State.Belts[line].Segments[segment];
@@ -373,7 +381,7 @@ public partial class PlayerInput : Node
         string hint = "";
         var sim = Host.Sim;
         if (over is SVector3 point && _selection.Count > 0 && _placingType is null && !_attackMoveArmed && EnemyAt(screen, point) is null
-            && sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
+            && BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             var s = sim.State.Belts[line].Segments[segment];
             bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth && SelectionRepairs();

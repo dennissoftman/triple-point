@@ -61,7 +61,7 @@ public partial class StressMap : Node
         {
             float x = -LineLength / 2 + p * 15;
             var handle = new Vector3(5, 0, 0);
-            curve.AddPoint(new Vector3(x, 0.2f, z + (p % 2 == 0 ? -3 : 3)), -handle, handle);
+            curve.AddPoint(new Vector3(x, 2.6f, z + (p % 2 == 0 ? -3 : 3)), -handle, handle);
         }
         return new Path3D { Name = $"Line{z}", Curve = curve };
     }

@@ -26,7 +26,7 @@ import sys
 
 SCENE = 'godot/scenes/main.tscn'
 SIZE = (256, 180)  # m, x by z, centered on the origin
-BELT_HEIGHT = 0.2
+BELT_HEIGHT = 2.6  # m: the belt's surface, on legs; units drive under it
 
 # Must match the sim (src/Sim/Simulation.cs: PostSpacing) and the posts' reach of the belt.
 POST_SPACING = 30.0  # m along a line between any two posts

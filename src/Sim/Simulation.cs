@@ -1082,13 +1082,14 @@ public sealed class Simulation
         {
             float off = spread * MathF.Sqrt(_random.Range(0, 1)), angle = _random.Range(0, MathF.Tau);
             at += new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * off;
-            unit.FireAt = at;
         }
+        if (line >= 0) at.Y = State.Belts[line].Segments[segment].Curve.PositionAt(0).Y + BeltHitRise; // up on the belt
+        unit.FireAt = at;
         float damage = unit.Damage * unit.Members;
         if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius);
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
-        var aim = at with { Y = line >= 0 ? State.Belts[line].Segments[segment].Curve.PositionAt(0).Y + BeltHitRise : HitHeight };
+        var aim = line >= 0 ? at : at with { Y = HitHeight };
         if (unit.Ballistic && unit.Scatter > 0)
         {
             // Off by up to Scatter at full range, less closer in, anywhere around the aim point.

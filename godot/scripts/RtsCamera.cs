@@ -113,8 +113,11 @@ public partial class RtsCamera : Camera3D
     }
 
     /// <summary>Where a screen point hits the ground plane (y = 0), if it does.</summary>
-    public Vector3? GroundPoint(Vector2 screen) =>
-        new Plane(Vector3.Up, 0).IntersectsRay(ProjectRayOrigin(screen), ProjectRayNormal(screen));
+    public Vector3? GroundPoint(Vector2 screen) => PointAt(screen, 0);
+
+    /// <summary>Where the ray under a screen point meets the horizontal plane at `height`.</summary>
+    public Vector3? PointAt(Vector2 screen, float height) =>
+        new Plane(Vector3.Up, height).IntersectsRay(ProjectRayOrigin(screen), ProjectRayNormal(screen));
 
     void Fly(Flight flight, float dt)
     {

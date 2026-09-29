@@ -7,10 +7,10 @@ using static SimConvert;
 
 /// <summary>
 /// Draws the belts, packages, spilled pickups, and gatherer posts. A belt reads as a machine made of
-/// pieces: a dark surface between raised rails, on a low base, with a crossbar at every joint between
-/// segments, so each segment is visibly a thing that can be shot apart. Damage tints a segment and shows
-/// its health bar; a broken one buckles into two halves torn up at the break with debris in the gap,
-/// settling back flat as repair brings its health back. The segment under the cursor, with units
+/// pieces: a surface between rails, on a shallow base, raised on legs at every joint between segments
+/// (units drive under it), with a clamp over the rails there, so each segment is visibly a thing that
+/// can be shot apart. Damage tints a segment and shows its health bar; a broken one sags into two
+/// halves hanging at the break with debris fallen below, settling back as repair brings its health back. The segment under the cursor, with units
 /// selected, lights up in the color of what a right-click would do (PlayerInput sets Hover). Covered
 /// stretches are a closed housing over the belt, dark where the open belt comes out. While a post is
 /// being placed, green strips beside the belts mark where one can go (ShowPostSpots). A spilled package
@@ -28,10 +28,12 @@ public partial class BeltView : Node3D
     const float RailWidth = 0.14f, RailHeight = 0.16f;
     const float JointLength = 0.3f, JointOverhang = 0.15f, JointRise = 0.06f;
     const float BreakGap = 0.5f;     // m between a broken segment's halves
-    const float BuckleDegrees = 28f; // how far a broken segment's halves tear up at the break, at 0 health
+    const float BuckleDegrees = 24f; // how far a broken segment's halves sag at the break, at 0 health
     const float TwistDegrees = 10f;  // and roll sideways, opposite ways, so it reads as wreckage
     const float HealthBarHeight = 1.4f;
     const float HousingHeight = 0.8f, HousingOverhang = 0.12f; // m above the surface, and beyond the rails
+    const float BaseDepth = 0.3f;                              // m: the base under the surface; the legs carry it
+    const float LegWidth = 0.18f, BeamHeight = 0.12f;          // the legs at each joint, and the beam across under the belt
     const float SpotWidth = 0.5f, SpotHeight = 0.04f, SpotStep = 0.5f; // the free-spot strips beside the belt
     const float FallHop = 0.9f, FallTurns = 1.25f; // a spilled package's jump off the belt, on average (its time is the sim's)
     const float CollectSeconds = 0.35f, PopSeconds = 1.1f, PopRise = 2.2f; // a collected pickup flies to its unit; the +1 floats up
@@ -89,7 +91,7 @@ void fragment() {
     ROUGHNESS = roughness;
     EMISSION = glow * glow_energy;
 }";
-    const float GaugeBack = 2f, GaugeHeight = 2.2f; // m: back from where the open belt starts, and above the ground
+    const float GaugeBack = 2f, GaugeRise = 1.6f; // m: back from where the open belt starts, and above the belt
 
     public enum HoverKind { None, Look, Attack, Repair }
 
@@ -163,6 +165,7 @@ void fragment() {
             _timeParameterAdded = true;
         }
         var shader = new Shader { Code = SegmentShader };
+        var legs = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, AlbedoTexture = atlas, Roughness = 0.8f };
         _debrisMaterial = new StandardMaterial3D { AlbedoColor = DebrisColor, Roughness = 0.9f };
         _railDebrisMaterial = new StandardMaterial3D { AlbedoColor = RailColor * BrokenTint, Roughness = 0.6f };
         foreach (var line in state.Belts)
@@ -185,6 +188,7 @@ void fragment() {
             }
             _segments.Add(views);
             _gauges.Add(line.Finite ? BuildGauge(line) : null);
+            AddChild(new MeshInstance3D { Mesh = BuildLegs(line), MaterialOverride = legs });
         }
 
         var crates = PackageMaterial;
@@ -398,7 +402,7 @@ void fragment() {
     {
         int open = Array.FindIndex(line.Segments, s => !s.Covered);
         float mouth = open < 0 ? line.Length : line.Segments[open].Start;
-        var at = ToGodot(line.PositionAt(MathF.Max(0, mouth - GaugeBack))) with { Y = GaugeHeight };
+        var at = ToGodot(line.PositionAt(MathF.Max(0, mouth - GaugeBack))) + new Vector3(0, GaugeRise, 0);
         var bar = new HealthBar(width: 4f, height: 0.4f) { Position = at };
         AddChild(bar);
         var label = new Label3D
@@ -492,8 +496,8 @@ void fragment() {
         var wreck = new Node3D();
         AddChild(wreck);
 
-        var startPivot = ToGodot(curve.PositionAt(0)) with { Y = 0 };
-        var endPivot = ToGodot(curve.PositionAt(curve.Length)) with { Y = 0 };
+        var startPivot = ToGodot(curve.PositionAt(0));                // on the legs at either end
+        var endPivot = ToGodot(curve.PositionAt(curve.Length));
         view.HalfA = new Node3D { Position = startPivot };
         view.HalfB = new Node3D { Position = endPivot };
         view.HalfA.AddChild(new MeshInstance3D { Mesh = BuildSection(curve, 0, mid - BreakGap / 2, startPivot, joint: true, endJoint: false), MaterialOverride = view.Material });
@@ -501,7 +505,7 @@ void fragment() {
         wreck.AddChild(view.HalfA);
         wreck.AddChild(view.HalfB);
 
-        // A few torn plates and bent rail pieces around the break, the same for the same segment every time.
+        // A few torn plates and bent rail pieces fallen under the break, the same for the same segment every time.
         var center = ToGodot(curve.PositionAt(mid)) with { Y = 0 };
         var forward = ToGodot(curve.DirectionAt(mid)) with { Y = 0 };
         forward = forward.Normalized();
@@ -524,9 +528,10 @@ void fragment() {
         float lift = Mathf.DegToRad(BuckleDegrees) * amount, twist = Mathf.DegToRad(TwistDegrees) * amount;
         var a = (ToGodot(curve.DirectionAt(0)) with { Y = 0 }).Normalized();
         var b = (ToGodot(curve.DirectionAt(curve.Length)) with { Y = 0 }).Normalized();
-        // About the horizontal axis across the belt: the start half's far end, and the end half's near end, rise.
-        view.HalfA.Basis = new Basis(Vector3.Up.Cross(a).Normalized(), -lift) * new Basis(a, twist);
-        view.HalfB.Basis = new Basis(Vector3.Up.Cross(b).Normalized(), lift) * new Basis(b, -twist);
+        // About the horizontal axis across the belt, at the legs: the start half's far end, and the end half's
+        // near end, sag.
+        view.HalfA.Basis = new Basis(Vector3.Up.Cross(a).Normalized(), lift) * new Basis(a, twist);
+        view.HalfB.Basis = new Basis(Vector3.Up.Cross(b).Normalized(), -lift) * new Basis(b, -twist);
     }
 
     void SyncPosts(SimState state)
@@ -573,6 +578,12 @@ void fragment() {
         var pull = ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance)) - root.Position;
         var from = new Vector3(0, pull.Y + 0.1f, 0);
         var reach = pull - from;
+        root.AddChild(new MeshInstance3D // a mast from the post up to the belt's height
+        {
+            Mesh = new BoxMesh { Size = new Vector3(0.25f, from.Y - PostSize.Y + 0.06f, 0.25f) },
+            MaterialOverride = material,
+            Position = new Vector3(0, (from.Y + PostSize.Y) / 2, 0),
+        });
         root.AddChild(new MeshInstance3D
         {
             Mesh = new BoxMesh { Size = new Vector3(0.2f, 0.12f, reach.Length()) },
@@ -580,7 +591,7 @@ void fragment() {
             Transform = new Transform3D(Basis.LookingAt(reach, Vector3.Up), from + reach / 2),
         });
 
-        var health = new HealthBar { Position = new Vector3(0, PostSize.Y + 0.6f, 0), Visible = false };
+        var health = new HealthBar { Position = new Vector3(0, from.Y + 0.6f, 0), Visible = false };
         root.AddChild(health);
         return new PostView(root, material, health);
     }
@@ -610,11 +621,12 @@ void fragment() {
         // The cross-section, left to right; each consecutive pair is swept into a strip, colored as the
         // second point says, facing out of the belt.
         float w = hw + r + HousingOverhang;
+        float under = -BaseDepth;
         (float O, float H, Color C)[] profile = covered
-            ? [(-w, Ground, HousingColor), (-w, HousingHeight, HousingColor), (w, HousingHeight, HousingRoofColor), (w, Ground, HousingColor)]
+            ? [(-w, under, HousingColor), (-w, HousingHeight, HousingColor), (w, HousingHeight, HousingRoofColor), (w, under, HousingColor), (-w, under, HousingColor)]
             : [
-                (-hw - r, Ground, BaseColor), (-hw - r, rh, BaseColor), (-hw, rh, RailColor), (-hw, 0, RailColor),
-                (hw, 0, BeltMaterial.AlbedoColor), (hw, rh, RailColor), (hw + r, rh, RailColor), (hw + r, Ground, BaseColor),
+                (-hw - r, under, BaseColor), (-hw - r, rh, BaseColor), (-hw, rh, RailColor), (-hw, 0, RailColor),
+                (hw, 0, BeltMaterial.AlbedoColor), (hw, rh, RailColor), (hw + r, rh, RailColor), (hw + r, under, BaseColor), (-hw - r, under, BaseColor),
             ];
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
@@ -643,16 +655,53 @@ void fragment() {
         {
             // Closed at both ends, dark: where the open belt goes in or comes out, it reads as a tunnel mouth.
             var mouth = new Color(0.08f, 0.08f, 0.09f);
-            Quad(st, At(0, -w, Ground), At(0, w, Ground), At(0, w, HousingHeight), At(0, -w, HousingHeight), back, mouth);
-            Quad(st, At(steps, -w, Ground), At(steps, w, Ground), At(steps, w, HousingHeight), At(steps, -w, HousingHeight), ahead, mouth);
+            Quad(st, At(0, -w, under), At(0, w, under), At(0, w, HousingHeight), At(0, -w, HousingHeight), back, mouth);
+            Quad(st, At(steps, -w, under), At(steps, w, under), At(steps, w, HousingHeight), At(steps, -w, HousingHeight), ahead, mouth);
             return st.Commit();
         }
-        Cap(st, (o, h) => At(0, o, h), back, hw, r, rh, Ground);
-        Cap(st, (o, h) => At(steps, o, h), ahead, hw, r, rh, Ground);
+        Cap(st, (o, h) => At(0, o, h), back, hw, r, rh, under);
+        Cap(st, (o, h) => At(steps, o, h), ahead, hw, r, rh, under);
 
-        if (joint) Joint(st, centers[0], sides[0], -(centers[0].Y + origin.Y));
-        if (endJoint) Joint(st, centers[steps], sides[steps], -(centers[steps].Y + origin.Y));
+        if (joint) Joint(st, centers[0], sides[0], under);
+        if (endJoint) Joint(st, centers[steps], sides[steps], under);
         return st.Commit();
+    }
+
+    // Legs at every joint of a line (and its two ends), two per joint with a beam across under the belt:
+    // one static mesh per line, so a broken segment's halves sag between legs that stay put.
+    ArrayMesh BuildLegs(BeltLine line)
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        float hw = BeltWidth / 2, outer = hw + RailWidth, half = LegWidth / 2;
+        var color = _textured ? new Color(0.8f, 0.8f, 0.82f) : BaseColor;
+        Vector2 a = new(0, BandRail.X / 1024f), b = new(1, BandRail.X / 1024f), c = new(1, BandRail.Y / 1024f), d = new(0, BandRail.Y / 1024f);
+        for (int s = 0; s <= line.Segments.Length; s++)
+        {
+            float along = s < line.Segments.Length ? line.Segments[s].Start : line.Length;
+            var center = ToGodot(line.PositionAt(along));
+            var side = ToGodot(line.DirectionAt(along)).Cross(Vector3.Up).Normalized();
+            var forward = Vector3.Up.Cross(side).Normalized();
+            float underside = center.Y - BaseDepth;
+            var foot = center with { Y = 0 };
+            foreach (float o in new[] { -outer + half, outer - half })
+                Block(st, foot, side, forward, o - half, o + half, 0, underside, -half, half, color, a, b, c, d);
+            Block(st, foot, side, forward, -outer, outer, underside - BeamHeight, underside, -half, half, color, a, b, c, d);
+        }
+        return st.Commit();
+    }
+
+    // A box in a belt's frame at `origin`: across `o0..o1` toward `side`, `h0..h1` up, `f0..f1` along;
+    // its top and four sides (nothing sees its bottom).
+    static void Block(SurfaceTool st, Vector3 origin, Vector3 side, Vector3 forward, float o0, float o1, float h0, float h1,
+        float f0, float f1, Color c, Vector2 a, Vector2 b, Vector2 cc, Vector2 d)
+    {
+        Vector3 P(float o, float h, float f) => origin + side * o + Vector3.Up * h + forward * f;
+        Quad(st, P(o0, h1, f0), P(o1, h1, f0), P(o1, h1, f1), P(o0, h1, f1), Vector3.Up, c, a, b, cc, d);
+        Quad(st, P(o0, h0, f0), P(o1, h0, f0), P(o1, h1, f0), P(o0, h1, f0), -forward, c, a, b, cc, d);
+        Quad(st, P(o0, h0, f1), P(o1, h0, f1), P(o1, h1, f1), P(o0, h1, f1), forward, c, a, b, cc, d);
+        Quad(st, P(o0, h0, f0), P(o0, h0, f1), P(o0, h1, f1), P(o0, h1, f0), -side, c, a, b, cc, d);
+        Quad(st, P(o1, h0, f0), P(o1, h0, f1), P(o1, h1, f1), P(o1, h1, f0), side, c, a, b, cc, d);
     }
 
     // The end of a stretch: its cross-section filled in (the base and each rail), dark, facing `outward`.
@@ -665,8 +714,8 @@ void fragment() {
         Quad(st, at(hw, 0), at(edge, 0), at(edge, rh), at(hw, rh), outward, color);              // the right rail
     }
 
-    // A joint: a clamp over each rail, from the ground to just above it, and a flush seam across the surface
-    // between them, so packages pass over it.
+    // A joint: a clamp over each rail, from the base's underside to just above it, and a flush seam across
+    // the surface between them, so packages pass over it.
     void Joint(SurfaceTool st, Vector3 center, Vector3 side, float ground)
     {
         var forward = Vector3.Up.Cross(side).Normalized(); // along the belt

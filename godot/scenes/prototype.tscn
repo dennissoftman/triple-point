@@ -64,14 +64,14 @@ albedo_color = Color(1, 0.85, 0.4, 1)
 
 [sub_resource type="Curve3D" id="Curve3D_blue_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -50, 0.2, -11, 0, 0, 0, 0, 0, 0, -26, 0.2, -11, 0, 0, 0, 0, 0, 0, 32, 0.2, -11, 0, 0, 0, 0, 0, 0, 50, 0.2, -11),
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -50, 2.6, -11, 0, 0, 0, 0, 0, 0, -26, 2.6, -11, 0, 0, 0, 0, 0, 0, 32, 2.6, -11, 0, 0, 0, 0, 0, 0, 50, 2.6, -11),
 "tilts": PackedFloat32Array(0, 0, 0, 0)
 }
 point_count = 4
 
 [sub_resource type="Curve3D" id="Curve3D_red_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 50, 0.2, 11, 0, 0, 0, 0, 0, 0, 32, 0.2, 11, 0, 0, 0, 0, 0, 0, -26, 0.2, 11, 0, 0, 0, 0, 0, 0, -50, 0.2, 11),
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 50, 2.6, 11, 0, 0, 0, 0, 0, 0, 32, 2.6, 11, 0, 0, 0, 0, 0, 0, -26, 2.6, 11, 0, 0, 0, 0, 0, 0, -50, 2.6, 11),
 "tilts": PackedFloat32Array(0, 0, 0, 0)
 }
 point_count = 4
