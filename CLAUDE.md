@@ -71,10 +71,10 @@ dotnet test Game.sln
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --headless --path godot --build-solutions --quit
 ```
 
-Input smoke test (needs a window; headless drops input). Exits with the failure count:
+Input smoke test (needs a window; headless drops input). Exits with the failure count. The window opens off-screen, because a real cursor over it is input too and makes scripted clicks land wrong:
 
 ```bash
-"C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
+"C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 --position -10000,-10000 -s ../tools/input_smoke_test.gd
 ```
 
 Stress scene (generated belts, 200 units, a battle). The HUD's Perf line shows fps, sim ms/tick, render CPU/GPU and draw calls; `--perf-log` prints it once a second. The editor runs C# in Debug, about 15× slower in the sim than Release:
