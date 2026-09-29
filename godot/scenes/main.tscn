@@ -10,6 +10,8 @@
 [ext_resource type="Script" path="res://scripts/BuildingsView.cs" id="11_bview"]
 [ext_resource type="Script" path="res://scripts/CommandCard.cs" id="12_panel"]
 [ext_resource type="Script" path="res://scripts/Minimap.cs" id="13_minimap"]
+[ext_resource type="Script" path="res://scripts/ResourcePanel.cs" id="14_resources"]
+[ext_resource type="Script" path="res://scripts/GameOverOverlay.cs" id="15_gameover"]
 [ext_resource type="Script" path="res://scripts/OwnedMarker.cs" id="7_owned"]
 [ext_resource type="Script" path="res://scripts/UnitSpawn.cs" id="8_spawn"]
 
@@ -218,6 +220,15 @@ color = Color(0.55, 1, 0.6, 0.18)
 [node name="CommandCard" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("PlayerInput")]
 script = ExtResource("12_panel")
 PlayerInput = NodePath("../../PlayerInput")
+
+[node name="ResourcePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput")]
+script = ExtResource("14_resources")
+Host = NodePath("../../SimHost")
+PlayerInput = NodePath("../../PlayerInput")
+
+[node name="GameOver" type="CenterContainer" parent="Ui" node_paths=PackedStringArray("Host")]
+script = ExtResource("15_gameover")
+Host = NodePath("../../SimHost")
 
 [node name="Minimap" type="Control" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Camera")]
 script = ExtResource("13_minimap")

@@ -15,7 +15,7 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 - **One tick:** `Simulation.Tick(commands) -> events` at a fixed 20 Hz, advancing `SimState` in place. The returned event list is reused and valid until the next call.
 - **Commands** (`Commands.cs`) are records carrying their issuing player: move, attack, attack-move, attack segment, repair segment, set junction, break segment (scripted), build and resume building (builders), and for buildings produce, cancel production, set repeat, set rally. Player input and, later, the AI issue the same commands. The sim drops commands to units and buildings the issuer doesn't own.
 - **Events** (`SimEvent`) say what happened, for logs and effects: unit died, arrived or produced, package lost or gathered, gatherer or building destroyed, building placed or completed, build blocked, segment broken or repaired, junction captured or switched, shell hit.
-- **Tick order:** apply commands, then update units (orders, movement, turrets, shots), move shells, remove the dead, capture switches, move packages, transfer at junctions, gatherers, construction, production, spawn packages, pickups. Builders only mark the foundation they work on during the unit update; construction grows it later in the tick, so a finished defense can add a unit without changing the unit list under the unit loop.
+- **Tick order:** apply commands, then update units (orders, movement, turrets, shots), move shells, remove the dead, capture switches, move packages, transfer at junctions, gatherers, construction, production, end conditions, spawn packages, pickups. Builders only mark the foundation they work on during the unit update; construction grows it later in the tick, so a finished defense can add a unit without changing the unit list under the unit loop.
 - **State** (`SimState.cs`): `Unit` and `Gatherer` are structs in lists, updated through spans. Belts, segments, junctions and buildings are classes. Packages are ordered front to back per line. Pickups and projectiles are unordered, removed by swapping with the last. Ids come from one counter per sim.
 - **Randomness:** one seeded `SimRandom` (xorshift). Math goes through `System.Numerics`, and conversion to Godot types happens only in `SimConvert`. Determinism isn't required yet, but nothing rules it out: fixed-point math could replace floats later for lockstep.
 - **Performance:** no allocations or LINQ inside the tick. Target search is all-pairs for now; a spatial grid comes with navigation.
@@ -27,10 +27,12 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 | Units, orders, movement, easing, turrets, weapons, shells, splash, return fire | `Simulation.cs` (units section), `SimState.cs` | `UnitsView` (instances, order paths of the selection, tracers, shells, flashes), `UnitView` (one unit's look, suspension lean), `UnitMaterials`, `HealthBar` |
 | Belts, spill, pickups, junctions, capture, gatherers | `Simulation.cs`, `BezierSegment.cs` | `BeltView` (ribbons, packages, discs, arrows, posts), `CaptureRing`, `InstanceBatch` |
 | Buildings, production queue, rally points | `Simulation.cs` (`UpdateProduction`), `SimState.cs` (`Building`) | `BuildingsView` (blocks, bars, rally flag), `CommandCard` |
-| Construction: builders, foundations, placement, grid snap | `Simulation.cs` (`Construct`, `UpdateConstruction`, `CanPlace`, `SnapToGrid`) | `PlayerInput` (placement), `BuildingsView` (foundations, ghost), `CommandCard` |
+| Construction: builders, foundations, placement, grid snap, posts snapped to belts | `Simulation.cs` (`Construct`, `UpdateConstruction`, `CanPlace`, `CanAfford`, `SnapToGrid`, `SnapToBelt`) | `PlayerInput` (placement), `BuildingsView` (foundations, ghost), `CommandCard` |
+| Win and lose: rebuild clock, losing, game over | `Simulation.cs` (`UpdateEndConditions`, `CanStillRecover`, `Lose`; `EndConditions` switches it on), `SimState.cs` (`Player.GraceTicksLeft`, `Lost`; `GameOver`, `Winner`) | `GameOverOverlay` (banner, Restart, Quit), the HUD line (rebuild clocks) |
 | Minimap | | `Minimap` (canvas drawing; click, drag, right-click) |
+| Local player's Resources and income | | `ResourcePanel` (top center; income from a 30 s ring buffer of what was gathered and collected) |
 | Game data | `GameData.cs` (parses `data/units.json`, `data/weapons.json`, `data/buildings.json`) | `SimHost.LoadData` reads the files |
-| Host: ticks, game speed, map building, HUD, perf readout, demo script | | `SimHost` |
+| Host: ticks, game speed, map building, HUD (one line, debug text under `toggle_debug`), perf readout, demo script | `DestroyCommand` (a host-only tool: the demo's scripted kills) | `SimHost` |
 | Input, selection (units, or one building), placement, cursor, hotseat | | `PlayerInput`, `Cursors` |
 | Camera | | `RtsCamera` (`CameraView`, `FlyTo`) |
 | Map markers | | `OwnedMarker`, `UnitSpawn`, `BuildingSpawn`; `StressMap` generates the stress scene |
@@ -72,7 +74,7 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
   2. **Health bars:** two quads and a material each, so most of the battle's extra calls. Fix: a MultiMesh with per-instance fill and color.
   3. **Placeholder mesh detail:** Godot's default capsules and cylinders are finely divided, about 1.6M triangles idle and 4.4M in battle. Real models fix it.
   4. **Squad members:** a node per member. Move them to a MultiMesh first when counts grow.
-  5. **Per-frame rebuilds:** order paths and tracers rebuild an ImmediateMesh each frame. The HUD builds strings with LINQ each frame. The minimap redraws with canvas calls each frame (one per belt segment, building and post; packages and units batched per color) and allocates its point arrays. All fine through the MVP.
+  5. **Per-frame rebuilds:** order paths and tracers rebuild an ImmediateMesh each frame. The HUD builds strings with LINQ each frame. The minimap redraws with canvas calls each frame (belts batched into two line lists rebuilt only when a segment breaks or is repaired; one call per building and post; packages and units batched per color) and allocates its point arrays. All fine through the MVP.
 
 ## Planned systems
 
@@ -93,7 +95,7 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 
 ## Testing
 
-- `src/Sim.Tests` (xUnit, headless): sim rules, one behavior per test. Helpers are in `TestHelpers.cs`. Ad-hoc units made with `dps`/`range` get a bullet weapon that fires every tick, so damage timings stay exact. The win/lose edge-case table will live here too.
+- `src/Sim.Tests` (xUnit, headless): sim rules, one behavior per test. Helpers are in `TestHelpers.cs`. Ad-hoc units made with `dps`/`range` get a bullet weapon that fires every tick, so damage timings stay exact. The win/lose edge-case table is `EndConditionsTests`.
 - `tools/input_smoke_test.gd`: real input events through `Input.parse_input_event` against the test map, `prototype.tscn`. It needs a window, because headless Godot drops input. It checks selection, formation, switch capture and flips, the hotseat camera, double-click, cursors, attack-move, order paths, camera controls, production (HQ selection, hotkeys, rally, cancel), construction (builder card, ghost, placing a foundation) and the minimap. It exits with the failure count.
   - The window is 1920×1080 over a 1152×648 design size (`canvas_items` stretch). Positions from `unproject_position` are in the design space, while injected events are window pixels, so its mouse helpers scale them up.
 - `res://scenes/prototype.tscn -- --demo`: a scripted two-player match at 3x on the test map, with both HQs producing on repeat and Blue's selected, for unattended checks and movie-maker frames.

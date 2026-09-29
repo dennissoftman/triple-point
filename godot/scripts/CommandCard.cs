@@ -87,11 +87,14 @@ public partial class CommandCard : PanelContainer
         {
             var type = types[i];
             string armed = PlayerInput.PlacingType == type.Id ? "  placing" : "";
-            SetText(i, $"{Title(type.Id)}\n{type.Cost} Resources  [{KeyOf(PlayerInput.SlotActions[i])}]\n{Describe(type)}{armed}");
+            int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Resources;
+            string cost = short_ > 0 ? $"{type.Cost} Resources ({short_} short)" : $"{type.Cost} Resources";
+            SetText(i, $"{Title(type.Id)}\n{cost}  [{KeyOf(PlayerInput.SlotActions[i])}]\n{Describe(type)}{armed}");
         }
+        string problem = PlayerInput.Placing is { Problem: string p } ? $"Can't place: {p}.   " : "";
         SetHelp(PlayerInput.PlacingType is null
-            ? "RMB your foundation: build it"
-            : $"LMB: place   Shift: place more   [{KeyOf("rotate_building")}]: rotate   RMB/Esc: cancel");
+            ? "RMB your foundation: build it   (starting a building needs its whole cost; it's paid as it grows)"
+            : $"{problem}LMB: place   Shift: place more   [{KeyOf("rotate_building")}]: rotate   RMB/Esc: cancel");
         QueueLength = 0;
     }
 

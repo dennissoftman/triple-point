@@ -31,6 +31,8 @@ public partial class SimHost : Node3D
 
     [Export] public int PlayerCount = 2;
     [Export] public int StartingResources = 20;
+    [Export] public bool EndConditions = true; // players can lose and the game end; off for maps without buildings
+    [Export] public bool ShowDebug;            // the debug text under the HUD line; toggle_debug flips it
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -97,6 +99,7 @@ public partial class SimHost : Node3D
 
         var (types, buildingTypes) = LoadData();
         _sim.BuildingTypes = buildingTypes;
+        _sim.EndConditions = EndConditions;
         foreach (var spawn in Buildings.GetChildren().OfType<BuildingSpawn>())
         {
             if (!buildingTypes.TryGetValue(spawn.BuildingType, out var type))
@@ -202,6 +205,7 @@ public partial class SimHost : Node3D
     {
         if (e.IsActionPressed("speed_up")) StepSpeed(+1);
         else if (e.IsActionPressed("speed_down")) StepSpeed(-1);
+        else if (e.IsActionPressed("toggle_debug")) ShowDebug = !ShowDebug;
     }
 
     // Snaps to the next preset up or down; a custom value from the inspector lands on the nearest one.
@@ -212,7 +216,26 @@ public partial class SimHost : Node3D
             : SpeedSteps.LastOrDefault(s => s < GameSpeed - 0.01f, SpeedSteps[0]);
     }
 
+    // One line of what matters in play (speed, time, whose side you're on, anyone's rebuild clock); the
+    // rest (every side's Resources, switches, belt counters, controls, performance) under toggle_debug.
+    // The local player's Resources have their own panel (ResourcePanel).
     void UpdateHud()
+    {
+        var state = _sim.State;
+        int seconds = state.Tick / Simulation.TicksPerSecond;
+        var hud = $"{GameSpeed:0.##}x [-] [+]      {seconds / 60}:{seconds % 60:00}      "
+                + $"You: {PlayerPalette.Name(PlayerInput.LocalPlayer)} [F2: swap]      [F3: debug]";
+        foreach (var p in state.Players)
+        {
+            if (p.Lost) hud += $"\n{PlayerPalette.Name(p.Index)} is out";
+            else if (p.GraceTicksLeft >= 0)
+                hud += $"\n{PlayerPalette.Name(p.Index)} has no buildings: {(p.GraceTicksLeft + Simulation.TicksPerSecond - 1) / Simulation.TicksPerSecond} s to rebuild"
+                     + (p.GracePaused ? " (paused while building)" : "");
+        }
+        Hud.Text = ShowDebug ? hud + "\n\n" + DebugText() : hud;
+    }
+
+    string DebugText()
     {
         var state = _sim.State;
         int onBelt = 0, lost = 0, spilled = 0, destroyed = 0, blocked = 0;
@@ -226,13 +249,11 @@ public partial class SimHost : Node3D
             $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected})"));
         var switches = string.Join("   ", state.Junctions.Where(j => j.IsSwitch).Select(DescribeSwitch));
 
-        Hud.Text = $"Speed {GameSpeed:0.##}x   [-] [+]      Time {state.Tick / Simulation.TicksPerSecond} s      "
-                 + $"You: {PlayerPalette.Name(PlayerInput.LocalPlayer)}  [F2: swap]\n"
-                 + $"RESOURCES   {players}\n"
+        return $"Resources   {players}\n"
                  + $"{switches}\n"
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
-                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip   LMB your HQ: production\n"
+                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip   LMB your building: its card\n"
                  + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
                  + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom\n"
                  + _perf;
@@ -258,7 +279,11 @@ public partial class SimHost : Node3D
             case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] building {e.Id} destroyed"); break;
             case SimEventKind.BuildingPlaced: GD.Print($"[{t}] building {e.Id} placed by unit {e.Index}"); break;
             case SimEventKind.BuildingCompleted: GD.Print($"[{t}] building {e.Id} completed" + (e.Index != e.Id ? $", now {e.Index}" : "")); break;
-            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: the site is taken"); break;
+            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough Resources" : "the site is taken")); break;
+            case SimEventKind.GraceStarted: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} has no buildings: {Simulation.GraceSeconds:0} s to rebuild"); break;
+            case SimEventKind.GraceEnded: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} rebuilt"); break;
+            case SimEventKind.PlayerLost: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} lost"); break;
+            case SimEventKind.GameOver: GD.Print($"[{t}] game over: " + (e.Id == Player.None ? "a draw" : $"{PlayerPalette.Name(e.Id)} wins")); break;
             case SimEventKind.SegmentBroken: GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken"); break;
             case SimEventKind.SegmentRepaired: GD.Print($"[{t}] belt {e.Id} segment {e.Index} repaired"); break;
             case SimEventKind.JunctionCaptured: GD.Print($"[{t}] junction {e.Id} captured by {PlayerPalette.Name(e.Index)}"); break;
@@ -271,7 +296,9 @@ public partial class SimHost : Node3D
     // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
     // on the way; then Blue attack-moves into Red's side and they fight it out. Meanwhile each HQ trains
     // a builder, which puts up a barracks beside the HQ, and the barracks trains squads on repeat, as
-    // income allows; they gather at its rally point.
+    // income allows; they gather at its rally point. To show the ending, scripted kills finish Red: its
+    // buildings and posts at 85 s, and its builders at 95 s. It's out once it can't rebuild: at 85 s if
+    // it can't afford a building then, otherwise when its builders go.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
@@ -310,6 +337,13 @@ public partial class SimHost : Node3D
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
             foreach (int id in _unitsOf[Red]) _commands.Add(new AttackCommand(Red, id, post.Id));
         if (tick == 80 * T) MoveAll(Blue, ToSim(new Vector3(HomeOf(Red).X, 0, HomeOf(Red).Y)), attack: true);
+        if (tick == 85 * T)
+        {
+            foreach (var b in _sim.State.Buildings) if (b.Owner == Red) _commands.Add(new DestroyCommand(b.Id));
+            foreach (var g in _sim.State.Gatherers) if (g.Owner == Red) _commands.Add(new DestroyCommand(g.Id));
+        }
+        if (tick == 95 * T)
+            foreach (var u in _sim.State.Units) if (u.Owner == Red && u.Builds is not null) _commands.Add(new DestroyCommand(u.Id));
     }
 
     void MoveAll(int player, SVector3 at, bool attack = false, bool queued = false)

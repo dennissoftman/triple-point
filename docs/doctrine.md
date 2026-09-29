@@ -28,10 +28,10 @@ Anti-references: Tempest Rising (muddy visuals, vague controls), Dawn of War squ
 Milestones:
 
 1. [built] Camera, selection, move orders.
-2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters).
+2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters, under F3).
 3. [built] Break, spill and repair segments; junction merges and switches. Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat. **Next:** win/lose, then a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
 5. [decided] A basic commander AI that fights over the belt.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
@@ -90,7 +90,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Queue:** one per building, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
   - **Repeat:** one toggle per building. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
   - **Rally point:** finished units leave by the building's exit and spread out around its rally point.
-  - **Targets:** buildings and foundations are targets like posts. Losing comes with `CanStillRecover`.
+  - **Targets:** buildings and foundations are targets like posts. Losing them can lose the game (Win and lose).
   - **Not yet:** Energy (it comes with several building types), squad reinforcement, and collision with buildings (units drive through them until navigation exists).
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
@@ -111,6 +111,8 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - Builders: a button per building type. A slot key or click arms placement: a ghost follows the cursor, snapped to the grid, green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
 - [built] **Minimap** (bottom-left): the whole map, with belts and their packages, switch owners, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
 - [built] The game opens at 1920×1080; the interface scales with the window.
+- [built] **Top center:** your Resources, large, with income per minute over the last 30 s (posts and pickups). The HUD line (top-left) keeps only speed, game time, whose side you're on, and anyone's rebuild clock; every side's numbers, belt counters and performance are under F3.
+- [built] **Game over:** a banner with the winner (or a draw) and the game time, Restart and Quit. The world keeps running behind it.
 - [built] Order paths show only for selected units, colored by what the order does: green move, orange attack-move, red attack (a unit or a segment), blue repair.
 - [built] The cursor shows what a click will do, computed by the same code that issues the order. Round cursors click at their center; tool cursors point up-left, as on Windows.
 - [built] The camera pans with the arrow keys (A is taken by attack-move), screen edges and middle-drag, and zooms with the wheel. It runs on real time, unaffected by game speed.
@@ -148,13 +150,13 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [decided] Engineers repair: it costs money and time, they're unarmed, auto-repair works in a limited radius, and the player sets priorities. Prototype repair is any unit, free.
 - [decided] Buildings snap to the navigation grid, rotated in 90° steps. [built] with a 2 m grid, before navigation exists.
 - [built] **Construction prototype** (generic, before factions):
-  - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
-  - Cost is paid as it grows and it stalls while broke, like production. A foundation starts at a tenth of its health and is a target.
+  - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
+  - Cost is paid as it grows and it stalls if the money runs out after it started, like production. A foundation starts at a tenth of its health and is a target.
   - Types: barracks, factory, gatherer post (it must stand beside a belt, and becomes a post), turret (it becomes a gun that can't move; tanks outrange it).
-  - Placement: anywhere on the map that's clear of buildings, posts, defenses, junctions and belts.
+  - Placement: anywhere on the map that's clear of buildings, posts, defenses, junctions and belts. A post snaps beside the nearest belt near the cursor, facing it, and slides along it as the cursor moves; away from a belt it can't be placed.
   - Known risk of "anywhere": a post on the enemy's home stretch upstream of theirs, or a turret beside a switch in minute one. Acceptable for the prototype.
 - [decided] **Factions replace "anywhere" with their own build-area rules** (see Factions): Western relays extend the build area, Asian foundations need reinforcing, Eastern civilian buildings go only near supply routes or in existing rural areas. This removes minute-one exploits and makes players plan their way out of the start.
-- [proposed] Belt buildings (posts, relays) snap to sockets beside segments.
+- [proposed] Belt buildings (posts, relays) snap to sockets beside segments. Posts snap to the belt already [built], continuously rather than to fixed sockets; sockets are for when relays exist.
 - [built] **Playable map** (`main.tscn`): 200×140 m, point-symmetric (Blue's half turned 180° is Red's), so it's fair by construction.
   - No prebuilt posts: players build them.
   - Two belts, one from each side. Each runs along its own side's **home stretch** first, deep in that side's half: the safe place for the first post, and income without fighting.
@@ -166,15 +168,23 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 ## Win and lose (skirmish)
 
-[decided] A player loses when they can no longer rebuild: **no buildings, and either no builders or not enough money for the cheapest building.** A 60 s grace timer runs while there are no buildings but recovery is still possible. Implement it as one function, `CanStillRecover(player)`, run every tick, backed by a unit-test table of edge cases:
+[built] A player loses when they can no longer rebuild: **no buildings, and either no builders or not enough money for the cheapest building.** A 60 s grace timer runs while there are no buildings but recovery is still possible. It's one function, `CanStillRecover(player)`, run every tick, backed by a unit-test table of edge cases. What's built, generic before factions:
 
-- foundations and buildings under construction count as buildings
+- **Buildings** are finished production buildings (HQ, barracks, factory) and posts. Turrets don't count: a lone turret isn't a base. Foundations don't count either: they only pause the clock.
+- **Money for the cheapest building:** the cheapest non-turret building a living builder can put up, or what's still owed on one of your own foundations, whichever is less. Paying into a foundation never makes you lose.
+- **The clock** pauses only on ticks a builder is working a foundation (an abandoned one doesn't), resumes where it was when work stops, and clears once a building is finished.
+- **Broke means out:** no buildings and not enough money loses at once, with no clock, even if income may still arrive.
+- **Losing destroys everything the player has left** (units, turrets, posts, foundations), then the game-over banner shows. The game ends when at most one player is left; if the last ones go on the same tick, it's a draw.
+- End conditions are on in play and off in the stress scene, which has no buildings.
+
+Still [decided], for when their systems exist:
+
 - captured civilian buildings count as buildings (Eastern)
 - builders inside transports count
 - cargo in transit does not count as money; refunds do
 - free options count, such as a peasant capturing a free building
 - income that needs no buildings counts
-- the timer pauses while a foundation exists, and resumes (doesn't reset) when it's destroyed
+- the timer pauses while a foundation is being built, and resumes (doesn't reset) when it's destroyed or left [built]
 - in team games, the rule applies to the whole team
 - the Western rebuild fallback (open decisions)
 

@@ -23,6 +23,7 @@ public partial class PlayerInput : Node
     const float SwitchDiscRadius = 1.1f;   // m; left-clicking the disc of your switch flips it
     const float PickTolerance = 0.5f;     // m beyond the belt edge that still counts as clicking it
     const float FormationSpacing = 3f;    // m between units of a group move
+    const float PostSnapRadius = 6f;      // m from the cursor to a belt that a post being placed snaps to
 
     [Export] public SimHost Host = null!;
     [Export] public RtsCamera Camera = null!;
@@ -39,8 +40,14 @@ public partial class PlayerInput : Node
     enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair, Rally, Resume }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
-    /// <summary>A building about to be placed: snapped to the grid under the cursor, and whether it fits there.</summary>
-    public readonly record struct Placement(BuildingType Type, SVector3 At, float Heading, bool Valid);
+    /// <summary>
+    /// A building about to be placed: snapped to the grid under the cursor (a post: beside the nearest
+    /// belt), and what's wrong with putting it there, if anything.
+    /// </summary>
+    public readonly record struct Placement(BuildingType Type, SVector3 At, float Heading, string? Problem)
+    {
+        public bool Valid => Problem is null;
+    }
 
     public IReadOnlyList<int> Selection => _selection;
 
@@ -206,8 +213,9 @@ public partial class PlayerInput : Node
         return false;
     }
 
-    // Where the armed building would go: under the cursor, snapped to the grid. Placement ends when no
-    // builder is selected any more.
+    // Where the armed building would go: under the cursor, snapped to the grid, or for a post beside the
+    // nearest belt, facing it; and whether it can: the spot clear, and the whole cost in hand. Placement
+    // ends when no builder is selected any more.
     void UpdatePlacement()
     {
         Placing = null;
@@ -218,8 +226,13 @@ public partial class PlayerInput : Node
             return;
         }
         if (Camera.GroundPoint(_mouse) is not Vector3 ground) return;
-        var at = Simulation.SnapToGrid(ToSim(ground) with { Y = 0 }, type.Size);
-        Placing = new Placement(type, at, _placingHeading, Host.Sim.CanPlace(type, at));
+        var point = ToSim(ground) with { Y = 0 };
+        var (at, heading, problem) = (Simulation.SnapToGrid(point, type.Size), _placingHeading, (string?)null);
+        if (type.Kind == BuildingKind.Post && !Host.Sim.SnapToBelt(point, PostSnapRadius, out at, out heading))
+            (at, problem) = (point, "must go beside a belt");
+        if (problem is null && !Host.Sim.CanPlace(type, at)) problem = "something's in the way";
+        if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = $"not enough Resources (needs {type.Cost})";
+        Placing = new Placement(type, at, heading, problem);
     }
 
     // Sends the nearest selected builder to put the building down (queued: after what it's doing, and

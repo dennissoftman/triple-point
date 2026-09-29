@@ -11,6 +11,7 @@
 [ext_resource type="Script" path="res://scripts/BuildingsView.cs" id="11_bview"]
 [ext_resource type="Script" path="res://scripts/CommandCard.cs" id="12_panel"]
 [ext_resource type="Script" path="res://scripts/Minimap.cs" id="13_minimap"]
+[ext_resource type="Script" path="res://scripts/ResourcePanel.cs" id="14_resources"]
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
 background_color = Color(0.55, 0.58, 0.6, 1)
@@ -137,6 +138,11 @@ color = Color(0.55, 1, 0.6, 0.18)
 script = ExtResource("12_panel")
 PlayerInput = NodePath("../../PlayerInput")
 
+[node name="ResourcePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput")]
+script = ExtResource("14_resources")
+Host = NodePath("../../SimHost")
+PlayerInput = NodePath("../../PlayerInput")
+
 [node name="Minimap" type="Control" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Camera")]
 script = ExtResource("13_minimap")
 Host = NodePath("../../SimHost")
@@ -146,6 +152,8 @@ Camera = NodePath("../../Camera")
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SpawnInterval = 1.0
+EndConditions = false
+ShowDebug = true
 Belts = NodePath("../Belts")
 Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")

@@ -82,7 +82,7 @@ public partial class Minimap : Control
             var half = new Vector2(building.Type.Size, building.Type.Size) * PxPerMeter() / 2;
             half = half.Max(new Vector2(2, 2));
             var rect = new Rect2(ToMap(building.Position) - half, half * 2);
-            DrawRect(rect, PlayerPalette.Color(building.Owner), filled: building.Built, width: 1);
+            DrawRect(rect, PlayerPalette.Color(building.Owner), filled: building.Built, width: building.Built ? -1 : 1); // a filled rect takes no width
         }
         DrawUnits(state);
         DrawView();
