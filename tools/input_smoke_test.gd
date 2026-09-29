@@ -194,6 +194,17 @@ func _process(_delta) -> bool:
 			click(map.global_position + (target - bounds.position) / bounds.size * map.size)
 		3205:
 			check("clicking the minimap moves the camera there", (cam.get("Focus") as Vector2).distance_to(Vector2(20, 10)) < 1, true)
+			key(KEY_ESCAPE, true) # nothing armed: Esc pauses
+			key(KEY_ESCAPE, false)
+		3210:
+			check("Esc with nothing to cancel opens the pause menu", root.get_node("Main/Ui/PauseMenu").visible, true)
+			paused_at = root.get_node("Main/SimHost").get("ShownTick")
+		3230:
+			check("the game holds while paused", root.get_node("Main/SimHost").get("ShownTick"), paused_at)
+			key(KEY_ESCAPE, true)
+			key(KEY_ESCAPE, false)
+		3235:
+			check("Esc again resumes", [root.get_node("Main/Ui/PauseMenu").visible, root.get_node("Main/SimHost").get("Paused")], [false, false])
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
@@ -205,6 +216,7 @@ const BLUE_HQ := Vector3(-10, 1.5, -22)
 const RALLY := Vector3(-4, 0, -14)
 const ORANGE := Color(1, 0.6, 0.15)
 var blue_view: Vector2
+var paused_at := 0
 
 func check(name: String, actual, expected):
 	var ok: bool = actual == expected

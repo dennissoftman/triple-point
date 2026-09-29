@@ -33,6 +33,8 @@ public partial class SimHost : Node3D
     [Export] public bool EndConditions = true; // players can lose and the game end; off for maps without buildings
     [Export] public bool ShowDebug;            // the debug text under the HUD line; toggle_debug flips it
     [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools
+    [Export] public int ShownTick;             // the sim's tick as of the last frame; for tools
+    [Export] public bool Paused;               // the pause menu is open: no ticks run
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -154,7 +156,7 @@ public partial class SimHost : Node3D
 
     public override void _Process(double delta)
     {
-        _accumulator += delta * GameSpeed;
+        if (!Paused) _accumulator += delta * GameSpeed;
         int maxTicks = (int)Math.Ceiling(MaxTicksPerFrameAt1x * GameSpeed);
         int ticks = 0;
         while (_accumulator >= TickSeconds)
@@ -228,6 +230,7 @@ public partial class SimHost : Node3D
             foreach (var segment in line.Segments)
                 if (segment.State == SegmentState.Broken) broken++;
         BrokenSegments = broken;
+        ShownTick = state.Tick;
         int seconds = state.Tick / Simulation.TicksPerSecond;
         var hud = $"{GameSpeed:0.##}x      {seconds / 60}:{seconds % 60:00}      {PlayerPalette.Name(PlayerInput.LocalPlayer)}";
         foreach (var p in state.Players)

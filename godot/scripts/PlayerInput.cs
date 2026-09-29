@@ -26,6 +26,7 @@ public partial class PlayerInput : Node
 
     [Export] public SimHost Host = null!;
     [Export] public RtsCamera Camera = null!;
+    [Export] public PauseMenu PauseMenu = null!;
     [Export] public BeltView BeltView = null!;
     [Export] public Control SelectionBox = null!;
     [Export] public int LocalPlayer;                        // the player you control; debug_swap_player cycles it
@@ -86,9 +87,19 @@ public partial class PlayerInput : Node
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (PauseMenu.Open)
+        {
+            if (e.IsActionPressed("cancel")) PauseMenu.SetOpen(false);
+            return; // the world takes no input while paused
+        }
         if (e.IsActionPressed("debug_swap_player")) { SwapPlayer(); return; }
         if (e.IsActionPressed("attack_move")) { _attackMoveArmed = _selection.Count > 0; return; }
-        if (e.IsActionPressed("cancel")) { (_attackMoveArmed, _placingType) = (false, null); return; }
+        if (e.IsActionPressed("cancel"))
+        {
+            if (_attackMoveArmed || _placingType is not null) (_attackMoveArmed, _placingType) = (false, null);
+            else PauseMenu.SetOpen(true); // nothing to cancel: Esc pauses
+            return;
+        }
         if (Building is Building building && ProductionKey(e, building)) return;
         if (BuildKey(e)) return;
         if (e is not InputEventMouse mouse) return;

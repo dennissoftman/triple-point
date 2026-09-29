@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://scripts/CommandCard.cs" id="12_panel"]
 [ext_resource type="Script" path="res://scripts/Minimap.cs" id="13_minimap"]
 [ext_resource type="Script" path="res://scripts/ResourcePanel.cs" id="14_resources"]
+[ext_resource type="Script" path="res://scripts/PauseMenu.cs" id="20_pausemenu"]
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
 background_color = Color(0.55, 0.58, 0.6, 1)
@@ -141,6 +142,10 @@ Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Camera = NodePath("../../Camera")
 
+[node name="PauseMenu" type="Control" parent="Ui" node_paths=PackedStringArray("Host")]
+script = ExtResource("20_pausemenu")
+Host = NodePath("../../SimHost")
+
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SpawnInterval = 1.0
@@ -156,8 +161,9 @@ BuildingsView = NodePath("../BuildingsView")
 PlayerInput = NodePath("../PlayerInput")
 Hud = NodePath("../Ui/Hud")
 
-[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox")]
+[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox", "PauseMenu")]
 script = ExtResource("5_playerinput")
+PauseMenu = NodePath("../Ui/PauseMenu")
 Host = NodePath("../SimHost")
 Camera = NodePath("../Camera")
 BeltView = NodePath("../BeltView")

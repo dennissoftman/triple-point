@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/GameOverOverlay.cs" id="15_gameover"]
 [ext_resource type="Script" path="res://scripts/OwnedMarker.cs" id="7_owned"]
 [ext_resource type="Script" path="res://scripts/UnitSpawn.cs" id="8_spawn"]
+[ext_resource type="Script" path="res://scripts/PauseMenu.cs" id="20_pausemenu"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -230,6 +231,10 @@ Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Camera = NodePath("../../Camera")
 
+[node name="PauseMenu" type="Control" parent="Ui" node_paths=PackedStringArray("Host")]
+script = ExtResource("20_pausemenu")
+Host = NodePath("../../SimHost")
+
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SourceSupply = 150
@@ -245,8 +250,9 @@ BuildingsView = NodePath("../BuildingsView")
 PlayerInput = NodePath("../PlayerInput")
 Hud = NodePath("../Ui/Hud")
 
-[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox")]
+[node name="PlayerInput" type="Node" parent="." node_paths=PackedStringArray("Host", "Camera", "BeltView", "SelectionBox", "PauseMenu")]
 script = ExtResource("5_playerinput")
+PauseMenu = NodePath("../Ui/PauseMenu")
 Host = NodePath("../SimHost")
 Camera = NodePath("../Camera")
 BeltView = NodePath("../BeltView")

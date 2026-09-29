@@ -31,6 +31,7 @@ How the code is built, and the technical plans that aren't code yet. The invaria
 | Construction: builders, foundations, placement, grid snap, posts snapped to belts | `Simulation.cs` (`Construct`, `UpdateConstruction`, `CanPlace`, `CanAfford`, `SnapToGrid`, `SnapToBelt`) | `PlayerInput` (placement), `BuildingsView` (foundations, ghost), `CommandCard` |
 | Win and lose: rebuild clock, losing, game over | `Simulation.cs` (`UpdateEndConditions`, `CanStillRecover`, `Lose`; `EndConditions` switches it on), `SimState.cs` (`Player.GraceTicksLeft`, `Lost`; `GameOver`, `Winner`) | `GameOverOverlay` (banner, Restart, Quit), the HUD line (rebuild clocks) |
 | Minimap | | `Minimap` (canvas drawing; click, drag, right-click) |
+| Pause menu | | `PauseMenu` (sets `SimHost.Paused`; `PlayerInput` opens it on `cancel` with nothing to cancel, and takes no input while it's open) |
 | Local player's Resources and income | | `ResourcePanel` (top center; income from a 30 s ring buffer of what was gathered and collected) |
 | Game data | `GameData.cs` (parses `data/units.json`, `data/weapons.json`, `data/buildings.json`); the schema is `docs/data.md` | `SimHost.LoadData` reads the files |
 | Host: ticks, game speed, map building, HUD (one line, debug text under `toggle_debug`), perf readout, demo script | `DestroyCommand` (a host-only tool: the demo's scripted kills) | `SimHost` |

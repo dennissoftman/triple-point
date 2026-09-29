@@ -23,7 +23,7 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 - Godot views only read sim state and never change it. No game logic in per-node `_Process`. Selection, colors, names and the local player are Godot-side UI state.
 - `System.Numerics` inside `Sim`; convert to Godot types only in `SimConvert`. One seeded RNG (`SimRandom`) owned by the sim.
 - No allocations or LINQ inside the tick. Batch calls across the C#/engine boundary; never read engine properties back just to compare them.
-- Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`, `slot_1`..`slot_4`, `produce_repeat`, `cancel_production`, `rotate_building`, `toggle_debug`), never literal keys or buttons in code.
+- Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`, `slot_1`..`slot_4`, `produce_repeat`, `cancel_production`, `rotate_building`, `toggle_debug`, `pause_menu`), never literal keys or buttons in code.
 - Game data is JSON in `/data` (`units.json`, `weapons.json`, `buildings.json`), parsed by `Sim` (`GameData`) with `System.Text.Json`, not Godot Resources. Godot reads the files (`SimHost.DataDirectory`) and passes the text in. Its schema is `docs/data.md`, checked by `DataSchemaTests`: change a record, its file and that page together.
 
 ## Current state
