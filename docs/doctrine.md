@@ -116,7 +116,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 - [built] Ctrl+right-click a segment attacks it.
 - [built] A then left-click attack-moves: left-clicking an enemy attacks it, Shift chains waypoints, and right-click or Esc cancels.
 - [built] Double-click a unit to select every unit of its type on screen.
-- [built] **Command card** (bottom of the screen), for what's selected; its four slots are Q, W, E, R.
+- [built] **Command card** (bottom of the screen), for what's selected; its four slots are Q, W, E, R. It shows names, costs, slot keys, progress, and why placement fails; how-to text (keys, rules) lives in tooltips, as do the HUD's and the Resources panel's.
   - A building (selected alone, by clicking it): a button per unit type. A slot key or left-click queues one, T toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
   - A foundation: how far along it is, and whether a builder is on it.
   - Builders: a button per building type. A slot key or click arms placement: a ghost follows the cursor, snapped to the grid, green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.

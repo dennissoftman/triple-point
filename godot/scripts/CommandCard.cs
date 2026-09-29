@@ -17,7 +17,7 @@ public partial class CommandCard : PanelContainer
     const float MinimapClearance = 126; // px: half the minimap's width and margin
 
     readonly List<Button> _buttons = [];
-    readonly List<string> _shown = [];
+    readonly List<string> _shown = [], _tips = [];
     HBoxContainer _row = null!;
     CheckBox _repeat = null!;
     Label _help = null!;
@@ -33,7 +33,12 @@ public partial class CommandCard : PanelContainer
         column.AddChild(_row = new HBoxContainer());
         var footer = new HBoxContainer();
         column.AddChild(footer);
-        footer.AddChild(_repeat = new CheckBox { Text = $"Repeat [{KeyOf("produce_repeat")}]", FocusMode = FocusModeEnum.None });
+        footer.AddChild(_repeat = new CheckBox
+        {
+            Text = "Repeat",
+            TooltipText = $"{KeyOf("produce_repeat")}: each finished unit goes back to the end of the queue, so a mix keeps its ratio",
+            FocusMode = FocusModeEnum.None,
+        });
         _repeat.Toggled += _ => PlayerInput.ToggleRepeat();
         footer.AddChild(_help = new Label());
         Visible = false;
@@ -54,7 +59,7 @@ public partial class CommandCard : PanelContainer
         {
             Layout($"site:{building.Id}", 0, "");
             string state = building.BuildStalled ? "stalled: not enough Resources" : building.WorkedTick >= PlayerInput.Host.Sim.State.Tick - 1 ? "building" : "waiting for a builder";
-            SetHelp($"{Title(building.Type.Id)} under construction: {100 * building.BuildProgress / building.Type.BuildTicks}%, {state}   RMB it with a builder: build");
+            SetHelp($"{Title(building.Type.Id)} {100 * building.BuildProgress / building.Type.BuildTicks}%, {state}");
             QueueLength = 0;
             return;
         }
@@ -69,12 +74,13 @@ public partial class CommandCard : PanelContainer
             string state = building.Queue.Count > 0 && building.Queue[0] == type
                 ? building.Stalled ? "  stalled" : $"  {100 * building.Progress / type.BuildTicks}%"
                 : "";
-            SetText(i, $"{Title(type.Id)}\n{type.Cost} Resources  [{KeyOf(PlayerInput.SlotActions[i])}]" + (queued > 0 ? $"\nqueued {queued}{state}" : "\n"));
+            string key = KeyOf(PlayerInput.SlotActions[i]);
+            SetText(i, $"{Title(type.Id)}  [{key}]\n{type.Cost}" + (queued > 0 ? $"\nqueued {queued}{state}" : "\n"));
+            SetTip(i, $"{Title(type.Id)}: {type.Cost} Resources, {type.BuildTime:0} s, paid as it trains\n"
+                + $"{key} or click: train one   RMB: cancel one   {KeyOf("cancel_production")}: cancel the last\nRMB the ground: set the rally point");
         }
         if (_repeat.ButtonPressed != building.Repeat) _repeat.SetPressedNoSignal(building.Repeat);
-        SetHelp(types.Length > 0
-            ? $"RMB a button: cancel one   [{KeyOf("cancel_production")}]: cancel the last   RMB the ground: rally point"
-            : "");
+        SetHelp("");
         QueueLength = building.Queue.Count;
     }
 
@@ -88,13 +94,15 @@ public partial class CommandCard : PanelContainer
             var type = types[i];
             string armed = PlayerInput.PlacingType == type.Id ? "  placing" : "";
             int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Resources;
-            string cost = short_ > 0 ? $"{type.Cost} Resources ({short_} short)" : $"{type.Cost} Resources";
-            SetText(i, $"{Title(type.Id)}\n{cost}  [{KeyOf(PlayerInput.SlotActions[i])}]\n{Describe(type)}{armed}");
+            string cost = short_ > 0 ? $"{type.Cost} ({short_} short)" : $"{type.Cost}";
+            string key = KeyOf(PlayerInput.SlotActions[i]);
+            SetText(i, $"{Title(type.Id)}  [{key}]\n{cost}{armed}");
+            SetTip(i, $"{Title(type.Id)}: {type.Cost} Resources, {type.BuildTime:0} s. {Describe(type)}\n"
+                + "Starting one needs the whole cost in hand; it's paid as it grows\n"
+                + $"{key} or click: place it   Shift: place more   {KeyOf("rotate_building")}: rotate   RMB/Esc: cancel\n"
+                + "RMB your unfinished foundation: build it");
         }
-        string problem = PlayerInput.Placing is { Problem: string p } ? $"Can't place: {p}.   " : "";
-        SetHelp(PlayerInput.PlacingType is null
-            ? "RMB your foundation: build it   (starting a building needs its whole cost; it's paid as it grows)"
-            : $"{problem}LMB: place   Shift: place more   [{KeyOf("rotate_building")}]: rotate   RMB/Esc: cancel");
+        SetHelp(PlayerInput.Placing is { Problem: string p } ? $"Can't place: {p}." : "");
         QueueLength = 0;
     }
 
@@ -107,6 +115,7 @@ public partial class CommandCard : PanelContainer
         foreach (var button in _buttons) button.QueueFree();
         _buttons.Clear();
         _shown.Clear();
+        _tips.Clear();
         for (int i = 0; i < count; i++)
         {
             int slot = i;
@@ -126,12 +135,18 @@ public partial class CommandCard : PanelContainer
             _row.AddChild(button);
             _buttons.Add(button);
             _shown.Add("");
+            _tips.Add("");
         }
     }
 
     void SetText(int i, string text)
     {
         if (_shown[i] != text) _buttons[i].Text = _shown[i] = text;
+    }
+
+    void SetTip(int i, string text)
+    {
+        if (_tips[i] != text) _buttons[i].TooltipText = _tips[i] = text;
     }
 
     void SetHelp(string text)

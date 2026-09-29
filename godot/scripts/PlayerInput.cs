@@ -388,7 +388,7 @@ public partial class PlayerInput : Node
             hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
             string act = CommandCard.KeyOf("act");
             hint = $"{(s.State == SegmentState.Broken ? "Broken belt" : hurt ? "Damaged belt" : "Belt")}  {s.Health:0}/{s.MaxHealth:0}\n"
-                 + (force ? $"{act}: attack it" : $"{CommandCard.KeyOf("force_attack")}+{act}: attack" + (hurt ? $"   {act}: repair" : ""));
+                 + (force ? "" : $"{CommandCard.KeyOf("force_attack")}+{act}: attack"); // the cursor shows the rest
         }
         BeltView.Hover = hover;
 

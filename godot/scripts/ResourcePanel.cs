@@ -25,7 +25,9 @@ public partial class ResourcePanel : PanelContainer
     public override void _Ready()
     {
         (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 0, 0); // placed over the minimap in _Process
-        MouseFilter = MouseFilterEnum.Ignore;
+        MouseFilter = MouseFilterEnum.Pass; // for its tooltip
+        TooltipText = "What you have to spend. Your posts gather packages off the belt, and your units pick up spilled ones.\n"
+            + $"+N/min: what you earned per minute over the last {WindowSeconds} s";
         _style = new StyleBoxFlat
         {
             BgColor = new Color(0.08f, 0.09f, 0.1f, 0.82f),

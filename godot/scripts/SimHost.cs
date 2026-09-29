@@ -124,6 +124,9 @@ public partial class SimHost : Node3D
         for (int p = 0; p < PlayerCount; p++)
             _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
         BeltView.Build(_sim.State);
+        Hud.MouseFilter = Control.MouseFilterEnum.Pass; // for its tooltip: the keys it no longer spells out
+        Hud.TooltipText = $"Game speed, game time, your side\n{CommandCard.KeyOf("speed_down")} / {CommandCard.KeyOf("speed_up")}: slower / faster   "
+            + $"{CommandCard.KeyOf("debug_swap_player")}: swap sides   {CommandCard.KeyOf("toggle_debug")}: debug info";
 
         // Render timings are only measured when asked for.
         RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
@@ -226,8 +229,7 @@ public partial class SimHost : Node3D
                 if (segment.State == SegmentState.Broken) broken++;
         BrokenSegments = broken;
         int seconds = state.Tick / Simulation.TicksPerSecond;
-        var hud = $"{GameSpeed:0.##}x [-] [+]      {seconds / 60}:{seconds % 60:00}      "
-                + $"You: {PlayerPalette.Name(PlayerInput.LocalPlayer)} [F2: swap]      [F3: debug]";
+        var hud = $"{GameSpeed:0.##}x      {seconds / 60}:{seconds % 60:00}      {PlayerPalette.Name(PlayerInput.LocalPlayer)}";
         foreach (var p in state.Players)
         {
             if (p.Lost) hud += $"\n{PlayerPalette.Name(p.Index)} is out";
