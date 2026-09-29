@@ -47,3 +47,9 @@ tools/           input smoke test, map generator
 - `CLAUDE.md`: working rules and commands for AI-assisted development (much of this code is written with Claude Code).
 
 All art is placeholder; see `godot/assets/PLACEHOLDERS.md`.
+
+## License
+
+The source code is licensed under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE).
+
+The license covers the code only. Art, audio, story and other creative content, and the game's name, are not licensed for reuse. Everything in the repo today is code, data and placeholder art.
