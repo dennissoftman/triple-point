@@ -37,6 +37,28 @@ public partial class BuildingsView : Node3D
         AlbedoColor = Fits,
     };
     readonly BoxMesh _ghostMesh = new();
+
+    // The construction grid around a building being placed: world-space lines every grid cell, fading out
+    // with distance from the ghost. One quad that follows the ghost; the shader draws the lines.
+    const float GridRadius = 18f; // m
+    const string GridShader = @"
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+uniform vec4 line_color : source_color = vec4(0.85, 0.95, 0.9, 0.35);
+uniform float cell = 2.0;
+uniform float radius = 18.0;
+varying vec3 world;
+void vertex() { world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+void fragment() {
+    vec2 g = world.xz / cell;
+    vec2 d = abs(fract(g - 0.5) - 0.5) / fwidth(g); // pixels from the nearest line, each way
+    float line = 1.0 - min(min(d.x, d.y), 1.0);
+    float fade = 1.0 - smoothstep(radius * 0.4, radius, distance(world.xz, NODE_POSITION_WORLD.xz));
+    ALBEDO = line_color.rgb;
+    ALPHA = line_color.a * line * fade;
+}";
+    MeshInstance3D _grid = null!;
+    bool _gridShown;
     Node3D _rally = null!;
     MeshInstance3D _ghost = null!, _ghostExit = null!; // the exit marker shows which way it faces
     (string Type, bool Valid) _ghostShown;
@@ -49,6 +71,17 @@ public partial class BuildingsView : Node3D
         AddChild(_rally);
         AddChild(_ghost = new MeshInstance3D { Name = "Ghost", Mesh = _ghostMesh, MaterialOverride = _ghostMaterial, Visible = false, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off });
         _ghost.AddChild(_ghostExit = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(1.2f, 0.1f, 0.6f) }, MaterialOverride = IndicatorMaterial });
+        var grid = new ShaderMaterial { Shader = new Shader { Code = GridShader } };
+        grid.SetShaderParameter("cell", Simulation.GridCell);
+        grid.SetShaderParameter("radius", GridRadius);
+        AddChild(_grid = new MeshInstance3D
+        {
+            Name = "Grid",
+            Mesh = new PlaneMesh { Size = new Vector2(2 * GridRadius, 2 * GridRadius) },
+            MaterialOverride = grid,
+            Visible = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        });
     }
 
     public void Sync(SimState state, int selected, PlayerInput.Placement? placing)
@@ -94,7 +127,10 @@ public partial class BuildingsView : Node3D
     void SyncGhost(PlayerInput.Placement? placing)
     {
         _ghost.Visible = placing is not null;
+        bool grid = placing is { Type.Kind: not BuildingKind.Post }; // posts snap to the belt, not the grid
+        if (grid != _gridShown) _grid.Visible = _gridShown = grid;
         if (placing is not PlayerInput.Placement p) return;
+        if (grid) _grid.Position = ToGodot(p.At) with { Y = 0.03f };
         float height = HeightOf(p.Type);
         if (_ghostShown.Type != p.Type.Id)
         {

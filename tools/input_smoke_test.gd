@@ -180,9 +180,11 @@ func _process(_delta) -> bool:
 		2420:
 			check("its build key arms a ghost under the cursor", ghost().visible, true)
 			check("the ghost snaps to the grid over the site", (ghost().global_position * Vector3(1, 0, 1)).distance_to(SITE) < 0.5, true)
+			check("the construction grid shows while placing", root.get_node("Main/BuildingsView/Grid").visible, true)
 			click(cam.unproject_position(SITE))
 		2425:
 			check("clicking places it and disarms the ghost", ghost().visible, false)
+			check("and hides the grid", root.get_node("Main/BuildingsView/Grid").visible, false)
 		3200:
 			# ~16 m from the rally point, at a tracked builder's pace.
 			check("the builder laid a foundation", building_count(), 3)
@@ -234,7 +236,7 @@ func ghost() -> Node3D:
 
 # Buildings and foundations drawn: BuildingsView's children besides its rally flag and ghost.
 func building_count() -> int:
-	return root.get_node("Main/BuildingsView").get_child_count() - 2
+	return root.get_node("Main/BuildingsView").get_child_count() - 3 # less the rally flag, the ghost and the grid
 
 # The colors of the order path lines UnitsView draws this frame (its path surface uses vertex colors;
 # tracers don't).
