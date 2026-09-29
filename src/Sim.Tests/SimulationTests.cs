@@ -155,7 +155,7 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Packages_reaching_a_break_spill_beside_it_and_the_source_keeps_flowing()
+    public void Packages_reaching_a_break_spill_onto_a_pile_beside_it_and_a_full_pile_stops_the_belt()
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(0.5f));
@@ -165,17 +165,37 @@ public class SimulationTests
         Run(sim, 400);
 
         Assert.Equal(0, line.Lost);
-        Assert.Equal(0, line.BlockedSpawns);
-        Assert.True(line.Spilled > 0);
+        Assert.Equal(Simulation.SpillPile, line.Spilled); // then nothing more falls...
+        Assert.True(line.BlockedSpawns > 0);               // ...the queue backs up to the source, which holds the rest
         Assert.Equal(line.Spawned, line.Spilled + line.Packages.Count);
-        Assert.All(line.Packages, p => Assert.True(p.Distance < 10));
-        // Beside the break at (10, 0, 0), off the belt, on the ground.
+        Assert.All(line.Packages, p => Assert.True(p.Distance <= 10));
+        // Beside the break at (10, 0, 0), off the belt, on the ground, each on its own spot.
         Assert.All(sim.State.Pickups, p =>
         {
-            Assert.InRange(MathF.Abs(p.Position.Z), 1.3f, 2.5f);
-            Assert.InRange(p.Position.X, 9.2f, 10.8f);
+            Assert.InRange(MathF.Abs(p.Position.Z), 1.49f, 2.31f);
+            Assert.InRange(p.Position.X, 9.99f, 11.61f);
             Assert.Equal(0f, p.Position.Y);
         });
+        var pickups = sim.State.Pickups;
+        for (int i = 0; i < pickups.Count; i++)
+            for (int j = i + 1; j < pickups.Count; j++)
+                Assert.True(Vector3.Distance(pickups[i].Position, pickups[j].Position) >= 0.79f);
+    }
+
+    [Fact]
+    public void Collecting_from_a_full_pile_lets_the_next_package_fall()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
+        var line = sim.State.Belts[0];
+        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        Run(sim, 400);
+        Assert.Equal(Simulation.SpillPile, line.Spilled);
+
+        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 0); // on one side of the pile
+        Run(sim, 3 * T);
+        Assert.True(sim.State.Players[Blue].Collected > Simulation.SpillPile / 2); // its half, and more that fell there since
+        Assert.True(line.Spilled > Simulation.SpillPile); // the belt moves again
     }
 
     [Fact]
@@ -183,9 +203,9 @@ public class SimulationTests
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(0.5f));
-        // One on each side of the break; spills land 1.3-2.5 m to either side.
-        sim.AddUnit(Blue, new Vector3(10, 0, 1.75f), speed: 5);
-        sim.AddUnit(Blue, new Vector3(10, 0, -1.75f), speed: 5);
+        // One on each side of the break, in reach of every spot of the pile there.
+        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 5);
+        sim.AddUnit(Blue, new Vector3(10.8f, 0, -1.9f), speed: 5);
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Run(sim, 400);
@@ -299,6 +319,8 @@ public class SimulationTests
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(0.5f, spillLoss: 0.3f));
         var line = sim.State.Belts[0];
+        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 0); // collectors keep the pile clear
+        sim.AddUnit(Blue, new Vector3(10.8f, 0, -1.9f), speed: 0);
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Run(sim, 2000); // ~100 spills

@@ -347,6 +347,7 @@ public struct Pickup
     public int Id;
     public Vector3 Position;   // where it landed
     public Vector3 From;       // the belt point it fell off
+    public int Line, Segment, Slot; // the break whose pile it's in, and its spot there
     public int SpilledAtTick, LandsAtTick, ExpiresAtTick; // collectable once landed
     public bool Smashed;       // broke in the fall: nobody gets it, and it's gone when it lands
 }

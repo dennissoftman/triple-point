@@ -18,8 +18,11 @@ public sealed class Simulation
     public const float PickupLifetimeSeconds = 60f;
     public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
     const float GrabReach = 0.5f;                   // m either side of a post's pull point
-    const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
-    const float SpillAlongJitter = 0.75f;                     // m along the belt
+    // A break's pile: spots beside the start of the broken segment, 2 sides x 2 rows x 3 along, far
+    // enough apart that packages never overlap. When they're all taken, packages wait at the break.
+    public const int SpillPile = 12;
+    static readonly float[] SpillRows = [1.5f, 2.3f]; // m to the side of the belt center; clear of its edge
+    const float SpillStep = 0.8f;                     // m between spots along the belt
     const float SpacingSlack = 0.001f;                        // m
     const float MuzzleReach = 1.5f, MuzzleHeight = 1.2f; // m; where shells start, ahead of a vehicle along its turret
     const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
@@ -410,7 +413,7 @@ public sealed class Simulation
         UpdateUnits();
         MoveShells();
         RemoveDead();
-        foreach (var line in State.Belts) MovePackages(line);
+        for (int l = 0; l < State.Belts.Count; l++) MovePackages(State.Belts[l], l);
         UpdateGatherers();
         UpdateConstruction();
         foreach (var building in State.Buildings) UpdateProduction(building);
@@ -1461,13 +1464,19 @@ public sealed class Simulation
         (segment.State, segment.Health) = (SegmentState.Broken, 0);
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
 
-        // Everything on the segment falls off where it is.
-        foreach (var p in line.Packages)
-            if (p.Segment == segmentIndex) Spill(line, p.Position, p.Direction);
-        line.Packages.RemoveAll(p => p.Segment == segmentIndex);
+        // Everything on the segment falls off onto the pile, while there's room; the rest stays put.
+        var packages = line.Packages;
+        int kept = 0;
+        for (int i = 0; i < packages.Count; i++)
+        {
+            var p = packages[i];
+            if (p.Segment == segmentIndex && Spill(line, lineIndex, segmentIndex, p.Position)) continue;
+            packages[kept++] = p;
+        }
+        packages.RemoveRange(kept, packages.Count - kept);
     }
 
-    void MovePackages(BeltLine line)
+    void MovePackages(BeltLine line, int lineIndex)
     {
         var segments = line.Segments;
         var packages = CollectionsMarshal.AsSpan(line.Packages);
@@ -1478,6 +1487,7 @@ public sealed class Simulation
         {
             var p = packages[i];
             p.PrevPosition = p.Position;
+            var (wasAt, wasOn) = (p.Distance, p.Segment);
             p.Distance = MathF.Max(p.Distance, MathF.Min(p.Distance + line.Speed * Dt, limit));
             while (p.Segment < segments.Length && p.Distance >= segments[p.Segment].End) p.Segment++;
 
@@ -1495,9 +1505,10 @@ public sealed class Simulation
             var segment = segments[p.Segment];
             if (segment.State == SegmentState.Broken)
             {
-                // Reached a break: falls off at its start.
-                Spill(line, segment.Curve.PositionAt(0), segment.Curve.DirectionAt(0));
-                continue;
+                // At a break: it falls off onto the pile, or, with the pile full, waits at the lip (or where
+                // it was, on the broken segment itself), and everything behind it queues.
+                if (Spill(line, lineIndex, p.Segment, p.Position)) continue;
+                p.Distance = wasOn == p.Segment ? wasAt : segment.Start;
             }
 
             float along = p.Distance - segment.Start;
@@ -1542,19 +1553,34 @@ public sealed class Simulation
         }
     }
 
-    void Spill(BeltLine line, Vector3 at, Vector3 direction)
+    // Drops a package from `at` onto a free spot of the pile beside a broken segment; false if it's full.
+    bool Spill(BeltLine line, int lineIndex, int segmentIndex, Vector3 at)
     {
+        int taken = 0; // a bit per spot
+        foreach (var p in State.Pickups)
+            if (p.Line == lineIndex && p.Segment == segmentIndex) taken |= 1 << p.Slot;
+        int free = SpillPile - System.Numerics.BitOperations.PopCount((uint)taken);
+        if (free == 0) return false;
+        int slot = -1;
+        for (int n = (int)(_random.NextUInt() % (uint)free); n >= 0; n--)
+            do slot++; while ((taken & (1 << slot)) != 0);
+
         line.Spilled++;
         // Some break in the fall, so holding a break never captures the whole stream.
         bool smashed = _random.Range(0, 1) < line.SpillLoss;
         if (smashed) line.Destroyed++;
 
+        var curve = line.Segments[segmentIndex].Curve;
+        float along = MathF.Min(SpillStep * (slot / 4), curve.Length);
+        var (start, direction) = (curve.PositionAt(along), curve.DirectionAt(along));
         var side = Vector3.Normalize(Vector3.Cross(direction, Vector3.UnitY));
-        float offset = _random.Range(SpillMinOffset, SpillMaxOffset) * (_random.NextUInt() % 2 == 0 ? 1 : -1);
-        var position = at + side * offset + direction * _random.Range(-SpillAlongJitter, SpillAlongJitter);
+        var position = start + side * (SpillRows[slot / 2 % 2] * (slot % 2 == 0 ? 1 : -1));
         State.Pickups.Add(new Pickup
         {
             Id = _nextId++,
+            Line = lineIndex,
+            Segment = segmentIndex,
+            Slot = slot,
             Position = position with { Y = 0 },
             From = at,
             SpilledAtTick = State.Tick,
@@ -1562,6 +1588,7 @@ public sealed class Simulation
             ExpiresAtTick = smashed ? State.Tick + (int)(SpillFallSeconds * TicksPerSecond) : State.Tick + (int)(PickupLifetimeSeconds * TicksPerSecond),
             Smashed = smashed,
         });
+        return true;
     }
 
     void SpawnPackage(BeltLine line)
