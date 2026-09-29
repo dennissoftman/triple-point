@@ -2,17 +2,18 @@ using Godot;
 using Sim;
 
 /// <summary>
-/// The local player's Resources, top center: the amount, large, and what they've earned per minute over
-/// the last half minute (posts and pickups), which is what winning or losing the belt changes. Styled
-/// in the player's color. Placeholder look.
+/// The local player's Resources, just above the minimap and as wide: the amount, and what they've earned
+/// per minute over the last half minute (posts and pickups), which is what winning or losing the belt
+/// changes. Styled in the player's color. Placeholder look.
 /// </summary>
 public partial class ResourcePanel : PanelContainer
 {
     const int WindowSeconds = 30; // the income rate's window
-    const float Margin = 10f;     // px from the top of the screen
+    const float Gap = 6f;         // px above the minimap
 
     [Export] public SimHost Host = null!;
     [Export] public PlayerInput PlayerInput = null!;
+    [Export] public Control Minimap = null!;
     [Export] public int Shown = -1; // the amount as shown; for tools
 
     // Earned so far (gathered + collected) per player, once a sim second, for the last WindowSeconds + 1 seconds.
@@ -23,42 +24,44 @@ public partial class ResourcePanel : PanelContainer
 
     public override void _Ready()
     {
-        (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0.5f, 0.5f, 0, 0);
-        (GrowHorizontal, GrowVertical) = (GrowDirection.Both, GrowDirection.End);
-        OffsetTop = Margin;
+        (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 0, 0); // placed over the minimap in _Process
         MouseFilter = MouseFilterEnum.Ignore;
         _style = new StyleBoxFlat
         {
             BgColor = new Color(0.08f, 0.09f, 0.1f, 0.82f),
             BorderWidthBottom = 3,
             CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6, CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
-            ContentMarginLeft = 22, ContentMarginRight = 22, ContentMarginTop = 6, ContentMarginBottom = 6,
+            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 3, ContentMarginBottom = 3,
         };
         AddThemeStyleboxOverride("panel", _style);
 
-        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        row.AddThemeConstantOverride("separation", 14);
+        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Begin, MouseFilter = MouseFilterEnum.Ignore }; // clicks go through to the world
+        row.AddThemeConstantOverride("separation", 10);
         AddChild(row);
         row.AddChild(new Label
         {
             Text = "RESOURCES",
             VerticalAlignment = VerticalAlignment.Center,
-            LabelSettings = new LabelSettings { FontSize = 13, FontColor = new Color(0.75f, 0.77f, 0.8f) },
+            LabelSettings = new LabelSettings { FontSize = 11, FontColor = new Color(0.75f, 0.77f, 0.8f) },
         });
         row.AddChild(_amount = new Label
         {
             VerticalAlignment = VerticalAlignment.Center,
-            LabelSettings = new LabelSettings { FontSize = 30, FontColor = new Color(1, 0.72f, 0.25f), OutlineSize = 2, OutlineColor = Colors.Black },
+            LabelSettings = new LabelSettings { FontSize = 20, FontColor = new Color(1, 0.72f, 0.25f), OutlineSize = 2, OutlineColor = Colors.Black },
         });
         row.AddChild(_income = new Label
         {
             VerticalAlignment = VerticalAlignment.Center,
-            LabelSettings = new LabelSettings { FontSize = 14, FontColor = new Color(0.8f, 0.82f, 0.85f) },
+            LabelSettings = new LabelSettings { FontSize = 12, FontColor = new Color(0.8f, 0.82f, 0.85f) },
         });
     }
 
     public override void _Process(double delta)
     {
+        var place = new Vector2(Minimap.Position.X, Minimap.Position.Y - Size.Y - Gap);
+        if (Position != place) Position = place;
+        if (CustomMinimumSize.X != Minimap.Size.X) CustomMinimumSize = new Vector2(Minimap.Size.X, 0);
+
         var state = Host.Sim.State;
         Sample(state);
         int local = PlayerInput.LocalPlayer;

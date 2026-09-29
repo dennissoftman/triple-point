@@ -11,6 +11,8 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 | `godot/scripts/CommandCard.cs` | Command card: default Godot buttons and text | Godot's default theme, in code | No | Real UI |
 | `godot/scripts/BeltView.cs` | Belts: extruded rails, base and joint bars, a box housing for covered stretches, wrecked halves and debris boxes, green post-spot strips | Procedural meshes in code, vertex colors | No | Real belt models, a scrolling surface shader |
 | `godot/scripts/BeltView.cs` | Source gauge (a bar and a Label3D), spill hop and tumble, shard burst, collection flight and +1 label | Built-in meshes, default font, in code | No | Real UI and VFX |
+| `godot/assets/belt.png`, `godot/assets/supplies.png` | Source sheets: belt parts, crate faces | Supplied by Denys; tool to be filled in | Unconfirmed | Real textures |
+| `godot/assets/textures/belt_atlas.png`, `package_crates.png` | Atlases cut from the source sheets | `tools/make_textures.py` | As their sources | Real textures |
 | `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots and squares | Canvas drawing in code | No | Real minimap art |
 | `godot/scripts/ResourcePanel.cs` | Resources panel: a flat dark box with a player-colored edge, default font | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |
 | `godot/scripts/GameOverOverlay.cs` | Game-over banner: a flat dark box, default font and buttons | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |

@@ -44,7 +44,7 @@ public partial class UnitsView : Node3D
     readonly List<(Vector3 From, Vector3 To, Color Color)> _legs = []; // order path legs, this frame
     readonly ImmediateMesh _lines = new();
     readonly UnitMaterials _materials = new();
-    readonly Dictionary<int, (Vector3 At, float Radius)> _shellsAt = []; // where each shell was last drawn, for its impact
+    readonly Dictionary<int, (Vector3 At, float Radius)> _shellsAt = []; // where each shell will hit, for its impact flash
     readonly Dictionary<int, int> _lastShots = [];            // per unit: the shot tick last seen, to flash new ones
     readonly List<(Vector3 At, float Size, float Left)> _flashes = []; // size: times the flash mesh; sim seconds left
     readonly List<(Vector3 At, float Left)> _puffs = [];                // smoke behind ballistic shells; sim seconds left
@@ -142,7 +142,8 @@ public partial class UnitsView : Node3D
                 (at, direction) = Arc(p, at, direction);
             }
             _shellBatch.Add(at, direction);
-            _shellsAt[p.Id] = (at, p.SplashRadius);
+            // The flash goes where the sim hits, not where the shell was last drawn: that's up to a tick short.
+            _shellsAt[p.Id] = (ToGodot(p.Target), p.SplashRadius);
             if (!p.Ballistic) continue;
             // Smoke every PuffEvery m of flight, so the trail draws itself along the arc as the shell goes.
             if (!_lastPuff.TryGetValue(p.Id, out var last)) last = at;

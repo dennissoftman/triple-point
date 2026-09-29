@@ -521,4 +521,24 @@ public class CombatTests
             if (File.Exists(Path.Combine(dir.FullName, "Game.sln"))) return dir.FullName;
         throw new DirectoryNotFoundException("No Game.sln above the test binaries.");
     }
+
+    [Fact]
+    public void Shots_at_a_segment_land_around_its_middle_not_on_its_near_edge()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1000));
+        int gun = sim.AddUnit(Blue, new Vector3(15, 0, 6), speed: 0, dps: 1, range: 10); // beside segment 1, whose middle is (15, 0, 0)
+        sim.Tick([new AttackSegmentCommand(Blue, gun, 0, 1)]);
+
+        var hits = new List<Vector3>();
+        for (int t = 0; t < 40 * T; t++)
+        {
+            sim.Tick(NoCommands);
+            var u = UnitById(sim, gun);
+            if (u.LastShotTick == sim.State.Tick - 1) hits.Add(u.FireAt); // fired during the tick just run
+        }
+        Assert.True(hits.Count > 10);
+        Assert.All(hits, h => Assert.InRange(Vector2.Distance(new(h.X, h.Z), new(15, 0)), 0, Simulation.BeltAimSpread + 1e-3f));
+        Assert.True(hits.Distinct().Count() > hits.Count / 2); // not all on one point
+    }
 }

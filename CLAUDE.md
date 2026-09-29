@@ -40,7 +40,7 @@ src/Sim.Tests/      xUnit, headless
 godot/              Godot project: scenes/ (main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md, data.md (story documents are kept out of the repo)
-tools/              input smoke test, main map generator
+tools/              input smoke test, main map generator, frame capture (snap.gd), texture atlas builder
 ```
 
 ## Maps
@@ -83,4 +83,10 @@ Stress scene (generated belts, 200 units, a battle). The HUD's Perf line shows f
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot res://scenes/stress.tscn --disable-vsync -- --perf-log
 ```
 
-Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripted two-player match at 3x on the test map (a belt raid with spill, a repair, posts destroyed, a fight, both HQs producing, the ending), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
+Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripted two-player match at 3x on the test map (a belt raid with spill, a repair, posts destroyed, a fight, both HQs producing, the ending), logging events. To look at frames, capture only the ones needed (seconds, not minutes; needs a window). `--fixed-fps` makes frame N the same moment every run; `--camera=x,z,distance` and `--set=Node.Property=value` apply before the scene starts:
+
+```bash
+"C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 --disable-vsync -s ../tools/snap.gd -- --scene=res://scenes/prototype.tscn --frames=600,1040 --out=<dir> --demo
+```
+
+Check the build's output, never discard it: when the C# build fails, Godot quietly runs the last good build.

@@ -37,6 +37,58 @@ public partial class BeltView : Node3D
     const float CollectSeconds = 0.35f, PopSeconds = 1.1f, PopRise = 2.2f; // a collected pickup flies to its unit; the +1 floats up
     const int ShardCount = 5;
     const float ShardSize = 0.26f, ShardSpeed = 2.6f, ShardRise = 2.4f, ShardSeconds = 0.9f, Gravity = 9.8f;
+    // The textures (placeholders, built by tools/make_textures.py); without them the belt and packages are
+    // flat colors. The belt atlas is horizontal bands, each one tile across its whole width (rows / 1024).
+    const string BeltAtlasPath = "res://assets/textures/belt_atlas.png", CratesPath = "res://assets/textures/package_crates.png";
+    static readonly Vector2 BandTop = new(8, 448), BandRail = new(464, 520), BandCrossbar = new(536, 592), BandHousing = new(608, 1016);
+    const float TopRepeat = 2.72f, RailRepeat = 2f, HousingRepeat = 0.85f; // m of belt per tile of each band
+    const int CrateKinds = 12;
+    const string CrateShader = @"
+shader_type spatial;
+uniform sampler2D crates : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+varying flat float kind;
+varying flat vec2 face_cell;
+void vertex() {
+    kind = INSTANCE_CUSTOM.r;
+    // A box's UVs put its six faces in a 3 x 2 grid (+z, +x, -z; -x, +y, -y). Which cell is this face's
+    // comes from its normal: a face's edge UVs sit on the cell border, so they can't tell.
+    vec3 n = NORMAL;
+    face_cell = abs(n.y) > 0.5 ? vec2(n.y > 0.0 ? 1.0 : 2.0, 1.0)
+              : abs(n.x) > 0.5 ? vec2(n.x > 0.0 ? 1.0 : 0.0, n.x > 0.0 ? 0.0 : 1.0)
+              : vec2(n.z > 0.0 ? 0.0 : 2.0, 0.0);
+}
+void fragment() {
+    // Each face shows one crate of the 4 x 3 atlas.
+    vec2 face = clamp(UV * vec2(3.0, 2.0) - face_cell, 0.0, 1.0);
+    vec2 cell = vec2(mod(kind, 4.0), floor(kind / 4.0));
+    ALBEDO = texture(crates, (cell + face) / vec2(4.0, 3.0)).rgb;
+    ROUGHNESS = 0.85;
+}";
+    // A segment's look: its vertex colors (authored like albedo colors, so sRGB) times the atlas, tinted by
+    // damage, glowing on hover. The surface band scrolls at the belt's speed, on sim time, so it keeps pace
+    // with the packages at any game speed and stops with the game.
+    const string TimeParameter = "belt_time";
+    const string SegmentShader = @"
+shader_type spatial;
+global uniform float belt_time;
+uniform sampler2D atlas : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform bool textured = false;
+uniform vec4 tint : source_color = vec4(1.0);
+uniform vec3 glow : source_color = vec3(0.0);
+uniform float glow_energy = 0.0;
+uniform float scroll = 0.0; // surface tiles per second
+uniform vec2 surface_band;  // the surface's rows of the atlas, as v
+uniform float roughness = 0.8;
+vec3 linear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+void fragment() {
+    vec2 uv = UV;
+    if (uv.y >= surface_band.x && uv.y <= surface_band.y) uv.x -= belt_time * scroll;
+    vec3 albedo = linear(COLOR.rgb) * tint.rgb;
+    if (textured) albedo *= texture(atlas, uv).rgb;
+    ALBEDO = albedo;
+    ROUGHNESS = roughness;
+    EMISSION = glow * glow_energy;
+}";
     const float GaugeBack = 2f, GaugeHeight = 2.2f; // m: back from where the open belt starts, and above the ground
 
     public enum HoverKind { None, Look, Attack, Repair }
@@ -72,7 +124,7 @@ public partial class BeltView : Node3D
     sealed class SegmentView
     {
         public MeshInstance3D Whole = null!;
-        public StandardMaterial3D Material = null!;
+        public ShaderMaterial Material = null!;
         public Node3D? Wreck;
         public Node3D HalfA = null!, HalfB = null!;
         public HealthBar? Health;
@@ -86,9 +138,9 @@ public partial class BeltView : Node3D
     readonly List<(HealthBar Bar, Label3D Label, int Shown)?> _gauges = []; // per line; null for an unlimited source
     readonly Dictionary<int, (Vector3 At, float Yaw)> _smashing = []; // smashed pickups in the air, by id: where they'll land
     readonly List<int> _landed = [];
-    readonly List<(Vector3 From, Vector3 Velocity, Vector3 Axis, float Born)> _shards = [];
+    readonly List<(Vector3 From, Vector3 Velocity, Vector3 Axis, float Born, float Crate)> _shards = [];
     readonly Dictionary<int, Vector3> _pickupAt = []; // where each pickup was last drawn, for its collection
-    readonly List<(Vector3 From, int Unit, float Yaw, float Born)> _collecting = [];
+    readonly List<(Vector3 From, int Unit, float Yaw, float Born, float Crate)> _collecting = [];
     readonly List<(Label3D Label, Vector3 From, float Born)> _pops = [];
     readonly Stack<Label3D> _spareLabels = [];
     float _seconds; // sim time as last drawn
@@ -96,11 +148,21 @@ public partial class BeltView : Node3D
     readonly HashSet<int> _seen = [];
     readonly List<int> _gone = [];
     InstanceBatch _packages = null!, _pickups = null!, _shardBatch = null!, _collectBatch = null!;
+    static bool _timeParameterAdded;
+    bool _textured; // the belt atlas loaded: parts take their look from it, not their vertex colors
     StandardMaterial3D _debrisMaterial = null!, _railDebrisMaterial = null!;
     MeshInstance3D _spots = null!;
 
     public void Build(SimState state)
     {
+        var atlas = ResourceLoader.Exists(BeltAtlasPath) ? GD.Load<Texture2D>(BeltAtlasPath) : null;
+        _textured = atlas is not null;
+        if (!_timeParameterAdded) // once per run: it outlives the scene, across restarts
+        {
+            RenderingServer.GlobalShaderParameterAdd(TimeParameter, RenderingServer.GlobalShaderParameterType.Float, 0f);
+            _timeParameterAdded = true;
+        }
+        var shader = new Shader { Code = SegmentShader };
         _debrisMaterial = new StandardMaterial3D { AlbedoColor = DebrisColor, Roughness = 0.9f };
         _railDebrisMaterial = new StandardMaterial3D { AlbedoColor = RailColor * BrokenTint, Roughness = 0.6f };
         foreach (var line in state.Belts)
@@ -108,12 +170,12 @@ public partial class BeltView : Node3D
             var views = new SegmentView[line.Segments.Length];
             for (int s = 0; s < line.Segments.Length; s++)
             {
-                var material = (StandardMaterial3D)BeltMaterial.Duplicate();
-                material.VertexColorUseAsAlbedo = true;
-                material.VertexColorIsSrgb = true;   // the colors are authored like albedo colors
-                material.AlbedoColor = Colors.White; // the tint; the colors themselves are in the vertices
-                material.EmissionEnabled = true;     // always on, so lighting up on hover doesn't swap shaders
-                material.EmissionEnergyMultiplier = 0;
+                var material = new ShaderMaterial { Shader = shader };
+                material.SetShaderParameter("atlas", atlas!);
+                material.SetShaderParameter("textured", _textured);
+                material.SetShaderParameter("roughness", BeltMaterial.Roughness);
+                material.SetShaderParameter("surface_band", BandTop / 1024f);
+                material.SetShaderParameter("scroll", line.Speed / TopRepeat);
                 var curve = line.Segments[s].Curve;
                 bool last = s == line.Segments.Length - 1;
                 bool covered = line.Segments[s].Covered;
@@ -125,11 +187,18 @@ public partial class BeltView : Node3D
             _gauges.Add(line.Finite ? BuildGauge(line) : null);
         }
 
-        var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
-        _packages = new InstanceBatch(this, box);
-        _pickups = new InstanceBatch(this, box);
-        _shardBatch = new InstanceBatch(this, new BoxMesh { Size = Vector3.One * ShardSize, Material = PackageMaterial });
-        _collectBatch = new InstanceBatch(this, box);
+        var crates = PackageMaterial;
+        if (ResourceLoader.Exists(CratesPath))
+        {
+            var crateMaterial = new ShaderMaterial { Shader = new Shader { Code = CrateShader } };
+            crateMaterial.SetShaderParameter("crates", GD.Load<Texture2D>(CratesPath));
+            crates = crateMaterial;
+        }
+        var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = crates };
+        _packages = new InstanceBatch(this, box, customData: true);
+        _pickups = new InstanceBatch(this, box, customData: true);
+        _shardBatch = new InstanceBatch(this, new BoxMesh { Size = Vector3.One * ShardSize, Material = crates }, customData: true);
+        _collectBatch = new InstanceBatch(this, box, customData: true);
         AddChild(_spots = new MeshInstance3D
         {
             Visible = false,
@@ -174,6 +243,7 @@ public partial class BeltView : Node3D
 
     public void Sync(SimState state, float alpha)
     {
+        RenderingServer.GlobalShaderParameterSet(TimeParameter, (state.Tick - 1 + alpha) / Simulation.TicksPerSecond);
         var lift = new Vector3(0, PackageSize / 2, 0); // sit on the surface, not in it
 
         int total = 0;
@@ -184,7 +254,7 @@ public partial class BeltView : Node3D
             var line = state.Belts[l];
             SyncSegments(l, line, _segments[l]);
             foreach (var p in line.Packages)
-                _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction));
+                _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction), custom: Crate(p.Id));
         }
         _packages.End();
 
@@ -202,23 +272,28 @@ public partial class BeltView : Node3D
             var rest = new Basis(Vector3.Up, yaw);
             float t = Math.Clamp((now - p.SpilledAtTick) / (p.LandsAtTick - p.SpilledAtTick), 0, 1);
             if (p.Smashed) _smashing[p.Id] = (ToGodot(p.Position) + lift, yaw);
+            float crate = Crate(p.Id);
             _pickupAt[p.Id] = ToGodot(p.Position) + lift;
             if (t >= 1)
             {
-                _pickups.Add(new Transform3D(rest, ToGodot(p.Position) + lift));
+                _pickups.Add(new Transform3D(rest, ToGodot(p.Position) + lift), crate);
                 continue;
             }
             float hop = FallHop * (0.7f + 0.6f * Random01(p.Id, 1));
             float turns = FallTurns * (0.5f + Random01(p.Id, 2)) * (Random01(p.Id, 3) < 0.5f ? -1 : 1);
             float tilt = Random01(p.Id, 4) * MathF.Tau;
             var axis = new Vector3(MathF.Cos(tilt), 0.2f + 0.6f * Random01(p.Id, 5), MathF.Sin(tilt)).Normalized();
-            var at = ToGodot(p.From).Lerp(ToGodot(p.Position), t) + lift + Vector3.Up * (hop * 4 * t * (1 - t));
-            _pickups.Add(new Transform3D(new Basis(axis, (1 - t) * turns * MathF.Tau) * rest, at));
+            // Up first, then out, so it clears the rail before it swings wide of the belt.
+            var at = ToGodot(p.From).Lerp(ToGodot(p.Position), t * t) + lift + Vector3.Up * (hop * 4 * t * (1 - t));
+            _pickups.Add(new Transform3D(new Basis(axis, (1 - t) * turns * MathF.Tau) * rest, at), crate);
         }
         _pickups.End();
         SyncShards(state, _seconds);
         SyncCollecting(state, _seconds);
     }
+
+    // Which crate a package looks like, as the shader's custom value: its own, whether on the belt or spilled.
+    static float Crate(int id) => MathF.Floor(Random01(id, 7) * CrateKinds);
 
     // A stable pseudo-random 0..1 per id and draw: the view's own, so the sim's generator stays the sim's.
     static float Random01(int id, int draw)
@@ -232,7 +307,7 @@ public partial class BeltView : Node3D
     public void OnEvent(SimEvent e, SimState state)
     {
         if (e.Kind != SimEventKind.PickupCollected || !_pickupAt.Remove(e.Id, out var at)) return;
-        _collecting.Add((at, e.Index, Random01(e.Id, 0) * MathF.Tau, _seconds));
+        _collecting.Add((at, e.Index, Random01(e.Id, 0) * MathF.Tau, _seconds, Crate(e.Id)));
         var label = _spareLabels.Count > 0 ? _spareLabels.Pop() : NewPopLabel();
         int owner = state.Units.Find(u => u.Id == e.Index).Owner;
         label.Modulate = PlayerPalette.Color(owner).Lightened(0.35f);
@@ -260,13 +335,13 @@ public partial class BeltView : Node3D
     {
         _collecting.RemoveAll(c => seconds - c.Born > CollectSeconds || seconds < c.Born);
         _collectBatch.Begin(_collecting.Count);
-        foreach (var (from, unitId, yaw, born) in _collecting)
+        foreach (var (from, unitId, yaw, born, crate) in _collecting)
         {
             float t = (seconds - born) / CollectSeconds;
             var to = from;
             foreach (var u in state.Units) if (u.Id == unitId) { to = ToGodot(u.Position) + Vector3.Up; break; }
             var at = from.Lerp(to, t * t) + Vector3.Up * (0.6f * 4 * t * (1 - t));
-            _collectBatch.Add(new Transform3D(new Basis(Vector3.Up, yaw + t * 4).Scaled(Vector3.One * (1 - 0.8f * t)), at));
+            _collectBatch.Add(new Transform3D(new Basis(Vector3.Up, yaw + t * 4).Scaled(Vector3.One * (1 - 0.8f * t)), at), crate);
         }
         _collectBatch.End();
 
@@ -300,20 +375,20 @@ public partial class BeltView : Node3D
             {
                 float a = yaw + k * MathF.Tau / ShardCount;
                 var out_ = new Vector3(MathF.Cos(a), 0, MathF.Sin(a)) * ShardSpeed * (0.6f + 0.4f * ((id + k) % 3) / 2f);
-                _shards.Add((at, out_ + Vector3.Up * ShardRise, new Vector3(MathF.Sin(a), 1, MathF.Cos(a)).Normalized(), seconds));
+                _shards.Add((at, out_ + Vector3.Up * ShardRise, new Vector3(MathF.Sin(a), 1, MathF.Cos(a)).Normalized(), seconds, Crate(id)));
             }
         }
 
         _shards.RemoveAll(s => seconds - s.Born > ShardSeconds || seconds < s.Born); // gone, or the game restarted
         _shardBatch.Begin(_shards.Count);
         float floor = ShardSize / 2;
-        foreach (var (from, velocity, axis, born) in _shards)
+        foreach (var (from, velocity, axis, born, crate) in _shards)
         {
             float t = seconds - born;
             var at = from + velocity * t + Vector3.Down * (Gravity * t * t / 2);
             if (at.Y < floor) at = at with { Y = floor };
             float shrink = 1 - MathF.Max(0, t / ShardSeconds - 0.6f) / 0.4f; // shrink away over the last 40%
-            _shardBatch.Add(new Transform3D(new Basis(axis, t * 9f).Scaled(Vector3.One * shrink), at));
+            _shardBatch.Add(new Transform3D(new Basis(axis, t * 9f).Scaled(Vector3.One * shrink), at), crate);
         }
         _shardBatch.End();
     }
@@ -365,19 +440,19 @@ public partial class BeltView : Node3D
             bool broken = segment.State == SegmentState.Broken;
 
             var tint = broken ? BrokenTint.Lerp(Colors.White, health * 0.5f) : Colors.White.Lerp(DamagedTint, 1 - health);
-            if (view.Tint != tint) view.Material.AlbedoColor = view.Tint = tint;
+            if (view.Tint != tint) view.Material.SetShaderParameter("tint", view.Tint = tint);
 
             var hover = Hover.Line == l && Hover.Segment == s ? Hover.Kind : HoverKind.None;
             if (view.Hover != hover)
             {
                 view.Hover = hover;
-                view.Material.EmissionEnergyMultiplier = hover == HoverKind.None ? 0 : 1;
-                view.Material.Emission = hover switch
+                view.Material.SetShaderParameter("glow_energy", hover == HoverKind.None ? 0f : 1f);
+                view.Material.SetShaderParameter("glow", hover switch
                 {
                     HoverKind.Attack => new Color(0.55f, 0.1f, 0.08f),
                     HoverKind.Repair => new Color(0.1f, 0.4f, 0.5f),
                     _ => new Color(0.28f, 0.3f, 0.34f),
-                };
+                });
             }
 
             float buckle = broken ? 1 - health : -1;
@@ -387,6 +462,7 @@ public partial class BeltView : Node3D
                 view.Whole.Visible = !broken;
                 if (view.Wreck is not null) view.Wreck.Visible = broken;
                 if (broken) Buckle(line.Segments[s].Curve, view, buckle);
+                if ((view.Buckle < 0) != (buckle < 0)) view.Material.SetShaderParameter("scroll", broken ? 0f : line.Speed / TopRepeat); // a wreck stands still
                 view.Buckle = buckle;
             }
 
@@ -511,7 +587,9 @@ public partial class BeltView : Node3D
 
     // A stretch of belt from `from` to `to` m along the curve, its vertices relative to `origin`: the
     // cross-section swept along it (base walls, rails, the surface between), capped at both ends, with a
-    // joint crossbar at its start and, if asked, at its end. Colors are in the vertices.
+    // joint crossbar at its start and, if asked, at its end. Colors are in the vertices, and UVs into the
+    // belt atlas: the surface its top band, running along the belt; rails and base the rail band; the
+    // housing its band; joints the crossbar band.
     ArrayMesh BuildSection(BezierSegment curve, float from, float to, Vector3 origin, bool joint, bool endJoint, bool covered = false)
     {
         float hw = BeltWidth / 2, r = RailWidth, rh = RailHeight;
@@ -544,12 +622,19 @@ public partial class BeltView : Node3D
         {
             var (o0, h0, _) = profile[e];
             var (o1, h1, color) = profile[e + 1];
+            bool surface = !covered && h0 == 0 && h1 == 0;
+            var (band, repeat) = covered ? (BandHousing, HousingRepeat) : surface ? (BandTop, TopRepeat) : (BandRail, RailRepeat);
+            if (_textured) color = covered || surface ? Colors.White : new Color(0.9f, 0.9f, 0.92f);
+            float v0 = band.X / 1024f, v1 = band.Y / 1024f;
+            if ((o0 + o1) / 2 > 0.01f) (v0, v1) = (v1, v0); // the right side mirrors the left
             // Out of the belt: across the edge, to its left as it runs left to right (up, for the surface).
             float eo = o1 - o0, eh = (h1 == Ground ? -1 : h1) - (h0 == Ground ? -1 : h0);
             for (int i = 0; i < steps; i++)
             {
                 var outward = sides[i] * -eh + Vector3.Up * eo;
-                Quad(st, At(i, o0, h0), At(i, o1, h1), At(i + 1, o1, h1), At(i + 1, o0, h0), outward, color);
+                float u0 = (from + (to - from) * i / steps) / repeat, u1 = (from + (to - from) * (i + 1) / steps) / repeat;
+                Quad(st, At(i, o0, h0), At(i, o1, h1), At(i + 1, o1, h1), At(i + 1, o0, h0), outward, color,
+                    new(u0, v0), new(u0, v1), new(u1, v1), new(u1, v0));
             }
         }
         var back = -(centers[1] - centers[0]);
@@ -580,29 +665,45 @@ public partial class BeltView : Node3D
         Quad(st, at(hw, 0), at(edge, 0), at(edge, rh), at(hw, rh), outward, color);              // the right rail
     }
 
-    // A crossbar across the belt at a joint, from the ground to just above the rails.
+    // A joint: a clamp over each rail, from the ground to just above it, and a flush seam across the surface
+    // between them, so packages pass over it.
     void Joint(SurfaceTool st, Vector3 center, Vector3 side, float ground)
     {
         var forward = Vector3.Up.Cross(side).Normalized(); // along the belt
-        float half = BeltWidth / 2 + RailWidth + JointOverhang, top = RailHeight + JointRise, length = JointLength / 2;
+        float hw = BeltWidth / 2, outer = hw + RailWidth + JointOverhang, top = RailHeight + JointRise, length = JointLength / 2;
         Vector3 P(float o, float h, float f) => center + side * o + Vector3.Up * h + forward * f;
-        var c = JointColor;
-        Quad(st, P(-half, top, -length), P(half, top, -length), P(half, top, length), P(-half, top, length), Vector3.Up, c);
-        Quad(st, P(-half, ground, -length), P(half, ground, -length), P(half, top, -length), P(-half, top, -length), -forward, c);
-        Quad(st, P(-half, ground, length), P(half, ground, length), P(half, top, length), P(-half, top, length), forward, c);
-        Quad(st, P(-half, ground, -length), P(-half, ground, length), P(-half, top, length), P(-half, top, -length), -side, c);
-        Quad(st, P(half, ground, -length), P(half, ground, length), P(half, top, length), P(half, top, -length), side, c);
+        var c = _textured ? Colors.White : JointColor;
+        // The crossbar band runs across each clamp; each face shows it end to end.
+        Vector2 a = new(0, BandCrossbar.X / 1024f), b = new(1, BandCrossbar.X / 1024f), cc = new(1, BandCrossbar.Y / 1024f), d = new(0, BandCrossbar.Y / 1024f);
+        foreach (var (o0, o1) in new[] { (-outer, -hw + 0.02f), (hw - 0.02f, outer) })
+        {
+            Quad(st, P(o0, top, -length), P(o1, top, -length), P(o1, top, length), P(o0, top, length), Vector3.Up, c, a, b, cc, d);
+            Quad(st, P(o0, ground, -length), P(o1, ground, -length), P(o1, top, -length), P(o0, top, -length), -forward, c, a, b, cc, d);
+            Quad(st, P(o0, ground, length), P(o1, ground, length), P(o1, top, length), P(o0, top, length), forward, c, a, b, cc, d);
+            Quad(st, P(o0, ground, -length), P(o0, ground, length), P(o0, top, length), P(o0, top, -length), -side, c, a, b, cc, d);
+            Quad(st, P(o1, ground, -length), P(o1, ground, length), P(o1, top, length), P(o1, top, -length), side, c, a, b, cc, d);
+        }
+        const float Seam = 0.004f; // m above the surface
+        Quad(st, P(-hw, Seam, -length * 0.5f), P(hw, Seam, -length * 0.5f), P(hw, Seam, length * 0.5f), P(-hw, Seam, length * 0.5f),
+            Vector3.Up, _textured ? new Color(0.55f, 0.55f, 0.58f) : JointColor, a, b, cc, d);
     }
 
     // A quad a-b-c-d (in order around it) facing `outward`: wound clockwise as seen from that side, which is
-    // Godot's front face, with a flat normal.
-    static void Quad(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 outward, Color color)
+    // Godot's front face, with a flat normal. Without UVs it takes a plain spot of the atlas (the middle of
+    // the rail band), so a dark color stays dark.
+    static readonly Vector2 PlainUv = new(0.5f, (BandRail.X + BandRail.Y) / 2048f);
+
+    static void Quad(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 outward, Color color) =>
+        Quad(st, a, b, c, d, outward, color, PlainUv, PlainUv, PlainUv, PlainUv);
+
+    static void Quad(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 outward, Color color,
+        Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
     {
-        if ((b - a).Cross(d - a).Dot(outward) > 0) (b, d) = (d, b);
+        if ((b - a).Cross(d - a).Dot(outward) > 0) ((b, d), (ub, ud)) = ((d, b), (ud, ub));
         var normal = -(b - a).Cross(d - a);
         st.SetColor(color);
         st.SetNormal(normal.LengthSquared() > 1e-12f ? normal.Normalized() : Vector3.Up);
-        st.AddVertex(a); st.AddVertex(b); st.AddVertex(c);
-        st.AddVertex(a); st.AddVertex(c); st.AddVertex(d);
+        st.SetUV(ua); st.AddVertex(a); st.SetUV(ub); st.AddVertex(b); st.SetUV(uc); st.AddVertex(c);
+        st.SetUV(ua); st.AddVertex(a); st.SetUV(uc); st.AddVertex(c); st.SetUV(ud); st.AddVertex(d);
     }
 }

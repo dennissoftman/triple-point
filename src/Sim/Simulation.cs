@@ -10,6 +10,7 @@ public sealed class Simulation
 
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
+    public const float BeltAimSpread = 0.7f;        // m: shots at a segment land anywhere this close to its middle
     public const float AutoRepairRadius = 12f;      // m; an idle unit that repairs goes for damaged belt this close by itself
     const int AutoRepairCheckTicks = 10;            // how often it looks
     public const float GatherSeconds = 2f;          // a gatherer post's work per package
@@ -26,6 +27,7 @@ public sealed class Simulation
     const float SpacingSlack = 0.001f;                        // m
     const float MuzzleReach = 1.5f, MuzzleHeight = 1.2f; // m; where shells start, ahead of a vehicle along its turret
     const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
+    const float BeltHitRise = 0.1f;                 // m above a belt's surface, for shots at a segment
     const float SquadFootprint = 1.5f;              // m, radius; the area a squad's members spread over, for splash
     const float SplashEdge = 0.5f;                  // share of full splash damage at the blast's edge
     const float StillSpeed = 0.1f;                  // m/s; a unit that stops to fire counts as stopped below this
@@ -865,10 +867,12 @@ public sealed class Simulation
                     var (l, s) = (unit.Current.Line, unit.Current.Segment);
                     var segment = State.Belts[l].Segments[s];
                     if (segment.State == SegmentState.Broken) { Complete(ref unit); break; }
-                    bool onTarget = AimAt(ref unit, unit.Current.Target, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
+                    // In range of the segment's nearest point, it aims at its middle, each shot a little off it.
+                    var middle = segment.Curve.PositionAt(segment.Curve.Length / 2) with { Y = unit.Position.Y };
+                    bool onTarget = AimAt(ref unit, middle, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
                     if (!InFiringRange(ref unit, unit.Current.Target) || !onTarget) break;
 
-                    if (Fire(ref unit, -1, unit.Current.Target, l, s)) Complete(ref unit);
+                    if (Fire(ref unit, -1, middle, l, s, spread: BeltAimSpread)) Complete(ref unit);
                     break;
                 }
 
@@ -1065,7 +1069,8 @@ public sealed class Simulation
     // Engages a target (a unit or post by id, or else a belt segment) and shoots if the weapon has reloaded:
     // every living member's Damage in one shot. A bullet hits at once; a shell flies (MoveShells). Returns
     // true if this shot destroyed the target, which only a bullet can: a shell's kill lands later.
-    bool Fire(ref Unit unit, int targetId, Vector3 at, int line = -1, int segment = -1)
+    // `spread`: the shot lands anywhere within that radius of `at`.
+    bool Fire(ref Unit unit, int targetId, Vector3 at, int line = -1, int segment = -1, float spread = 0)
     {
         float distance = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
         if (distance < unit.MinRange) return false;
@@ -1073,11 +1078,17 @@ public sealed class Simulation
         (unit.Firing, unit.FireAt) = (true, at);
         if (State.Tick < unit.ReadyAtTick) return false;
         (unit.ReadyAtTick, unit.LastShotTick) = (State.Tick + unit.ReloadTicks, State.Tick);
+        if (spread > 0)
+        {
+            float off = spread * MathF.Sqrt(_random.Range(0, 1)), angle = _random.Range(0, MathF.Tau);
+            at += new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * off;
+            unit.FireAt = at;
+        }
         float damage = unit.Damage * unit.Members;
         if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius);
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
-        var aim = at with { Y = HitHeight };
+        var aim = at with { Y = line >= 0 ? State.Belts[line].Segments[segment].Curve.PositionAt(0).Y + BeltHitRise : HitHeight };
         if (unit.Ballistic && unit.Scatter > 0)
         {
             // Off by up to Scatter at full range, less closer in, anywhere around the aim point.
@@ -1470,7 +1481,7 @@ public sealed class Simulation
         for (int i = 0; i < packages.Count; i++)
         {
             var p = packages[i];
-            if (p.Segment == segmentIndex && Spill(line, lineIndex, segmentIndex, p.Position)) continue;
+            if (p.Segment == segmentIndex && Spill(line, lineIndex, segmentIndex, p.Position, p.Id)) continue;
             packages[kept++] = p;
         }
         packages.RemoveRange(kept, packages.Count - kept);
@@ -1507,7 +1518,7 @@ public sealed class Simulation
             {
                 // At a break: it falls off onto the pile, or, with the pile full, waits at the lip (or where
                 // it was, on the broken segment itself), and everything behind it queues.
-                if (Spill(line, lineIndex, p.Segment, p.Position)) continue;
+                if (Spill(line, lineIndex, p.Segment, p.Position, p.Id)) continue;
                 p.Distance = wasOn == p.Segment ? wasAt : segment.Start;
             }
 
@@ -1554,7 +1565,8 @@ public sealed class Simulation
     }
 
     // Drops a package from `at` onto a free spot of the pile beside a broken segment; false if it's full.
-    bool Spill(BeltLine line, int lineIndex, int segmentIndex, Vector3 at)
+    // The pickup keeps the package's id.
+    bool Spill(BeltLine line, int lineIndex, int segmentIndex, Vector3 at, int packageId)
     {
         int taken = 0; // a bit per spot
         foreach (var p in State.Pickups)
@@ -1577,7 +1589,7 @@ public sealed class Simulation
         var position = start + side * (SpillRows[slot / 2 % 2] * (slot % 2 == 0 ? 1 : -1));
         State.Pickups.Add(new Pickup
         {
-            Id = _nextId++,
+            Id = packageId,
             Line = lineIndex,
             Segment = segmentIndex,
             Slot = slot,

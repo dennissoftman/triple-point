@@ -42,6 +42,7 @@ public partial class Minimap : Control
         (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 1, 1);
         (OffsetLeft, OffsetRight, OffsetTop, OffsetBottom) = (Margin, Margin + size.X, -Margin - size.Y, -Margin);
         MouseFilter = MouseFilterEnum.Stop;
+        ClipContents = true; // belts run on beyond the map; the minimap shows only the map
     }
 
     public override void _Process(double delta) => QueueRedraw();

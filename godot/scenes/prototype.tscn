@@ -214,10 +214,11 @@ color = Color(0.55, 1, 0.6, 0.18)
 script = ExtResource("12_panel")
 PlayerInput = NodePath("../../PlayerInput")
 
-[node name="ResourcePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput")]
+[node name="ResourcePanel" type="PanelContainer" parent="Ui" node_paths=PackedStringArray("Host", "PlayerInput", "Minimap")]
 script = ExtResource("14_resources")
 Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
+Minimap = NodePath("../Minimap")
 
 [node name="GameOver" type="CenterContainer" parent="Ui" node_paths=PackedStringArray("Host")]
 script = ExtResource("15_gameover")
