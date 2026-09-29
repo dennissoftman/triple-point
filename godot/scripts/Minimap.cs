@@ -5,7 +5,7 @@ using SVector3 = System.Numerics.Vector3;
 
 /// <summary>
 /// The minimap, bottom-left: the whole map (the camera's bounds) from above, north up like the main view.
-/// Belts (broken segments red) with their packages, switches in their owner's color, posts, buildings
+/// Belts (broken segments red) with their packages, posts, buildings
 /// (foundations hollow), units as dots (the selection brighter), and the camera's view as an outline.
 /// Click or drag to move the camera there; right-click to move the selection there. Everything shows:
 /// no fog of war yet. Drawn with the canvas API each frame, in few calls: every draw call and every
@@ -73,8 +73,6 @@ public partial class Minimap : Control
             foreach (var p in line.Packages) AddDot(_packages, ToMap(p.Position), 1);
         if (_packages.Count > 0) DrawMultiline(_packages.ToArray(), PackageColor, 2);
 
-        foreach (var junction in state.Junctions)
-            if (junction.IsSwitch) DrawCircle(ToMap(junction.Position), 3.5f, PlayerPalette.Color(junction.Owner));
         foreach (var post in state.Gatherers)
             DrawRect(new Rect2(ToMap(post.Position) - new Vector2(2, 2), new Vector2(4, 4)), PlayerPalette.Color(post.Owner));
         foreach (var building in state.Buildings)

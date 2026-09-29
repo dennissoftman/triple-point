@@ -13,13 +13,9 @@ public sealed class Simulation
     public const float RepairSeconds = 5f;          // for one unit, from 0 to full health
     public const float GatherSeconds = 2f;          // a gatherer post's work per package
     public const float GathererHealth = 300f;
-    public const float CaptureRadius = 4f;          // m around a switch
-    public const float CaptureSeconds = 5f;         // for one side holding a switch uncontested
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float PickupLifetimeSeconds = 60f;
     const float GrabReach = 0.5f;                   // m either side of a post's pull point
-    const float HoldGap = 0.001f;                   // m short of a line's end where packages wait for a junction
-    const float ArrivalSlack = 0.01f;               // m; a front package this close to the end is waiting
     const float SpillMinOffset = 1.3f, SpillMaxOffset = 2.5f; // m to the side of the belt center; clear of its edge
     const float SpillAlongJitter = 0.75f;                     // m along the belt
     const float SpacingSlack = 0.001f;                        // m
@@ -36,10 +32,10 @@ public sealed class Simulation
     public const float PostReach = 4f;              // m; a post must stand this close to a belt, and pulls from it
     public const float PostOffset = 2.5f;           // m from the belt's middle that a placed post snaps to (SnapToBelt)
     const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
+    public const float PostSpacing = 30f;           // m along a line between any two posts (foundations too); two posts drain a belt
     const float BuildReach = 2f;                    // m beyond a footprint's edge that a builder works from
     const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
-    const float JunctionClearance = 1.5f;           // m around a junction's disc
     const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
     public const float GraceSeconds = 60f;          // to rebuild, once a player has no buildings left
     const float VehicleArriveRadius = 0.6f;         // m; vehicles don't park to the centimeter
@@ -83,7 +79,7 @@ public sealed class Simulation
     public int AddUnit(int owner, Vector3 position, UnitType type, float heading = 0)
     {
         int id = AddUnit(owner, position, type.Speed, type.MemberHealth * type.Members, 0, 0,
-            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, type.CanCapture, heading, type.Id,
+            type.Members, type.Movement, type.Acceleration, type.TurnRate, type.ReverseSpeed, heading, type.Id,
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
         CollectionsMarshal.AsSpan(State.Units)[^1].Builds = type.Builds;
         return id;
@@ -96,7 +92,7 @@ public sealed class Simulation
     /// </summary>
     public int AddUnit(int owner, Vector3 position, float speed = 5, float maxHealth = 100, float dps = 10, float range = 8,
         int members = 1, Movement movement = Movement.Foot, float acceleration = 0, float turnRate = 0,
-        float reverseSpeed = 0, bool canCapture = true, float heading = 0, string type = "",
+        float reverseSpeed = 0, float heading = 0, string type = "",
         float braking = 0, float easeIn = 0, float easeOut = 0, float turretTurnRate = 0, WeaponType? weapon = null)
     {
         weapon ??= new WeaponType(WeaponKind.Bullet, dps / members * Dt, Dt, range);
@@ -121,7 +117,6 @@ public sealed class Simulation
             TurnRate = turnRate * MathF.PI / 180,
             TurretTurnRate = turretTurnRate * MathF.PI / 180,
             ReverseSpeed = reverseSpeed,
-            CanCapture = canCapture,
             MaxMembers = members,
             MemberHealth = maxHealth / members,
             Health = maxHealth,
@@ -149,41 +144,12 @@ public sealed class Simulation
     }
 
     /// <summary>
-    /// Adds a junction and attaches every line whose end (as an input) or start (as an output) lies
-    /// within `attachRadius`. Add all lines first. Returns the junction index.
-    /// </summary>
-    public int AddJunction(Vector3 position, float attachRadius)
-    {
-        int index = State.Junctions.Count;
-        var junction = new Junction(position);
-        for (int l = 0; l < State.Belts.Count; l++)
-        {
-            var line = State.Belts[l];
-            if (line.EndJunction < 0 && Vector3.Distance(line.EndPosition, position) <= attachRadius)
-            {
-                junction.Inputs.Add(l);
-                line.EndJunction = index;
-            }
-            if (line.StartJunction < 0 && Vector3.Distance(line.StartPosition, position) <= attachRadius)
-            {
-                junction.Outputs.Add(l);
-                line.StartJunction = index;
-            }
-        }
-        // A plain merge always feeds its one output; a switch starts neutral, splitting between its outputs.
-        junction.Selected = junction.Outputs.Count == 1 ? 0 : -1;
-        State.Junctions.Add(junction);
-        return index;
-    }
-
-    /// <summary>
     /// Adds a gatherer post for `owner` at `position`, pulling from the nearest belt point within
     /// `maxDistance`. Returns its id, or -1 if no belt is that close.
     /// </summary>
     public int AddGatherer(int owner, Vector3 position, float maxDistance, float health = GathererHealth)
     {
-        if (!FindSegment(position, maxDistance, out int line, out int segment)) return -1;
-        var s = State.Belts[line].Segments[segment];
+        if (!PullPoint(position, maxDistance, out int line, out float along)) return -1;
         int id = _nextId++;
         State.Gatherers.Add(new Gatherer
         {
@@ -191,7 +157,7 @@ public sealed class Simulation
             Owner = owner,
             Position = position,
             Line = line,
-            Distance = s.Start + s.Curve.ClosestDistanceAlong(position, out _),
+            Distance = along,
             Health = health,
             MaxHealth = health,
             LastGrabTick = int.MinValue / 2,
@@ -242,6 +208,31 @@ public sealed class Simulation
     }
 
     /// <summary>
+    /// Whether a post at `at` would stand within PostSpacing of another post, or post foundation, on the
+    /// same line, measured along the belt, whoever owns it. Posts on other lines don't count, however close.
+    /// </summary>
+    public bool TooCloseToPost(Vector3 at)
+    {
+        if (!PullPoint(at, PostReach, out int line, out float along)) return false;
+        foreach (var post in State.Gatherers)
+            if (post.Line == line && MathF.Abs(post.Distance - along) < PostSpacing) return true;
+        foreach (var b in State.Buildings)
+            if (!b.Built && b.Type.Kind == BuildingKind.Post && PullPoint(b.Position, PostReach, out int l, out float d)
+                && l == line && MathF.Abs(d - along) < PostSpacing) return true;
+        return false;
+    }
+
+    // The belt point a post at `at` pulls from: the nearest line within `maxDistance`, and how far along it.
+    bool PullPoint(Vector3 at, float maxDistance, out int line, out float along)
+    {
+        along = 0;
+        if (!FindSegment(at, maxDistance, out line, out int segment)) return false;
+        var s = State.Belts[line].Segments[segment];
+        along = s.Start + s.Curve.ClosestDistanceAlong(at, out _);
+        return true;
+    }
+
+    /// <summary>
     /// Where a building of this size goes near `at`: its footprint's edges on the grid lines, so an even
     /// number of cells across centers on a grid line and an odd number on a cell's middle.
     /// </summary>
@@ -255,8 +246,9 @@ public sealed class Simulation
 
     /// <summary>
     /// Whether a building of this type fits at `at`: its footprint clear of other buildings and
-    /// foundations, posts, defenses, junctions and belts. A post must also stand within PostReach of a belt.
-    /// Anywhere on the map, for now; factions bring their own rules for where they may build.
+    /// foundations, posts, defenses and belts. A post must also stand within PostReach of a belt, and keep
+    /// PostSpacing from other posts on it. Anywhere on the map, for now; factions bring their own rules for
+    /// where they may build.
     /// </summary>
     public bool CanPlace(BuildingType type, Vector3 at)
     {
@@ -268,28 +260,13 @@ public sealed class Simulation
         foreach (var u in State.Units)
             if (u.Movement == Movement.Static && Overlap(at, half, u.Position, GridCell / 2)) return false;
         float corner = half * MathF.Sqrt(2); // the footprint's corners, whichever way it faces
-        foreach (var j in State.Junctions)
-            if (GroundDistanceSq(j.Position, at) < (corner + JunctionClearance) * (corner + JunctionClearance)) return false;
         if (type.Kind == BuildingKind.Post)
-            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && FindSegment(at, PostReach, out _, out _);
+            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && FindSegment(at, PostReach, out _, out _) && !TooCloseToPost(at);
         return !FindSegment(at, corner + BeltHalfWidth, out _, out _);
     }
 
     static bool Overlap(Vector3 a, float aHalf, Vector3 b, float bHalf) =>
         MathF.Abs(a.X - b.X) < aHalf + bHalf && MathF.Abs(a.Z - b.Z) < aHalf + bHalf;
-
-    /// <summary>The junction nearest to a ground point, if one is within `maxDistance`.</summary>
-    public bool FindJunction(Vector3 point, float maxDistance, out int junction)
-    {
-        junction = -1;
-        float best = maxDistance * maxDistance;
-        for (int j = 0; j < State.Junctions.Count; j++)
-        {
-            float d = GroundDistanceSq(State.Junctions[j].Position, point);
-            if (d <= best) (best, junction) = (d, j);
-        }
-        return junction >= 0;
-    }
 
     /// <summary>The belt segment nearest to a ground point, if one is within `maxDistance`.</summary>
     public bool FindSegment(Vector3 point, float maxDistance, out int line, out int segment)
@@ -347,9 +324,7 @@ public sealed class Simulation
         UpdateUnits();
         MoveShells();
         RemoveDead();
-        for (int j = 0; j < State.Junctions.Count; j++) UpdateCapture(j, State.Junctions[j]);
         foreach (var line in State.Belts) MovePackages(line);
-        foreach (var junction in State.Junctions) Transfer(junction);
         UpdateGatherers();
         UpdateConstruction();
         foreach (var building in State.Buildings) UpdateProduction(building);
@@ -378,9 +353,6 @@ public sealed class Simulation
                 break;
             case RepairSegmentCommand r:
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
-                break;
-            case SetJunctionCommand j:
-                SetJunction(j.Player, j.Junction, j.Output);
                 break;
             case BreakSegmentCommand b:
                 Break(b.Line, b.Segment);
@@ -688,15 +660,6 @@ public sealed class Simulation
         if (unit.Pending.TryDequeue(out var next)) Start(ref unit, next);
     }
 
-    void SetJunction(int player, int j, int output)
-    {
-        var junction = State.Junctions[j];
-        if (!junction.IsSwitch || junction.Owner != player) return;
-        if (output < 0 || output >= junction.Outputs.Count || output == junction.Selected) return;
-        junction.Selected = output;
-        _events.Add(new SimEvent(SimEventKind.JunctionSwitched, j, output));
-    }
-
     int FindUnit(int id)
     {
         for (int i = 0; i < State.Units.Count; i++)
@@ -830,8 +793,8 @@ public sealed class Simulation
     // Return fire, for idle and attack-move units: hit by an enemy while nothing is in range to shoot back
     // at, a unit chases the attacker into range and fires on it, like an attack order, and idle allies
     // close by join in. It gives up past the leash from where it began (idle units then walk back there),
-    // or when the attacker dies. Units holding a switch stay put (Engage keeps their turret on the
-    // attacker), and unarmed ones can't answer. True while it's answering, so the order itself waits.
+    // or when the attacker dies. Immobile and unarmed units can't answer. True while it's answering, so
+    // the order itself waits.
     bool ReturnFire(ref Unit unit, Span<Unit> units)
     {
         if (unit.RespondTo < 0)
@@ -875,20 +838,12 @@ public sealed class Simulation
 
     // Armed, mobile, free to leave, nothing in range to fight where it is, and the attacker still alive.
     bool CanAnswer(in Unit unit, int attacker) =>
-        unit.Damage > 0 && unit.Speed > 0 && !OnSwitch(unit.Position) && !FindTarget(unit, out _, out _) && TryGetTarget(attacker, out _, out _);
+        unit.Damage > 0 && unit.Speed > 0 && !FindTarget(unit, out _, out _) && TryGetTarget(attacker, out _, out _);
 
     static void Answer(ref Unit unit, int attacker)
     {
         if (!unit.Returning) unit.Anchor = unit.Position; // one already walking back keeps its original spot
         (unit.RespondTo, unit.Returning) = (attacker, false);
-    }
-
-    // Within capture range of a switch: holding it matters more than chasing.
-    bool OnSwitch(Vector3 position)
-    {
-        foreach (var junction in State.Junctions)
-            if (junction.IsSwitch && GroundDistanceSq(junction.Position, position) <= CaptureRadius * CaptureRadius) return true;
-        return false;
     }
 
     // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
@@ -1286,71 +1241,6 @@ public sealed class Simulation
         }
     }
 
-    // A switch changes hands when one side holds it, with no enemy there, for CaptureSeconds. Only units
-    // that can capture (squads) take it, but any unit, vehicles too, denies it to the enemy: both sides
-    // present freezes progress. Nobody capturing, or the owner coming back, drains it.
-    void UpdateCapture(int index, Junction junction)
-    {
-        if (!junction.IsSwitch) return;
-
-        int present = Player.None;
-        bool capturing = false;
-        foreach (var unit in State.Units)
-        {
-            if (GroundDistanceSq(unit.Position, junction.Position) > CaptureRadius * CaptureRadius) continue;
-            if (present != Player.None && present != unit.Owner) return; // contested
-            present = unit.Owner;
-            capturing |= unit.CanCapture;
-        }
-
-        float step = Dt / CaptureSeconds;
-        if (capturing && present != junction.Owner)
-        {
-            if (junction.Capturer != present) (junction.Capturer, junction.CaptureProgress) = (present, 0);
-            junction.CaptureProgress += step;
-            if (junction.CaptureProgress < 1 - 1e-4f) return;
-            (junction.Owner, junction.Capturer, junction.CaptureProgress) = (present, Player.None, 0);
-            _events.Add(new SimEvent(SimEventKind.JunctionCaptured, index, present));
-            TurnToward(index, junction, present);
-        }
-        else if (junction.CaptureProgress > 0)
-        {
-            junction.CaptureProgress = MathF.Max(0, junction.CaptureProgress - step);
-            if (junction.CaptureProgress == 0) junction.Capturer = Player.None;
-        }
-    }
-
-    // A captured switch turns to its new owner's side: the first output whose stream reaches one of their
-    // posts, keeping the current one if it already does. With none of theirs downstream it keeps feeding
-    // what it fed, or its first output if it was splitting. Either way it feeds one side, never none.
-    void TurnToward(int index, Junction junction, int player)
-    {
-        int count = junction.Outputs.Count, from = Math.Max(0, junction.Selected), output = from;
-        for (int k = 0; k < count; k++)
-        {
-            int o = (from + k) % count;
-            if (!Feeds(junction.Outputs[o], player, State.Junctions.Count)) continue;
-            output = o;
-            break;
-        }
-        if (output == junction.Selected) return;
-        junction.Selected = output;
-        _events.Add(new SimEvent(SimEventKind.JunctionSwitched, index, output));
-    }
-
-    // Whether packages on a line can reach one of the player's posts: on it, or past junctions further down
-    // (whichever way those are set). `depth` bounds the search on looped networks.
-    bool Feeds(int line, int player, int depth)
-    {
-        foreach (var post in State.Gatherers)
-            if (post.Line == line && post.Owner == player) return true;
-        int next = State.Belts[line].EndJunction;
-        if (next < 0 || depth == 0) return false;
-        foreach (int output in State.Junctions[next].Outputs)
-            if (Feeds(output, player, depth - 1)) return true;
-        return false;
-    }
-
     void Break(int lineIndex, int segmentIndex)
     {
         var line = State.Belts[lineIndex];
@@ -1369,9 +1259,7 @@ public sealed class Simulation
     {
         var segments = line.Segments;
         var packages = CollectionsMarshal.AsSpan(line.Packages);
-        // How far the package ahead lets this one go. A line ending in a junction holds its front
-        // package at the end until the junction takes it.
-        float limit = HandsOff(line) ? line.Length - HoldGap : float.MaxValue;
+        float limit = float.MaxValue; // how far the package ahead lets this one go
         int kept = 0;
 
         for (int i = 0; i < packages.Length; i++)
@@ -1404,53 +1292,6 @@ public sealed class Simulation
         }
 
         line.Packages.RemoveRange(kept, packages.Length - kept);
-    }
-
-    bool HandsOff(BeltLine line) => line.EndJunction >= 0 && State.Junctions[line.EndJunction].Outputs.Count > 0;
-
-    // Moves at most one waiting package per tick from an input to an output whose entry is clear. Inputs
-    // take turns, so a merge fed faster than its output can carry backs up evenly. A switch feeds the
-    // output its owner chose; a neutral one deals packages out to its outputs in turn (skipping one that's
-    // backed up), so the stream always flows somewhere.
-    void Transfer(Junction junction)
-    {
-        if (junction.Inputs.Count == 0) return;
-        int o = OpenOutput(junction);
-        if (o < 0) return;
-        var output = State.Belts[junction.Outputs[o]];
-
-        for (int k = 0; k < junction.Inputs.Count; k++)
-        {
-            int i = (junction.NextInput + k) % junction.Inputs.Count;
-            var input = State.Belts[junction.Inputs[i]];
-            if (input.Packages.Count == 0 || input.Packages[0].Distance < input.Length - ArrivalSlack) continue;
-
-            var package = input.Packages[0];
-            input.Packages.RemoveAt(0);
-            output.Packages.Add(new Package
-            {
-                Id = package.Id,
-                Position = output.StartPosition,
-                PrevPosition = package.Position,
-                Direction = output.DirectionAt(0),
-            });
-            junction.NextInput = (i + 1) % junction.Inputs.Count;
-            junction.NextOutput = (o + 1) % junction.Outputs.Count;
-            return;
-        }
-    }
-
-    // The output the next package goes to, or -1 if its entry isn't clear yet.
-    int OpenOutput(Junction junction)
-    {
-        var outputs = junction.Outputs;
-        if (junction.Selected >= 0) return EntryClear(State.Belts[outputs[junction.Selected]]) ? junction.Selected : -1;
-        for (int k = 0; k < outputs.Count; k++)
-        {
-            int o = (junction.NextOutput + k) % outputs.Count;
-            if (EntryClear(State.Belts[outputs[o]])) return o;
-        }
-        return -1;
     }
 
     // Room for a package at the start of a line. The slack keeps float rounding from blocking a spawn
@@ -1508,7 +1349,6 @@ public sealed class Simulation
 
     void SpawnPackage(BeltLine line)
     {
-        if (line.StartJunction >= 0) return; // fed by a junction, not a source
         if (--line.TicksUntilSpawn > 0) return;
         line.TicksUntilSpawn = line.SpawnIntervalTicks;
 

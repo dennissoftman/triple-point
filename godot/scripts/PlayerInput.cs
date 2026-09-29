@@ -19,8 +19,6 @@ public partial class PlayerInput : Node
     const float SquadPickRadius = 44f;    // squads are spread out
     const float UnitCenterHeight = 0.6f;
     const float PostPickRadius = 1.3f;    // m on the ground
-    const float JunctionPickRadius = 1.5f; // m; right-clicking this close to a switch holds it
-    const float SwitchDiscRadius = 1.1f;   // m; left-clicking the disc of your switch flips it
     const float PickTolerance = 0.5f;     // m beyond the belt edge that still counts as clicking it
     const float FormationSpacing = 3f;    // m between units of a group move
     const float PostSnapRadius = 6f;      // m from the cursor to a belt that a post being placed snaps to
@@ -37,7 +35,7 @@ public partial class PlayerInput : Node
     public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, Capture, AttackSegment, Repair, Rally, Resume }
+    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
     /// <summary>
@@ -214,8 +212,8 @@ public partial class PlayerInput : Node
     }
 
     // Where the armed building would go: under the cursor, snapped to the grid, or for a post beside the
-    // nearest belt, facing it; and whether it can: the spot clear, and the whole cost in hand. Placement
-    // ends when no builder is selected any more.
+    // nearest belt, facing it; and whether it can: the spot clear, posts spaced along the belt, and the
+    // whole cost in hand. Placement ends when no builder is selected any more.
     void UpdatePlacement()
     {
         Placing = null;
@@ -230,6 +228,8 @@ public partial class PlayerInput : Node
         var (at, heading, problem) = (Simulation.SnapToGrid(point, type.Size), _placingHeading, (string?)null);
         if (type.Kind == BuildingKind.Post && !Host.Sim.SnapToBelt(point, PostSnapRadius, out at, out heading))
             (at, problem) = (point, "must go beside a belt");
+        if (problem is null && type.Kind == BuildingKind.Post && Host.Sim.TooCloseToPost(at))
+            problem = $"another post is closer than {Simulation.PostSpacing:0} m along this belt";
         if (problem is null && !Host.Sim.CanPlace(type, at)) problem = "something's in the way";
         if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = $"not enough Resources (needs {type.Cost})";
         Placing = new Placement(type, at, heading, problem);
@@ -258,9 +258,8 @@ public partial class PlayerInput : Node
 
     // ---- What a click would do ----
 
-    // What a right-click here orders the selection to do: attack an enemy, hold a switch (capturing is
-    // automatic), force-attack a segment, repair a damaged one, otherwise move. With a building
-    // selected, it sets the rally point.
+    // What a right-click here orders the selection to do: attack an enemy, force-attack a segment,
+    // repair a damaged one, otherwise move. With a building selected, it sets the rally point.
     Intent RightClickIntent(Vector2 screen, SVector3 point)
     {
         if (SelectedBuilding >= 0) return new(Act.Rally, point);
@@ -269,8 +268,6 @@ public partial class PlayerInput : Node
         if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
             return new(Act.Resume, point, site);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
-        if (sim.FindJunction(point, JunctionPickRadius, out int j) && sim.State.Junctions[j].IsSwitch)
-            return new(Act.Capture, sim.State.Junctions[j].Position with { Y = 0 });
         if (sim.FindSegment(point, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment))
         {
             if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
@@ -300,7 +297,7 @@ public partial class PlayerInput : Node
             {
                 Act.Resume when builder => new ResumeBuildCommand(LocalPlayer, id, intent.Target, queued),
                 Act.Resume => new MoveCommand(LocalPlayer, id, spread, queued),
-                Act.Move or Act.Capture => new MoveCommand(LocalPlayer, id, spread, queued),
+                Act.Move => new MoveCommand(LocalPlayer, id, spread, queued),
                 Act.AttackMove => new AttackMoveCommand(LocalPlayer, id, spread, queued),
                 Act.Attack => new AttackCommand(LocalPlayer, id, intent.Target, queued),
                 Act.AttackSegment => new AttackSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued),
@@ -311,8 +308,8 @@ public partial class PlayerInput : Node
         }
     }
 
-    // The cursor says what a click would do right now: over your switch a left click flips it, over one
-    // of your units it selects it, and otherwise it's whatever a right-click would order.
+    // The cursor says what a click would do right now: over one of your units a left click selects it,
+    // and otherwise it's whatever a right-click would order.
     void UpdateCursor(Vector2 screen)
     {
         var kind = CursorKind.Default; // also while placing a building: the ghost shows what a click does
@@ -321,13 +318,11 @@ public partial class PlayerInput : Node
             var point = ToSim(ground);
             if (_attackMoveArmed)
                 kind = AttackMoveIntent(screen, point).Kind == Act.Attack ? CursorKind.Attack : CursorKind.AttackMove;
-            else if (OwnSwitchAt(point) >= 0) kind = CursorKind.Flip;
             else if (UnitAt(screen, mine: true) is null)
                 kind = RightClickIntent(screen, point).Kind switch
                 {
                     Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
-                    Act.Capture => CursorKind.Capture,
                     Act.Repair or Act.Resume => CursorKind.Repair,
                     _ => CursorKind.Default,
                 };
@@ -361,15 +356,13 @@ public partial class PlayerInput : Node
         SelectionBox.Visible = true;
     }
 
-    // A click on the disc of a switch you own flips it (even with your units standing around it);
-    // otherwise a click picks one of your units (select_add toggles it), or else one of your buildings,
+    // A click picks one of your units (select_add toggles it), or else one of your buildings,
     // alone. A drag picks all your units in the box (select_add adds). Clicking empty ground without
     // select_add clears.
     void Select(Vector2 from, Vector2 to)
     {
         bool add = Input.IsActionPressed("select_add");
         bool click = from.DistanceTo(to) < DragThreshold;
-        if (click && FlipSwitchAt(to)) return;
 
         int? unit = click ? UnitAt(to, mine: true) : null;
         if (click && unit is null && Camera.GroundPoint(to) is Vector3 ground && BuildingAt(ToSim(ground), mine: true) is int building)
@@ -409,24 +402,6 @@ public partial class PlayerInput : Node
         foreach (var u in Host.Sim.State.Units)
             if (u.Owner == LocalPlayer && u.Type == type && ScreenPosition(u) is Vector2 p && onScreen.HasPoint(p) && !_selection.Contains(u.Id))
                 _selection.Add(u.Id);
-    }
-
-    // Clicking a switch you own sets it to its next output; the owner can do this from anywhere.
-    bool FlipSwitchAt(Vector2 screen)
-    {
-        if (Camera.GroundPoint(screen) is not Vector3 ground || OwnSwitchAt(ToSim(ground)) is not (>= 0 and var j)) return false;
-        var junction = Host.Sim.State.Junctions[j];
-        Host.Issue(new SetJunctionCommand(LocalPlayer, j, (junction.Selected + 1) % junction.Outputs.Count));
-        return true;
-    }
-
-    // The switch you own whose disc is under this ground point, or -1.
-    int OwnSwitchAt(SVector3 point)
-    {
-        var sim = Host.Sim;
-        if (!sim.FindJunction(point, SwitchDiscRadius, out int j)) return -1;
-        var junction = sim.State.Junctions[j];
-        return junction.IsSwitch && junction.Owner == LocalPlayer ? j : -1;
     }
 
     // ---- Picking ----

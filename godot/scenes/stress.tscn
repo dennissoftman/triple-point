@@ -39,11 +39,6 @@ emission_enabled = true
 emission = Color(1, 0.55, 0.1, 1)
 emission_energy_multiplier = 0.4
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_junction"]
-albedo_color = Color(0.22, 0.23, 0.25, 1)
-metallic = 0.6
-roughness = 0.5
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_indicator"]
 shading_mode = 0
 albedo_color = Color(0.55, 1, 0.6, 1)
@@ -87,8 +82,6 @@ mesh = SubResource("PlaneMesh_ground")
 
 [node name="Belts" type="Node3D" parent="."]
 
-[node name="Junctions" type="Node3D" parent="."]
-
 [node name="Gatherers" type="Node3D" parent="."]
 
 [node name="Units" type="Node3D" parent="."]
@@ -106,8 +99,6 @@ Units = NodePath("../Units")
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
-JunctionMaterial = SubResource("StandardMaterial3D_junction")
-IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
 GathererMaterial = SubResource("StandardMaterial3D_gatherer")
 
 [node name="UnitsView" type="Node3D" parent="."]
@@ -149,13 +140,12 @@ Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Camera = NodePath("../../Camera")
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SpawnInterval = 1.0
 EndConditions = false
 ShowDebug = true
 Belts = NodePath("../Belts")
-Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
 Buildings = NodePath("../Buildings")

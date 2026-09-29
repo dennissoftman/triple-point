@@ -28,7 +28,7 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 
 ## Current state
 
-- **Built:** belts with breakable segments, spill and repair; gatherer posts (built by players); merges and switches (split while neutral, captured by squads, turned to the captor's side, flipped by the owner); two players, each starting with an HQ and a builder; production at buildings (paid as they build, one queue, repeat, rally point); a construction prototype (builder, barracks, factory, post, turret; placement anywhere, grid-snapped, posts snapped beside belts; needs the whole cost to start, paid as it grows); win/lose (`CanStillRecover`, a 60 s rebuild clock, game-over banner); a command card, a minimap and a Resources panel; a one-line HUD with debug text under F3; a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
+- **Built:** belts with breakable segments, spill and repair; gatherer posts (built by players, spaced along the belt); belts as plain lines, no junctions; two players, each starting with an HQ and a builder; production at buildings (paid as they build, one queue, repeat, rally point); a construction prototype (builder, barracks, factory, post, turret; placement anywhere, grid-snapped, posts snapped beside belts; needs the whole cost to start, paid as it grows); win/lose (`CanStillRecover`, a 60 s rebuild clock, game-over banner); a command card, a minimap and a Resources panel; a one-line HUD with debug text under F3; a rifle squad, a scout car and a tank; data-driven weapons (bullets and shells, direct and splash); eased vehicle driving with sim turrets; fire on the move; return fire (leashed, allies join); attack-move; order paths for the selection, colored by order; cursors; F2 hotseat; RTS camera; the stress scene.
 - **Next in the MVP:** minimal navigation (grid, blocking buildings, A*, separation), then the commander AI.
 
 ## Layout
@@ -51,12 +51,11 @@ tools/              input smoke test, main map generator
 
 Authoring, in any map scene:
 
-- `Belts`: `Path3D` curves become belt lines (cut into 5 m breakable segments at load).
-- `Junctions`: markers; belt ends within 1 m attach (a line's end is an input, its start an output).
+- `Belts`: `Path3D` curves become belt lines (cut into 5 m breakable segments at load), each from its source (the curve's start) to its end.
 - `Gatherers`: `OwnedMarker`s (with `Player`) beside a belt become that player's posts.
 - `Units`: `UnitSpawn`s (with `Player` and a `UnitType` from `data/units.json`) are the starting units; a marker's -Z is the unit's facing.
 - `Buildings`: `BuildingSpawn`s (with `Player` and a `BuildingType` from `data/buildings.json`) are the starting buildings; a marker's -Z is the exit side. `SimHost.StartingResources` is each player's starting money.
-- Keep posts and spawns out of range of capture points: at least the longest weapon range plus the capture radius.
+- The main map's generator checks its layout against the map rules (one safe post slot per belt, contested tails, neutral ends, symmetry) and refuses to write a map that fails; `--check` prints the report only.
 
 ## Commands
 
@@ -84,4 +83,4 @@ Stress scene (generated belts, 200 units, a battle). The HUD's Perf line shows f
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot res://scenes/stress.tscn --disable-vsync -- --perf-log
 ```
 
-Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripted two-player match at 3x on the test map (switch captures, a post destroyed, a fight, both HQs producing), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.
+Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripted two-player match at 3x on the test map (a belt raid with spill, a repair, posts destroyed, a fight, both HQs producing, the ending), logging events. Add `--write-movie <dir>/f.png --fixed-fps 10 --quit-after 340` to capture frames; use `--fixed-fps 60` to see sub-second effects such as shells.

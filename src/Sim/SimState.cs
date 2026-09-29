@@ -79,7 +79,7 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 public sealed record UnitType(
     int Members, float Speed, float MemberHealth, string? Weapon = null,
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
-    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0, bool CanCapture = true,
+    float TurnRate = 0, float TurretTurnRate = 0, float ReverseSpeed = 0,
     int Cost = 0, float BuildTime = 0, string[]? Builds = null, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
@@ -163,7 +163,6 @@ public struct Unit
     public float CurrentSpeed;             // m/s; negative while reversing
     public float Effort;
     public float TurnSpeed;                // rad/s, signed like Heading
-    public bool CanCapture;                // squads take switches; vehicles only deny them
     public bool Driving;                   // moved under power this tick; otherwise a vehicle coasts to a stop
     public int MaxMembers;
     public float MemberHealth;
@@ -235,9 +234,6 @@ public sealed class BeltLine
     public readonly float Speed, Spacing, SpillLoss;
     public readonly int SpawnIntervalTicks;
 
-    public int StartJunction { get; internal set; } = -1; // feeds this line; then it doesn't spawn
-    public int EndJunction { get; internal set; } = -1;   // this line hands packages to it
-
     public readonly List<Package> Packages = []; // ordered: index 0 is furthest along
     public int Spawned, Lost, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
     internal int TicksUntilSpawn = 1;
@@ -277,27 +273,6 @@ public sealed class BeltLine
         var segment = Segments[SegmentAt(distance)];
         return segment.Curve.DirectionAt(distance - segment.Start);
     }
-}
-
-/// <summary>
-/// Where belt lines meet. Several inputs make a merge (they take turns), several outputs make a switch.
-/// A switch never stops the stream, it only steers it: neutral, it deals packages out to its outputs in
-/// turn; a side takes it by holding it uncontested, which turns it toward that side, and from then on
-/// only its owner moves it between outputs.
-/// </summary>
-public sealed class Junction
-{
-    public readonly Vector3 Position;
-    public readonly List<int> Inputs = [], Outputs = []; // line indices
-    public int Selected = -1;          // index into Outputs; -1 on a neutral switch, which splits between them
-    public int Owner = Player.None;    // switches only
-    public int Capturer = Player.None; // who CaptureProgress belongs to
-    public float CaptureProgress;      // 0..1
-    internal int NextInput, NextOutput; // round-robin, so a merge doesn't starve an input, and a neutral switch splits evenly
-
-    public Junction(Vector3 position) => Position = position;
-
-    public bool IsSwitch => Outputs.Count > 1;
 }
 
 /// <summary>
@@ -349,7 +324,6 @@ public sealed class SimState
     public readonly List<Player> Players = [];
     public readonly List<Unit> Units = [];
     public readonly List<BeltLine> Belts = [];
-    public readonly List<Junction> Junctions = [];
     public readonly List<Gatherer> Gatherers = [];
     public readonly List<Building> Buildings = [];
     public readonly List<Pickup> Pickups = []; // unordered: removal swaps with the last

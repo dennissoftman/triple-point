@@ -6,14 +6,12 @@ using Sim;
 using static SimConvert;
 
 /// <summary>
-/// Draws the belt network: segments as flat ribbons colored by state, packages, spilled pickups,
-/// junctions (switches get arrows to where the stream goes, and a capture ring), and gatherer posts.
+/// Draws the belts: segments as flat ribbons colored by state, packages, spilled pickups, and gatherer posts.
 /// </summary>
 public partial class BeltView : Node3D
 {
     const float RibbonStep = 0.25f; // meters between ribbon cross-sections
     const float FlashTicks = 6;     // a gatherer glows this long after a grab
-    const float RingHeight = 0.24f; // capture rings sit just above the belt surface
     static readonly Vector3 PostSize = new(1.6f, 1.2f, 1.6f);
 
     [Export] public StandardMaterial3D BeltMaterial = null!;
@@ -22,15 +20,9 @@ public partial class BeltView : Node3D
     [Export] public Color DamagedColor = new(0.55f, 0.35f, 0.1f); // a working segment near 0 health
     [Export] public float BeltWidth = 1.2f;
     [Export] public float PackageSize = 0.6f;
-    [Export] public StandardMaterial3D JunctionMaterial = null!;
-    [Export] public Material? IndicatorMaterial;
     [Export] public StandardMaterial3D GathererMaterial = null!;
 
     // What each view last showed is kept here in C#, so a frame only calls into the engine for what changed.
-    sealed record JunctionView(StandardMaterial3D Disc, MeshInstance3D[] Arrows, CaptureRing? Ring)
-    {
-        public int Owner = int.MinValue, Selected = int.MinValue; // as drawn
-    }
     sealed record PostView(Node3D Root, StandardMaterial3D Material, HealthBar Health)
     {
         public bool Glowing;
@@ -40,7 +32,6 @@ public partial class BeltView : Node3D
     // each shows. (Dev-grade: a draw call per segment. See the rendering debt in docs/architecture.md.)
     readonly List<StandardMaterial3D[]> _segmentMaterials = [];
     readonly List<Color[]> _segmentColors = [];
-    readonly List<JunctionView> _junctions = [];
     readonly Dictionary<int, PostView> _posts = []; // by gatherer id; destroyed posts go away
     readonly HashSet<int> _seen = [];
     readonly List<int> _gone = [];
@@ -59,8 +50,6 @@ public partial class BeltView : Node3D
             _segmentMaterials.Add(materials);
             _segmentColors.Add(Enumerable.Repeat(BeltMaterial.AlbedoColor, materials.Length).ToArray());
         }
-
-        foreach (var junction in state.Junctions) _junctions.Add(BuildJunction(state, junction));
 
         var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = PackageMaterial };
         _packages = new InstanceBatch(this, box);
@@ -83,7 +72,6 @@ public partial class BeltView : Node3D
         }
         _packages.End();
 
-        SyncJunctions(state);
         SyncPosts(state);
 
         _pickups.Begin(state.Pickups.Count);
@@ -93,60 +81,6 @@ public partial class BeltView : Node3D
             _pickups.Add(ToGodot(p.Position) + lift, new Vector3(MathF.Sin(yaw), 0, MathF.Cos(yaw)));
         }
         _pickups.End();
-    }
-
-    JunctionView BuildJunction(SimState state, Junction junction)
-    {
-        var disc = (StandardMaterial3D)JunctionMaterial.Duplicate();
-        AddChild(new MeshInstance3D
-        {
-            Mesh = new CylinderMesh { TopRadius = 0.9f, BottomRadius = 0.9f, Height = 0.3f },
-            MaterialOverride = disc,
-            Position = ToGodot(junction.Position),
-        });
-        if (!junction.IsSwitch) return new JunctionView(disc, [], null); // a merge has nothing to show
-
-        // An arrow just past the disc along each output, and a ring at the capture radius.
-        var mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 1f), Material = IndicatorMaterial };
-        var arrows = new MeshInstance3D[junction.Outputs.Count];
-        for (int o = 0; o < arrows.Length; o++)
-        {
-            var direction = (ToGodot(state.Belts[junction.Outputs[o]].DirectionAt(1f)) with { Y = 0 }).Normalized();
-            var at = ToGodot(junction.Position) + direction * 1.5f + new Vector3(0, 0.25f, 0);
-            AddChild(arrows[o] = new MeshInstance3D { Mesh = mesh, Transform = new Transform3D(Basis.LookingAt(direction, Vector3.Up), at) });
-        }
-        var ring = new CaptureRing { Radius = Simulation.CaptureRadius, Position = ToGodot(junction.Position) with { Y = RingHeight } };
-        AddChild(ring);
-        return new JunctionView(disc, arrows, ring);
-    }
-
-    // Discs take the owner's color. A switch shows an arrow on every output while it splits the stream
-    // (neutral), then only on the one it feeds; its ring fills with the capturer's color.
-    void SyncJunctions(SimState state)
-    {
-        for (int j = 0; j < state.Junctions.Count; j++)
-        {
-            var junction = state.Junctions[j];
-            var view = _junctions[j];
-            if (view.Owner != junction.Owner)
-            {
-                view.Owner = junction.Owner;
-                view.Disc.AlbedoColor = junction.Owner == Player.None
-                    ? JunctionMaterial.AlbedoColor
-                    : JunctionMaterial.AlbedoColor.Lerp(PlayerPalette.Color(junction.Owner), 0.75f);
-            }
-            if (!junction.IsSwitch) continue;
-
-            if (view.Selected != junction.Selected)
-            {
-                view.Selected = junction.Selected;
-                for (int o = 0; o < view.Arrows.Length; o++) view.Arrows[o].Visible = junction.Selected < 0 || junction.Selected == o;
-            }
-
-            var zone = PlayerPalette.Color(junction.Owner) with { A = 0.45f };
-            var progress = PlayerPalette.Color(junction.Capturer) with { A = 0.95f };
-            view.Ring!.Set(junction.CaptureProgress, zone, progress);
-        }
     }
 
     void SyncPosts(SimState state)

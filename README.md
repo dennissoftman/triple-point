@@ -1,6 +1,6 @@
 # Triple Point
 
-*Working title.* A prototype real-time strategy game in the spirit of C&C Generals, built around a **shared, physical conveyor-belt economy**: resources travel along belts across the map, and every package you take is one your enemy doesn't get. Belts break, spill and get repaired; switches steer the stream to whoever holds them.
+*Working title.* A prototype real-time strategy game in the spirit of C&C Generals, built around a **shared, physical conveyor-belt economy**: resources travel along belts across the map, and every package you take is one your enemy doesn't get. Belts break, spill and get repaired; whoever's posts stand furthest upstream, and survive, gets the flow.
 
 Godot 4.7 (.NET) and C#. The whole game simulation is a plain C# library with no engine dependency, ticking at a fixed 20 Hz; Godot only draws it and turns input into commands.
 
@@ -8,7 +8,7 @@ Godot 4.7 (.NET) and C#. The whole game simulation is a plain C# library with no
 
 ## What's in it
 
-- Belts with breakable segments, spilled packages and repair; merges and capturable switches that split the stream while neutral.
+- Belts with breakable segments, spilled packages and repair; gatherer posts spaced along them, so no side can drain a belt from safety.
 - Construction: a builder puts up barracks, factories, gatherer posts beside the belt, and turrets, paying as they grow.
 - Production with queues, repeat and rally points, paid as units build, so production speed follows belt income.
 - A rifle squad, a scout car and a tank: data-driven weapons (bullets and shells, direct and splash), eased vehicle driving with turrets, firing on the move, return fire, attack-move.

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Godot;
 
 /// <summary>What the mouse would do right now, shown as the cursor.</summary>
-public enum CursorKind { Default, Move, Attack, AttackMove, Capture, Repair, Flip }
+public enum CursorKind { Default, Move, Attack, AttackMove, Repair }
 
 /// <summary>
 /// Placeholder cursors, drawn in code the first time they're needed (listed in PLACEHOLDERS.md). Round
@@ -64,10 +64,6 @@ public static class Cursors
             // Shoot this: a crosshair. Orange for attack-move, which shoots whatever it meets on the way.
             CursorKind.Attack => (Center, Layers((p => Crosshair(p, Center), new Color(1, 0.3f, 0.25f)))),
             CursorKind.AttackMove => (Center, Layers((p => Crosshair(p, Center), new Color(1, 0.65f, 0.15f)))),
-            // Flip your switch: two opposite arrows.
-            CursorKind.Flip => (Center, Layers((FlipArrows, new Color(0.6f, 0.8f, 1)))),
-            // Take this switch: a flag, pointing with the top of its pole.
-            CursorKind.Capture => (new Vector2(3, 2), Layers((p => MathF.Min(Segment(p, new(3, 2), new(3, 29), 2.5f), Triangle(p, new(4, 3), new(22, 8), new(4, 13))), new Color(1, 0.85f, 0.25f)))),
             // Fix this: a wrench, jaws up-left where it grips, handle down to the right.
             _ => (WrenchGrip, Layers((Wrench, new Color(0.35f, 0.9f, 1)))),
         };
@@ -97,9 +93,6 @@ public static class Cursors
         MathF.Min(Segment(p, c + new Vector2(-14, 0), c + new Vector2(-5, 0), 2.5f), Segment(p, c + new Vector2(5, 0), c + new Vector2(14, 0), 2.5f))));
 
     // Point-symmetric about the center: one arrow right along the top, one left along the bottom.
-    static float FlipArrows(Vector2 p) => MathF.Min(
-        MathF.Min(Segment(p, new(5, 11), new(23, 11), 2.5f), Triangle(p, new(22, 6), new(29, 11), new(22, 16))),
-        MathF.Min(Segment(p, new(9, 21), new(27, 21), 2.5f), Triangle(p, new(10, 16), new(3, 21), new(10, 26))));
 
     static readonly Vector2 WrenchHead = new(9, 9), WrenchGrip = new(5, 5);
 

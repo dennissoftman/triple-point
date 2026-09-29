@@ -65,25 +65,6 @@ public class ReturnFireTests
     }
 
     [Fact]
-    public void Units_holding_a_switch_stay_and_only_turn_toward_the_attacker()
-    {
-        var sim = NewSim();
-        sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0))], Belt(1));
-        sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, -5))], Belt(1));
-        sim.AddBeltLine([Straight(new(10, 0, 0), new(20, 0, 5))], Belt(1));
-        sim.AddJunction(new Vector3(10, 0, 0), attachRadius: 0.5f);
-        int blue = sim.AddUnit(Blue, new Vector3(10, 0, 2), maxHealth: 300, dps: 10, range: 8);
-        sim.AddUnit(Red, new Vector3(23, 0, 2), speed: 0, dps: 5, range: 14);
-
-        Run(sim, 3 * T);
-
-        var held = UnitById(sim, blue);
-        Assert.Equal(new Vector3(10, 0, 2), held.Position);
-        Assert.Equal(MathF.PI / 2, held.Turret, 0.01f); // facing +x, where the fire comes from
-        Assert.True(held.Health < 300);
-    }
-
-    [Fact]
     public void Idle_allies_close_by_answer_with_the_unit_under_fire_and_far_ones_dont()
     {
         var sim = NewSim();

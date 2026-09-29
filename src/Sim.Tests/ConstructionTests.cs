@@ -153,6 +153,39 @@ public class ConstructionTests
     }
 
     [Fact]
+    public void Posts_keep_the_post_spacing_along_the_line_from_any_post_or_post_foundation()
+    {
+        var sim = NewConstructionSim();
+        sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1));
+        sim.AddBeltLine([Straight(new(0, 0, 10), new(100, 0, 10))], Belt(1)); // another line, 10 m over
+        sim.AddGatherer(Red, new Vector3(20, 0, 2), maxDistance: 3);           // anyone's post counts
+
+        float s = Simulation.PostSpacing;
+        Assert.False(sim.CanPlace(Post, new Vector3(20 + s - 1, 0, 2)));
+        Assert.False(sim.CanPlace(Post, new Vector3(20, 0, -2)));      // the other side of the belt is no escape
+        Assert.True(sim.CanPlace(Post, new Vector3(20 + s + 1, 0, 2)));
+        Assert.True(sim.CanPlace(Post, new Vector3(20, 0, 8)));        // beside the other line: its own spacing
+
+        // A foundation holds its spot too, before it's a post.
+        sim.AddBuilding(Blue, new Vector3(90, 0, 2), Post, built: false);
+        Assert.False(sim.CanPlace(Post, new Vector3(90 - s + 1, 0, 2)));
+        Assert.True(sim.CanPlace(Post, new Vector3(90 - s - 1, 0, 2))); // and clear of Red's at 20
+    }
+
+    [Fact]
+    public void A_builder_sent_to_a_spot_another_post_took_meanwhile_is_blocked()
+    {
+        var sim = NewConstructionSim();
+        sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1));
+        int builder = sim.AddUnit(Blue, new Vector3(10, 0, 12), Builder);
+
+        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 2))]);
+        sim.AddGatherer(Red, new Vector3(25, 0, 2), maxDistance: 3); // 15 m along: too close
+        Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder, Simulation.BlockedByTheSite), 5 * T) > 0);
+        Assert.Empty(sim.State.Buildings);
+    }
+
+    [Fact]
     public void A_finished_post_becomes_a_gatherer_post_on_the_belt()
     {
         var sim = NewConstructionSim();

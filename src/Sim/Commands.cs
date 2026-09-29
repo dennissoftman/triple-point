@@ -23,8 +23,6 @@ public sealed record AttackSegmentCommand(int Player, int UnitId, int Line, int 
 /// <summary>Walk to the segment and restore it to full health; a broken one works again once full.</summary>
 public sealed record RepairSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
-/// <summary>Set a switch's live output (an index into its Outputs). Only its owner can, from anywhere.</summary>
-public sealed record SetJunctionCommand(int Player, int Junction, int Output) : Command(Player);
 
 /// <summary>Adds a unit of `UnitType` (an id in units.json) to the back of a building's queue, if it produces that type and has room.</summary>
 public sealed record ProduceCommand(int Player, int BuildingId, string UnitType) : Command(Player);
@@ -57,7 +55,7 @@ public sealed record DestroyCommand(int TargetId) : Command(Sim.Player.None);
 public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, GathererDestroyed,
-    SegmentBroken, SegmentRepaired, JunctionCaptured, JunctionSwitched, ShellHit,
+    SegmentBroken, SegmentRepaired, ShellHit,
     UnitProduced, BuildingDestroyed, BuildingPlaced, BuildingCompleted, BuildBlocked,
     GraceStarted, GraceEnded, PlayerLost, GameOver,
 }
@@ -65,11 +63,10 @@ public enum SimEventKind
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
 /// Id: a unit, package, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked);
-/// the player for GraceStarted, GraceEnded and PlayerLost; the winner (Player.None: a draw) for GameOver; the line index for segment events; the junction index for junction
-/// events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
-/// Index: the segment for segment events, the gatherer id for PackageGathered, the new owner for
-/// JunctionCaptured, the output for JunctionSwitched, the building for UnitProduced, the builder for BuildingPlaced, why for BuildBlocked
-/// (Simulation.BlockedByTheSite or BlockedByMoney), and for
+/// the player for GraceStarted, GraceEnded and PlayerLost; the winner (Player.None: a draw) for GameOver; the line index for
+/// segment events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
+/// Index: the segment for segment events, the gatherer id for PackageGathered, the building for UnitProduced, the builder
+/// for BuildingPlaced, why for BuildBlocked (Simulation.BlockedByTheSite or BlockedByMoney), and for
 /// BuildingCompleted what the building became: itself, or the gatherer post or defense unit that replaced it.
 /// </summary>
 public readonly record struct SimEvent(SimEventKind Kind, int Id, int Index = -1);

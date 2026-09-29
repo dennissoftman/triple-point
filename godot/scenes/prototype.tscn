@@ -42,11 +42,6 @@ emission_enabled = true
 emission = Color(1, 0.55, 0.1, 1)
 emission_energy_multiplier = 0.4
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_junction"]
-albedo_color = Color(0.22, 0.23, 0.25, 1)
-metallic = 0.6
-roughness = 0.5
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_indicator"]
 shading_mode = 0
 albedo_color = Color(0.55, 1, 0.6, 1)
@@ -66,37 +61,16 @@ roughness = 0.8
 shading_mode = 0
 albedo_color = Color(1, 0.85, 0.4, 1)
 
-[sub_resource type="Curve3D" id="Curve3D_source_a"]
+[sub_resource type="Curve3D" id="Curve3D_blue_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 8, 0, 0, -20, 0.2, -8, -5, 0, -2, 0, 0, 0, -1, 0.2, 0),
+"points": PackedVector3Array(0, 0, 0, 19, 0, 0, -26, 0.2, -11, -19, 0, 0, 0, 0, 0, 32, 0.2, -11),
 "tilts": PackedFloat32Array(0, 0)
 }
 point_count = 2
 
-[sub_resource type="Curve3D" id="Curve3D_source_b"]
+[sub_resource type="Curve3D" id="Curve3D_red_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 8, 0, 0, -18, 0.2, 8, -5, 0, 2, 0, 0, 0, -1, 0.2, 0),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_trunk"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, 3, 0, 0, -1, 0.2, 0, -3, 0, 0, 0, 0, 0, 9, 0.2, 0),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_north"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -7, 0, 0, 0, 0, 0, 30, 0.2, -12),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_south"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, 4, 0, 0, 9, 0.2, 0, -7, 0, 0, 0, 0, 0, 30, 0.2, 12),
+"points": PackedVector3Array(0, 0, 0, -19, 0, 0, 32, 0.2, 11, 19, 0, 0, 0, 0, 0, -26, 0.2, 11),
 "tilts": PackedFloat32Array(0, 0)
 }
 point_count = 2
@@ -124,37 +98,20 @@ mesh = SubResource("PlaneMesh_ground")
 
 [node name="Belts" type="Node3D" parent="."]
 
-[node name="SourceA" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_source_a")
+[node name="BlueBelt" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_blue_belt")
 
-[node name="SourceB" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_source_b")
-
-[node name="Trunk" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_trunk")
-
-[node name="North" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_north")
-
-[node name="South" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_south")
-
-[node name="Junctions" type="Node3D" parent="."]
-
-[node name="Merge" type="Marker3D" parent="Junctions"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.2, 0)
-
-[node name="Switch" type="Marker3D" parent="Junctions"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0.2, 0)
+[node name="RedBelt" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_red_belt")
 
 [node name="Gatherers" type="Node3D" parent="."]
 
 [node name="BluePost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, -12.7)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, -13.5)
 script = ExtResource("7_owned")
 
 [node name="RedPost" type="Marker3D" parent="Gatherers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, 12.7)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.5, 0, 13.5)
 script = ExtResource("7_owned")
 Player = 1
 
@@ -220,8 +177,6 @@ Player = 1
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
-JunctionMaterial = SubResource("StandardMaterial3D_junction")
-IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
 GathererMaterial = SubResource("StandardMaterial3D_gatherer")
 
 [node name="UnitsView" type="Node3D" parent="."]
@@ -267,11 +222,10 @@ Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Camera = NodePath("../../Camera")
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 StartingResources = 40
 Belts = NodePath("../Belts")
-Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
 Buildings = NodePath("../Buildings")

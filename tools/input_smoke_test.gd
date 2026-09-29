@@ -1,6 +1,6 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
-# checks selection (only your own units), group moves, the switch (splitting while neutral, turning to
-# your post when you capture it, flipping when you click it), the hotseat swap with its per-side camera,
+# checks selection (only your own units), group moves, breaking an enemy belt segment (Ctrl+right-click)
+# and the repair cursor over it, the hotseat swap with its per-side camera,
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, rally point, cancel),
 # construction (a builder's build key arms a ghost, a click lays the foundation), and the minimap.
@@ -9,7 +9,7 @@
 # Prints PASS/FAIL per check and exits with the number of failures.
 extends SceneTree
 
-const SWITCH := Vector3(9, 0.2, 0) # on the prototype map
+const RED_BELT := Vector3(9, 0.2, 11) # on Red's belt, on the prototype map
 
 var frame := 0
 var failures := 0
@@ -37,7 +37,6 @@ func _process(_delta) -> bool:
 			box(blue)
 		25:
 			check("box selects all of your units", selected(blue), 4)
-			check("the neutral switch splits: arrows on both outputs", arrows_shown(), [true, true])
 			right_click(cam.unproject_position(Vector3.ZERO))
 		560:
 			# Four units around (0, 0, 0) in a 2x2 grid with 3 m spacing. Squads stop exactly on their slot;
@@ -61,16 +60,17 @@ func _process(_delta) -> bool:
 			check("enemy units can't be selected", [selected(blue), selected(red)], [0, 0])
 			box(blue)
 		585:
-			right_click(cam.unproject_position(SWITCH))
+			key(KEY_CTRL, true)
+			right_click(cam.unproject_position(RED_BELT))
+		590:
+			key(KEY_CTRL, false)
 		1120:
-			# Walked over (~2 s) and held it uncontested (5 s): it's Blue's, and it turned to Blue's post.
-			check("capturing the switch turns it to your post (north)", arrows_shown(), [true, false])
-			click(cam.unproject_position(SWITCH))
+			# Walked into range (~2 s) and shot the 100-health segment down.
+			check("Ctrl+right-click on an enemy belt segment breaks it", root.get_node("Main/SimHost").get("BrokenSegments"), 1)
+			motion(cam.unproject_position(RED_BELT))
 		1125:
-			check("clicking your switch flips it south", arrows_shown(), [false, true])
-			click(cam.unproject_position(SWITCH))
+			check("cursor over a broken segment: repair", player.get("CursorName"), "Repair")
 		1130:
-			check("and back north", arrows_shown(), [true, false])
 			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
 			key(KEY_F2, false)
@@ -96,12 +96,14 @@ func _process(_delta) -> bool:
 			motion(screen(red[0]))
 		1250:
 			check("cursor over an enemy: attack", player.get("CursorName"), "Attack")
-			motion(cam.unproject_position(Vector3(0, 0, -10)))
+			motion(cam.unproject_position(Vector3(0, 0, -5)))
 		1255:
 			check("cursor over open ground: move", player.get("CursorName"), "Move")
-			motion(cam.unproject_position(SWITCH))
+			key(KEY_CTRL, true)
+			motion(cam.unproject_position(Vector3(0, 0.2, -11))) # Blue's own belt
 		1260:
-			check("cursor over your own switch: flip", player.get("CursorName"), "Flip")
+			check("Ctrl over a belt: attack it", player.get("CursorName"), "Attack")
+			key(KEY_CTRL, false)
 			key(KEY_A, true)
 			key(KEY_A, false)
 		1265:
@@ -245,11 +247,6 @@ func selected(views: Array) -> int:
 
 func screen(v: Node3D) -> Vector2:
 	return cam.unproject_position(v.global_position + Vector3(0, 0.6, 0))
-
-# BeltView draws a 0.35 x 0.15 x 1 box arrow on each of a switch's outputs (the map's one switch: north,
-# then south), showing where the stream goes. Which of them show.
-func arrows_shown() -> Array:
-	return root.get_node("Main/BeltView").get_children() 		.filter(func(n): return n is MeshInstance3D and n.mesh is BoxMesh and n.mesh.size.is_equal_approx(Vector3(0.35, 0.15, 1))) 		.map(func(n): return n.visible)
 
 func box(views: Array):
 	var lo := Vector2(INF, INF)

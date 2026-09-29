@@ -30,7 +30,7 @@ roughness = 0.95
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 material = SubResource("StandardMaterial3D_ground")
-size = Vector2(200, 140)
+size = Vector2(256, 180)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_belt"]
 albedo_color = Color(0.12, 0.12, 0.13, 1)
@@ -41,11 +41,6 @@ albedo_color = Color(1, 0.62, 0.1, 1)
 emission_enabled = true
 emission = Color(1, 0.55, 0.1, 1)
 emission_energy_multiplier = 0.4
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_junction"]
-albedo_color = Color(0.22, 0.23, 0.25, 1)
-metallic = 0.6
-roughness = 0.5
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_indicator"]
 shading_mode = 0
@@ -66,47 +61,19 @@ roughness = 0.8
 shading_mode = 0
 albedo_color = Color(1, 0.85, 0.4, 1)
 
-[sub_resource type="Curve3D" id="Curve3D_WestLine"]
+[sub_resource type="Curve3D" id="Curve3D_BlueBelt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 20, 0, 0, -98, 0.2, -30, -12, 0, 0, 12, 0, 0, -55, 0.2, -30, -5, 0, -10, 0, 0, 0, -28, 0.2, 0),
-"tilts": PackedFloat32Array(0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, 1.665, 0, -2.496, -36.616, 0.2, 4.428, -4.439, 0, 2.449, 4.439, 0, -2.449, -26.626, 0.2, -10.548, -4.715, 0, -0.14, 4.715, 0, 0.14, -9.983, 0.2, -10.266, -3.884, 0, 2.819, 3.884, 0, -2.819, 1.667, 0.2, -9.708, -8.88, 0, 13.312, 8.88, 0, -13.312, 13.322, 0.2, -27.18, -6.938, 0, 10.4, 0, 0, 0, 54.947, 0.2, -89.58),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
 }
-point_count = 3
+point_count = 6
 
-[sub_resource type="Curve3D" id="Curve3D_WestSouth"]
+[sub_resource type="Curve3D" id="Curve3D_RedBelt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 8, 0, -6, -28, 0.2, 0, 0, 0, 10, 0, 0, 0, -8, 0.2, -38),
-"tilts": PackedFloat32Array(0, 0)
+"points": PackedVector3Array(0, 0, 0, -1.665, 0, 2.496, 36.616, 0.2, -4.428, 4.439, 0, -2.449, -4.439, 0, 2.449, 26.626, 0.2, 10.548, 4.715, 0, 0.14, -4.715, 0, -0.14, 9.983, 0.2, 10.266, 3.884, 0, -2.819, -3.884, 0, 2.819, -1.667, 0.2, 9.708, 8.88, 0, -13.312, -8.88, 0, 13.312, -13.322, 0.2, 27.18, 6.938, 0, -10.4, 0, 0, 0, -54.947, 0.2, 89.58),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
 }
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_WestNorth"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, 8, 0, 6, -28, 0.2, 0, 0, 0, -10, 0, 0, 0, -8, 0.2, 38),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_EastLine"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, -20, 0, 0, 98, 0.2, 30, 12, 0, 0, -12, 0, 0, 55, 0.2, 30, 5, 0, 10, 0, 0, 0, 28, 0.2, 0),
-"tilts": PackedFloat32Array(0, 0, 0)
-}
-point_count = 3
-
-[sub_resource type="Curve3D" id="Curve3D_EastNorth"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, -8, 0, 6, 28, 0.2, 0, 0, 0, -10, 0, 0, 0, 8, 0.2, 38),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_EastSouth"]
-_data = {
-"points": PackedVector3Array(0, 0, 0, -8, 0, -6, 28, 0.2, 0, 0, 0, 10, 0, 0, 0, 8, 0.2, -38),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
+point_count = 6
 
 [node name="Main" type="Node3D"]
 
@@ -126,50 +93,30 @@ script = ExtResource("6_camera")
 Focus = Vector2(-52, -38)
 Distance = 48.0
 MaxDistance = 90.0
-Bounds = Rect2(-100, -70, 200, 140)
+Bounds = Rect2(-128, -90, 256, 180)
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")
 
 [node name="Belts" type="Node3D" parent="."]
 
-[node name="WestLine" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_WestLine")
+[node name="BlueBelt" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_BlueBelt")
 
-[node name="WestSouth" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_WestSouth")
-
-[node name="WestNorth" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_WestNorth")
-
-[node name="EastLine" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_EastLine")
-
-[node name="EastNorth" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_EastNorth")
-
-[node name="EastSouth" type="Path3D" parent="Belts"]
-curve = SubResource("Curve3D_EastSouth")
-
-[node name="Junctions" type="Node3D" parent="."]
-
-[node name="WestSwitch" type="Marker3D" parent="Junctions"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28, 0.2, 0)
-
-[node name="EastSwitch" type="Marker3D" parent="Junctions"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28, 0.2, 0)
+[node name="RedBelt" type="Path3D" parent="Belts"]
+curve = SubResource("Curve3D_RedBelt")
 
 [node name="Gatherers" type="Node3D" parent="."]
 
 [node name="Units" type="Node3D" parent="."]
 
 [node name="BlueBuilder" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -60, 0, -46)
+transform = Transform3D(-0.555, 0, -0.832, 0, 1, 0, 0.832, 0, -0.555, -38.27, 0, -32.742)
 script = ExtResource("8_spawn")
 UnitType = "builder"
 
 [node name="RedBuilder" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 0, 46)
+transform = Transform3D(0.555, 0, 0.832, 0, 1, 0, -0.832, 0, 0.555, 38.27, 0, 32.742)
 script = ExtResource("8_spawn")
 Player = 1
 UnitType = "builder"
@@ -177,11 +124,11 @@ UnitType = "builder"
 [node name="Buildings" type="Node3D" parent="."]
 
 [node name="BlueHQ" type="Marker3D" parent="Buildings"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -60, 0, -55)
+transform = Transform3D(-0.555, 0, -0.832, 0, 1, 0, 0.832, 0, -0.555, -49.92, 0, -33.3)
 script = ExtResource("10_bspawn")
 
 [node name="RedHQ" type="Marker3D" parent="Buildings"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 60, 0, 55)
+transform = Transform3D(0.555, 0, 0.832, 0, 1, 0, -0.832, 0, 0.555, 49.92, 0, 33.3)
 script = ExtResource("10_bspawn")
 Player = 1
 
@@ -189,8 +136,6 @@ Player = 1
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")
 PackageMaterial = SubResource("StandardMaterial3D_package")
-JunctionMaterial = SubResource("StandardMaterial3D_junction")
-IndicatorMaterial = SubResource("StandardMaterial3D_indicator")
 GathererMaterial = SubResource("StandardMaterial3D_gatherer")
 
 [node name="UnitsView" type="Node3D" parent="."]
@@ -236,12 +181,11 @@ Host = NodePath("../../SimHost")
 PlayerInput = NodePath("../../PlayerInput")
 Camera = NodePath("../../Camera")
 
-[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Junctions", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
+[node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 BeltSpeed = 2.0
 SpawnInterval = 1.0
 Belts = NodePath("../Belts")
-Junctions = NodePath("../Junctions")
 Gatherers = NodePath("../Gatherers")
 Units = NodePath("../Units")
 Buildings = NodePath("../Buildings")

@@ -463,7 +463,7 @@ public class CombatTests
               "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle" },
               "tank": { "members": 1, "movement": "tracked", "speed": 4.5, "acceleration": 2, "braking": 4,
                         "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90, "reverseSpeed": 2.2,
-                        "memberHealth": 260, "weapon": "cannon", "canCapture": false },
+                        "memberHealth": 260, "weapon": "cannon" },
               "car": { "members": 1, "movement": "wheeled", "speed": 8, "acceleration": 4, "turnRate": 120,
                        "memberHealth": 140, "weapon": "mg" },
             }
@@ -479,7 +479,6 @@ public class CombatTests
         Assert.Equal((WeaponKind.Bullet, 8f), (squad.WeaponKind, squad.Range));
         Assert.Equal(4.5f, squad.Speed);
         Assert.Equal(Movement.Foot, squad.Movement);
-        Assert.True(squad.CanCapture);
 
         var tank = UnitById(sim, sim.AddUnit(Blue, Vector3.Zero, types["tank"]));
         Assert.Equal((WeaponKind.Shell, 14f, 40f, 60), (tank.WeaponKind, tank.Range, tank.ShellSpeed, tank.ReloadTicks));
@@ -488,7 +487,6 @@ public class CombatTests
         Assert.Equal(MathF.PI / 2, tank.TurretTurnRate, 0.001f);
         Assert.Equal((2f, 4f, 0.5f, 0.7f), (tank.Acceleration, tank.Braking, tank.EaseIn, tank.EaseOut));
         Assert.Equal(2.2f, tank.ReverseSpeed);
-        Assert.False(tank.CanCapture);
         Assert.Equal("tank", tank.Type);
         Assert.Equal("rifle_squad", squad.Type);
 

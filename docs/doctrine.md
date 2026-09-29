@@ -29,9 +29,9 @@ Milestones:
 
 1. [built] Camera, selection, move orders.
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters, under F3).
-3. [built] Break, spill and repair segments; junction merges and switches. Not yet: jammed segments, roads.
+3. [built] Break, spill and repair segments. (Merges and switches were built, then removed: see Rejected.) Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, switch capture, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose. **Next:** a minimal navigation (the 2 m grid, buildings blocking, A*, separation so units don't stack), then the AI, so the AI's movement is built on pathing from the start.
 5. [decided] A basic commander AI that fights over the belt.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
@@ -40,30 +40,31 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 ## Belt economy
 
-- [built] Belts are a fixed network of lines and junctions, authored per map. Players never build belt.
-- [built] Lines are cubic Bezier curves, cut at load into short breakable segments. Packages move by arc length at constant speed and keep a minimum spacing. A queue that reaches a source blocks spawning, and those packages never exist. Lines fed by a junction don't spawn. Lines ending in one hand packages over; other lines lose packages at their end.
+- [built] Belts are fixed lines, authored per map, each running from a source to an end, with no junctions (see Rejected). Players never build belt.
+- [built] Lines are cubic Bezier curves, cut at load into short breakable segments. Packages move by arc length at constant speed and keep a minimum spacing. A queue that reaches a source blocks spawning, and those packages never exist. Packages reaching a line's end are lost.
 - [built] **Segment health.** Units shoot a segment to break it. A damaged segment still works. A broken one stays broken until repaired back to full health, by a unit standing next to it.
 - [built] **A broken segment spills.** Packages on it, and every package that reaches it, fall beside it. A share is destroyed in the fall (spill loss, per belt), so holding a break never captures the whole stream. The rest become ground pickups: any unit walking over one collects it for its owner, and uncollected pickups fade. Downstream gets nothing until the repair.
 - [built] **Gatherer posts** stand beside a belt with a pull point. An idle post grabs a passing package (+1 Resource for its owner), then works for a while; packages passing meanwhile go on. Upstream posts get first pick, and a post whose rate matches the flow starves everything below it.
-- [built] **Merges:** inputs take turns into the output. An overloaded merge backs up all its inputs evenly.
-- [built] **Switches steer the stream and never stop it.** A neutral switch splits packages evenly between its outputs.
-  - **Capture:** a side takes a switch by holding it with squads, with no enemy inside the capture radius, for the capture time. More squads don't capture faster. Vehicles can't capture, but they do deny it. Both sides present freezes progress, and leaving drains it.
-  - **On capture,** it turns to the captor's side: the first output whose stream reaches one of their posts. If none does, it keeps feeding what it fed.
-  - **The owner** flips it between outputs from anywhere. The enemy has to recapture it first.
+- [built] **Post spacing:** no post stands within the post spacing of another post on the same line, measured along the belt, whoever owns it; foundations count. With a post taking half of a belt's flow, two posts drain it, so this is what keeps a side from draining its own belt at home: the map gives each belt exactly one safe slot (Playable map).
+- [built] **Control is presence, not capture.** Who gets the flow is decided by whose posts stand furthest upstream and survive, and by breaking segments. Nothing is held by standing in a circle.
 - [decided] Segment states include **jammed** (slowed).
 - [proposed] Fighting jams only the segment it happens on, not the whole belt.
 - [decided] **Resources:** one spendable currency, from packages. **Energy** arrives with buildings. It's a capacity, not a stockpile (C&C-style): power plants supply it, buildings draw it, and a deficit pauses power charge timers, shuts down power-hungry buildings and slows production. Power plants are raid targets off the belt.
+  - [decided] Posts draw power once energy exists. Energy is not what limits posts (post spacing is), and it stays out of the MVP until several building types need it: power plants pull fights off the belt, which the MVP is testing.
+- [decided] **Stream upgrades multiply what a package is worth, never a post's share of the flow,** and there's no flat income. A multiplier scales with the share a side wins, so it raises the stakes of the fight instead of replacing it; a faster post only drains the belt sooner.
+  - [proposed] **Enricher**, the first to try, after navigation and the AI: a building beside a belt turns the packages passing it into high-value ones, visibly different on the belt. Whoever takes them downstream gets the value, the enemy too, so an enricher is an investment the enemy can steal. It gives the "which to raid" choice (see the Rejected second currency).
+  - [idea] A global refining upgrade (your posts get more per package), or a source pump (a faster source, which floods the contested middle as well).
 - [idea] **Finite sources:** sources stop after N packages, forcing independent income or fights over what's left. Try it only after the belt is proven fun. Risk: if independent income matches contesting the belt, nobody fights over it.
-- Known risks, to solve with map design and tuning: upstream advantage (answers: loops, multiple belts, reversible flow) and snowballing (answers: per-post caps, catch-up rules).
+- Known risks, to solve with map design and tuning: upstream advantage (answers: one belt per side, post spacing, reversible flow) and snowballing (answers: per-post caps, catch-up rules).
 
 ## Units, orders and combat
 
-- [built] **Orders:** move, attack (a unit or post), attack-move, attack a segment, repair a segment. A move onto a switch captures it. Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
+- [built] **Orders:** move, attack (a unit or post), attack-move, attack a segment, repair a segment. Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
 - [decided] Belt-targeted orders still to come: guard segment, raid segment, escort convoy.
 - [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before posts), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. Attack chases into range and fires until the target dies. [decided] Heavy or emplaced weapons that must stop before firing become a per-type flag once such a unit exists.
 - [built] **Return fire.** An idle or attack-moving unit hit by an enemy while nothing is in range to shoot back at chases the attacker into range and fires on it, and idle or attack-moving allies close by join in.
   - **Leash:** it gives up past a leash distance from where the chase began and ignores that attacker until it comes back within the leash. Idle units walk back to their spot; attack-move carries on to its point.
-  - **Exceptions:** a move order is never diverted, and no other explicit order is either. Units inside a switch's capture radius hold it and only turn their turret to the attacker. Immobile and unarmed units don't answer.
+  - **Exceptions:** a move order is never diverted, and no other explicit order is either. Immobile and unarmed units don't answer.
   - After a hit, a unit with nothing in range keeps its turret on the attacker for a few seconds, the one exception to turrets ignoring enemies out of range.
   - Being outranged still loses: the answer is retreat automation (below), not return fire.
 - [built] **Weapons are data.** Each unit type names a weapon. Damage comes as discrete shots with a reload, not a steady stream.
@@ -74,7 +75,8 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Assignments:** rifle squad bullets; scout car a light machine gun (bullets); tank cannon shells, **direct**.
   - [decided] Splash is for later artillery and rockets: they're the counter to infantry, and tanks stay anti-vehicle.
   - [decided] Armor classes with a damage-vs-armor table, and ground/air targeting (only anti-air weapons hit air), plug into the same weapon record. One weapon per unit until a unit needs two.
-- [built] **Vehicles outrange infantry** (tank > scout car > squad), so vehicles hold switches and infantry takes them. Taking a switch held by vehicles needs anti-vehicle units.
+- [built] **Vehicles outrange infantry** (tank > scout car > squad).
+  - [decided] The rifle squad lost its unique job (capturing) with the switches. For the MVP it's the cheap unit; it needs a real role before factions.
 - [built] **Squads:** fixed size per type, indivisible, one sim entity (one position, one order). Members are slices of one health pool and die one by one, each taking its share of damage with it.
   - Members are formation slots drawn by the view; they become sim state only if that looks wrong in play.
   - [decided] Squads reinforce near base or relay points, for a cost.
@@ -98,18 +100,16 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 - [built] Right-click does the obvious thing:
   - attack an enemy
-  - capture a switch
   - repair a damaged segment
   - otherwise, move
 - [built] Ctrl+right-click a segment attacks it.
 - [built] A then left-click attack-moves: left-clicking an enemy attacks it, Shift chains waypoints, and right-click or Esc cancels.
-- [built] Left-click your own switch to flip it.
 - [built] Double-click a unit to select every unit of its type on screen.
 - [built] **Command card** (bottom of the screen), for what's selected; its four slots are Q, W, E, R.
   - A building (selected alone, by clicking it): a button per unit type. A slot key or left-click queues one, T toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
   - A foundation: how far along it is, and whether a builder is on it.
   - Builders: a button per building type. A slot key or click arms placement: a ghost follows the cursor, snapped to the grid, green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
-- [built] **Minimap** (bottom-left): the whole map, with belts and their packages, switch owners, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
+- [built] **Minimap** (bottom-left): the whole map, with belts and their packages, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
 - [built] The game opens at 1920×1080; the interface scales with the window.
 - [built] **Top center:** your Resources, large, with income per minute over the last 30 s (posts and pickups). The HUD line (top-left) keeps only speed, game time, whose side you're on, and anyone's rebuild clock; every side's numbers, belt counters and performance are under F3.
 - [built] **Game over:** a banner with the winner (or a draw) and the game time, Restart and Quit. The world keeps running behind it.
@@ -140,7 +140,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - Construction: occupies civilian buildings, which can't be put down anywhere: only near a supply route, or in the rural areas the map already has.
   - An intermediary between the other two blocs, leaning one way but never acting against itself.
   - Salvages wrecks for reuse or scrap. Captures and converts buildings, or peasants build cheap civilian-style structures, so razing never locks it out.
-  - Belt: hidden taps and hijacked junctions [decided in principle].
+  - Belt: hidden taps [decided in principle]. (Hijacked junctions went with the junctions.)
   - Its taxes raise civilian annoyance.
 
 ## Infrastructure and construction
@@ -153,18 +153,21 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
   - Cost is paid as it grows and it stalls if the money runs out after it started, like production. A foundation starts at a tenth of its health and is a target.
   - Types: barracks, factory, gatherer post (it must stand beside a belt, and becomes a post), turret (it becomes a gun that can't move; tanks outrange it).
-  - Placement: anywhere on the map that's clear of buildings, posts, defenses, junctions and belts. A post snaps beside the nearest belt near the cursor, facing it, and slides along it as the cursor moves; away from a belt it can't be placed.
-  - Known risk of "anywhere": a post on the enemy's home stretch upstream of theirs, or a turret beside a switch in minute one. Acceptable for the prototype.
+  - Placement: anywhere on the map that's clear of buildings, posts, defenses and belts. Posts also keep the post spacing. A post snaps beside the nearest belt near the cursor, facing it, and slides along it as the cursor moves; away from a belt it can't be placed.
+  - Known risk of "anywhere": a post on the enemy's home stretch, or a turret beside the enemy's home post, in minute one. Acceptable for the prototype.
 - [decided] **Factions replace "anywhere" with their own build-area rules** (see Factions): Western relays extend the build area, Asian foundations need reinforcing, Eastern civilian buildings go only near supply routes or in existing rural areas. This removes minute-one exploits and makes players plan their way out of the start.
 - [proposed] Belt buildings (posts, relays) snap to sockets beside segments. Posts snap to the belt already [built], continuously rather than to fixed sockets; sockets are for when relays exist.
-- [built] **Playable map** (`main.tscn`): 200×140 m, point-symmetric (Blue's half turned 180° is Red's), so it's fair by construction.
+- [built] **Playable map** (`main.tscn`), generated by `tools/make_main_map.py`: 256×180 m, flat until navigation exists. Its layout rules, which any map should follow:
+  1. **Point-symmetric** (Blue's half turned 180° is Red's), so it's fair by construction.
+  2. **One belt per side,** starting in front of its owner's base. Its **home stretch** is shorter than the post spacing, so exactly one safe post fits: half of your belt, yours as long as you defend it. It runs parallel to the center line (the line equally far from both HQs), so it stays equally safe along its length.
+  3. **Then it jogs into the middle,** where the other half is up for grabs: your second post goes there, exposed. An enemy post on your belt has to stand upstream of yours to take anything, so each side is stronger on its own belt, and symmetry evens it out.
+  4. **The belts meet in the middle,** close enough (about 17 m) that raiding one puts you next to the other: one front. A band where both run side by side can't also give each a safe home stretch (a band's ends are equally far from both HQs, so a home stretch can't start there), so they meet at one point instead.
+  5. **Past the middle, each belt follows the center line out to a flank** and ends at the map edge, equally far from both HQs. Every slot there is contested, and what's left at the end is lost, not anyone's safe income: each side has half a belt guaranteed, and a whole belt's worth is contested. Holding the middle is 3:1.
+  6. **Build space** around each HQ stays clear of belts, and both sides are equally far from the middle.
+  7. **The generator checks it:** it prints how far each point along each belt leans toward either HQ, and refuses to write the map unless each belt's safe stretch fits one post only, everything past its second slot is contested, its end is neutral, the belts stay apart, and the HQs keep their build space.
+  - Sources sit in the open in front of each base for now; what a source looks like is for later.
   - No prebuilt posts: players build them.
-  - Two belts, one from each side. Each runs along its own side's **home stretch** first, deep in that side's half: the safe place for the first post, and income without fighting.
-  - Each belt then reaches a **switch on the center line**, which splits it between one branch toward each side's half of the middle, where forward posts go. A post takes about half of a belt's flow, so the fight is over the other half: holding both switches is worth three times the enemy's share of the middle.
-  - Raiding the enemy's home stretch (breaking segments) is the way to hurt their safe income.
-  - [decided] Flat until navigation exists: hills and obstacles would be decoration units drive through.
-- [proposed] **Income vs spending:** full production of the dearest unit costs more than a side's income with both switches neutral, so extra belt income always buys something. Costs live in `data/units.json`.
-- **Map rule:** keep structures and spawns out of range of capture points, unless that's the point: at least the longest weapon range plus the capture radius. Otherwise whoever holds the point kills them for free.
+- [proposed] **Income vs spending:** full production of the dearest unit costs more than a side's income from its home post alone, so extra belt income always buys something. Costs live in `data/units.json`.
 
 ## Win and lose (skirmish)
 
@@ -223,7 +226,7 @@ Still [decided], for when their systems exist:
 ## Open decisions (defaults until changed)
 
 1. **Grid and MVP map:** 2 m cells. The playable map is 200×140 m for now (256 m square was the earlier default); grow it if fights feel cramped. Footprints: squad 1×1 cell, light vehicle 2×2, heavy 3×3. No map has a grid yet.
-2. **Belt flow:** fixed-rate sources; packages reaching an end are lost. Loops are a map option.
+2. **Belt flow:** fixed-rate sources; packages reaching an end are lost.
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
 4. **Friendly fire** for splash: decide with artillery.
 5. **Fog of war:** post-MVP, grid-based.
@@ -234,7 +237,8 @@ Still [decided], for when their systems exist:
 ## Rejected (don't re-propose without a new reason)
 
 - **Two belt currencies:** they clutter the belt, the one thing that must read instantly, and double the cost tuning across three factions. High-value packages give the "which to raid" choice more cheaply.
-- **Switches that close or pause the stream:** players steer the flow and build on it, they don't stop it.
+- **Capture points** (switches taken by holding a circle for a few seconds): timer-based control from Relic games; it feels artificial. Control comes from posts that survive and segments that break.
+- **Junctions** (merges and switches): they complicated the belt without adding a decision posts and breaks don't already give. Every belt is one line from a source to an end; so no loops either.
 - **Splash damage on tank shells:** tanks would be best at everything; splash belongs to artillery and rockets.
 - **Turrets tracking enemies out of range, with no order:** too twitchy. Only an attack order aims ahead, and a hit makes the turret watch its attacker for a while.
 - **Upfront payment for production (Generals style):** repeat would wait until the full cost was banked, and it hides how belt income becomes units.

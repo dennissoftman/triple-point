@@ -19,7 +19,6 @@ public partial class SimHost : Node3D
     static readonly float[] SpeedSteps = [1f, 1.5f, 2f, 3f];
 
     [Export] public Node3D Belts = null!;     // each Path3D child becomes a belt line
-    [Export] public Node3D Junctions = null!; // each child marks a junction; belt ends within reach attach to it
     [Export] public Node3D Gatherers = null!; // each OwnedMarker child is a player's gatherer post beside a belt
     [Export] public Node3D Units = null!;     // each UnitSpawn child is a player's starting unit
     [Export] public Node3D Buildings = null!; // each BuildingSpawn child is a player's starting building
@@ -33,6 +32,7 @@ public partial class SimHost : Node3D
     [Export] public int StartingResources = 20;
     [Export] public bool EndConditions = true; // players can lose and the game end; off for maps without buildings
     [Export] public bool ShowDebug;            // the debug text under the HUD line; toggle_debug flips it
+    [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -43,12 +43,10 @@ public partial class SimHost : Node3D
     [Export] public float SegmentLength = 5f;  // m; authored curves are cut into breakable segments this long at most
     [Export] public float SegmentHealth = 100f;
     [Export(PropertyHint.Range, "0,1,0.05")] public float SpillLoss = 0.3f; // share of spilled packages destroyed
-    [Export] public float JunctionAttachRadius = 1f; // m from a junction marker to a belt end
     [Export] public float GathererReach = 4f;        // m from a gatherer marker to the belt it pulls from
 
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
-    readonly List<string> _lineNames = [];     // for the HUD: the Path3D each line came from
     readonly List<List<int>> _unitsOf = [];    // starting unit ids per player, for the demo
     readonly List<Vector2> _homes = [];        // per player: the middle of its unit spawns, on the ground (x, z)
     double _accumulator;
@@ -89,10 +87,7 @@ public partial class SimHost : Node3D
         {
             if (path.Curve.PointCount < 2) continue;
             _sim.AddBeltLine(ToSegments(path), belt);
-            _lineNames.Add(path.Name);
         }
-        foreach (var marker in Junctions.GetChildren().OfType<Node3D>())
-            _sim.AddJunction(ToSim(marker.GlobalPosition), JunctionAttachRadius);
         foreach (var marker in Gatherers.GetChildren().OfType<OwnedMarker>())
             if (_sim.AddGatherer(marker.Player, ToSim(marker.GlobalPosition), GathererReach) < 0)
                 GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
@@ -217,11 +212,16 @@ public partial class SimHost : Node3D
     }
 
     // One line of what matters in play (speed, time, whose side you're on, anyone's rebuild clock); the
-    // rest (every side's Resources, switches, belt counters, controls, performance) under toggle_debug.
+    // rest (every side's Resources, belt counters, controls, performance) under toggle_debug.
     // The local player's Resources have their own panel (ResourcePanel).
     void UpdateHud()
     {
         var state = _sim.State;
+        int broken = 0;
+        foreach (var line in state.Belts)
+            foreach (var segment in line.Segments)
+                if (segment.State == SegmentState.Broken) broken++;
+        BrokenSegments = broken;
         int seconds = state.Tick / Simulation.TicksPerSecond;
         var hud = $"{GameSpeed:0.##}x [-] [+]      {seconds / 60}:{seconds % 60:00}      "
                 + $"You: {PlayerPalette.Name(PlayerInput.LocalPlayer)} [F2: swap]      [F3: debug]";
@@ -247,25 +247,14 @@ public partial class SimHost : Node3D
 
         var players = string.Join("      ", state.Players.Select(p =>
             $"{PlayerPalette.Name(p.Index)} {p.Resources}  (gathered {p.Gathered}, collected {p.Collected})"));
-        var switches = string.Join("   ", state.Junctions.Where(j => j.IsSwitch).Select(DescribeSwitch));
 
         return $"Resources   {players}\n"
-                 + $"{switches}\n"
                  + $"Belt: {onBelt} on it   lost at end {lost}   blocked at source {blocked}   "
                  + $"spilled {spilled} (destroyed {destroyed})   on ground {state.Pickups.Count}\n"
-                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your switch: flip   LMB your building: its card\n"
-                 + "RMB: move / attack enemy / hold switch (squads capture, vehicles deny) / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
+                 + $"Selected {PlayerInput.Selection.Count}   LMB: select, drag: box, double-click: all of that type on screen, Shift: add   LMB your building: its card\n"
+                 + "RMB: move / attack enemy / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
                  + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom\n"
                  + _perf;
-    }
-
-    string DescribeSwitch(Junction j)
-    {
-        string feeding = j.Selected < 0
-            ? $"splitting {string.Join("/", j.Outputs.Select(o => _lineNames[o]))}"
-            : $"feeding {_lineNames[j.Outputs[j.Selected]]}";
-        string capture = j.CaptureProgress > 0 ? $", {PlayerPalette.Name(j.Capturer)} capturing {j.CaptureProgress:P0}" : "";
-        return $"Switch: {PlayerPalette.Name(j.Owner)}, {feeding}{capture}";
     }
 
     void Log(SimEvent e)
@@ -286,26 +275,26 @@ public partial class SimHost : Node3D
             case SimEventKind.GameOver: GD.Print($"[{t}] game over: " + (e.Id == Player.None ? "a draw" : $"{PlayerPalette.Name(e.Id)} wins")); break;
             case SimEventKind.SegmentBroken: GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken"); break;
             case SimEventKind.SegmentRepaired: GD.Print($"[{t}] belt {e.Id} segment {e.Index} repaired"); break;
-            case SimEventKind.JunctionCaptured: GD.Print($"[{t}] junction {e.Id} captured by {PlayerPalette.Name(e.Index)}"); break;
-            case SimEventKind.JunctionSwitched: GD.Print($"[{t}] junction {e.Id} now feeds {_lineNames[_sim.State.Junctions[e.Id].Outputs[e.Index]]}"); break;
         }
     }
 
-    // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. The neutral switch splits the stream;
-    // Blue takes it, which turns it to Blue's post; Blue pulls back (its vehicles back up, then turn
-    // round) and Red takes it, which turns it south; Red goes for Blue's post, turrets swinging onto it
-    // on the way; then Blue attack-moves into Red's side and they fight it out. Meanwhile each HQ trains
-    // a builder, which puts up a barracks beside the HQ, and the barracks trains squads on repeat, as
-    // income allows; they gather at its rally point. To show the ending, scripted kills finish Red: its
-    // buildings and posts at 85 s, and its builders at 95 s. It's out once it can't rebuild: at 85 s if
-    // it can't afford a building then, otherwise when its builders go.
+    // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. Blue
+    // raids Red's belt beside Red's post: it breaks a segment, kills the post on the way (fire on the
+    // move), and walks over the spill to collect it. Blue pulls back (its vehicles back up, then turn
+    // round) while Red's squads repair the break and its vehicles break Blue's belt; Red goes for Blue's
+    // post, turrets swinging onto it on the way; then Blue attack-moves
+    // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
+    // beside the HQ, and the barracks trains squads on repeat, as income allows; they gather at its rally
+    // point. To show the ending, scripted kills finish Red: its buildings and posts at 85 s, and its
+    // builders at 95 s. It's out once it can't rebuild: at 85 s if it can't afford a building then,
+    // otherwise when its builders go.
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
         const int Blue = 0, Red = 1;
-        if (!_sim.FindJunction(new SVector3(9, 0, 0), 2, out int sw))
+        if (!GetTree().CurrentScene.SceneFilePath.EndsWith("prototype.tscn"))
         {
-            if (tick == 0) GD.PushWarning("--demo is scripted for scenes/prototype.tscn; this map has no switch at (9, 0).");
+            if (tick == 0) GD.PushWarning("--demo is scripted for scenes/prototype.tscn.");
             return;
         }
         if (tick == 1)
@@ -325,15 +314,19 @@ public partial class SimHost : Node3D
                     _commands.Add(new ProduceCommand(barracks.Owner, barracks.Id, "rifle_squad"));
                     _commands.Add(new SetRepeatCommand(barracks.Owner, barracks.Id, true));
                 }
-        var switchAt = _sim.State.Junctions[sw].Position with { Y = 0 };
 
-        if (tick == 2 * T) MoveAll(Blue, switchAt);
+        if (tick == 2 * T) SegmentOrder(Blue, new SVector3(28, 0, 11), repair: false); // Red's belt, just upstream of its post
+        if (tick == 12 * T) MoveAll(Blue, new SVector3(28, 0, 7));                      // over the spill, to collect it
         if (tick == 25 * T)
         {
-            MoveAll(Blue, switchAt + new SVector3(0, 0, -8));                // close behind: vehicles back up...
-            MoveAll(Blue, switchAt + new SVector3(0, 0, -21), queued: true); // ...then far: they turn round
+            MoveAll(Blue, new SVector3(28, 0, -2));                // close behind: vehicles back up...
+            MoveAll(Blue, new SVector3(12, 0, -21), queued: true); // ...then far: they turn round
         }
-        if (tick == 40 * T) MoveAll(Red, switchAt);
+        if (tick == 40 * T)
+        {
+            SegmentOrder(Red, new SVector3(28, 0, 11), repair: true, squadsOnly: true);
+            SegmentOrder(Red, new SVector3(0, 0, -11), repair: false, vehiclesOnly: true);
+        }
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
             foreach (int id in _unitsOf[Red]) _commands.Add(new AttackCommand(Red, id, post.Id));
         if (tick == 80 * T) MoveAll(Blue, ToSim(new Vector3(HomeOf(Red).X, 0, HomeOf(Red).Y)), attack: true);
@@ -344,6 +337,19 @@ public partial class SimHost : Node3D
         }
         if (tick == 95 * T)
             foreach (var u in _sim.State.Units) if (u.Owner == Red && u.Builds is not null) _commands.Add(new DestroyCommand(u.Id));
+    }
+
+    // The starting units of a side attack, or repair, the belt segment at a point.
+    void SegmentOrder(int player, SVector3 at, bool repair, bool squadsOnly = false, bool vehiclesOnly = false)
+    {
+        if (!_sim.FindSegment(at, 2, out int line, out int segment)) return;
+        foreach (int id in _unitsOf[player])
+        {
+            if (_sim.State.Units.FindIndex(u => u.Id == id) is not (>= 0 and var i)) continue;
+            bool foot = _sim.State.Units[i].Movement == Movement.Foot;
+            if ((squadsOnly && !foot) || (vehiclesOnly && foot)) continue;
+            _commands.Add(repair ? new RepairSegmentCommand(player, id, line, segment) : new AttackSegmentCommand(player, id, line, segment));
+        }
     }
 
     void MoveAll(int player, SVector3 at, bool attack = false, bool queued = false)

@@ -6,7 +6,6 @@
 //     settle again. This is what gives a vehicle weight; 0 is instant, and looks like a toy.
 //   turnRate (°/s), reverseSpeed (m/s; 0 or missing: it always turns around),
 //   turretTurnRate (°/s; 0 or missing: no turret, it aims instantly). A turret fires once it's on target.
-// canCapture defaults to true; vehicles can't capture switches, only deny them to the enemy.
 // cost (Resources) is paid bit by bit over buildTime (s) while a building produces it; production stalls while broke.
 // No weapon: unarmed. builds: the building types (ids in buildings.json) a builder can put up.
 {
@@ -14,18 +13,18 @@
   "scout_car": {
     "members": 1, "movement": "wheeled", "speed": 8, "reverseSpeed": 4,
     "acceleration": 4, "braking": 8, "easeIn": 0.3, "easeOut": 0.5, "turnRate": 120, "turretTurnRate": 180,
-    "memberHealth": 140, "weapon": "machine_gun", "canCapture": false, "cost": 12, "buildTime": 12
+    "memberHealth": 140, "weapon": "machine_gun", "cost": 12, "buildTime": 12
   },
   "builder": {
     "members": 1, "movement": "tracked", "speed": 4, "reverseSpeed": 2,
     "acceleration": 2, "braking": 4, "easeIn": 0.4, "easeOut": 0.6, "turnRate": 70,
-    "memberHealth": 180, "canCapture": false, "cost": 8, "buildTime": 10,
+    "memberHealth": 180, "cost": 8, "buildTime": 10,
     "builds": ["barracks", "factory", "gatherer_post", "turret"]
   },
-  "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun", "canCapture": false },
+  "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun" },
   "tank": {
     "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
     "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,
-    "memberHealth": 260, "weapon": "tank_cannon", "canCapture": false, "cost": 20, "buildTime": 18
+    "memberHealth": 260, "weapon": "tank_cannon", "cost": 20, "buildTime": 18
   },
 }
