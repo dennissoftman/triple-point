@@ -45,6 +45,14 @@ Milestones:
 
 6. [built] A UI layout pass: corner panels, the positional command grid, the selection panel, Stop, Hold, control groups, the idle-builder button (see Controls). [decided] **Next, after a playtest on the trucks:** neutral roadside buildings that infantry garrison (go in, come out), for ambushes on the routes. Civilian unrest stays out of the MVP.
 
+7. [decided] **The batches before the friends playtest (planned 2026-09-30, after the third match):**
+   1. Repair, reinforce and retreat (Units): nothing heals yet, so every fight is pure attrition.
+   2. Garrison buildings (below), and the AI taught to use them and to guard its depots with both turrets.
+   3. Road types on the main map (Infrastructure): a dirt track and a paved road, so routes carry different stakes. Numbers to quiz at the time.
+   4. A readability pass (Art): road types and damage states, unit class silhouettes, threat and selection markers, health at a glance; judged by the grayscale and squint test.
+   5. A skirmish setup menu (Controls), then the playtest.
+   - [decided] **Garrisons:** neutral buildings beside the routes, on the main map. Up to two infantry squads (rifles or engineers) enter one by right-clicking it and leave with an Exit button on the card; whoever is inside owns it until they leave. Inside they fire out at +2 m range and take no damage: the building soaks every hit (structure damage applies, so artillery at ×3 is the answer), and when it falls they tumble out at half health.
+
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
 
 ### Playtests
@@ -128,7 +136,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
   - [decided] The rifle squad lost its unique job (capturing) with the switches. For the MVP it's the cheap unit; it needs a real role before factions.
 - [built] **Squads:** fixed size per type, indivisible, one sim entity (one position, one order). Members are slices of one health pool and die one by one, each taking its share of damage with it.
   - Members are formation slots drawn by the view; they become sim state only if that looks wrong in play.
-  - [decided] Squads reinforce near base or relay points, for a cost.
+  - [decided] Squads reinforce near base or relay points, for a cost. **How (2026-09-30):** automatically: an under-strength squad standing within about 15 m of its own HQ or barracks regains a member every few seconds, paying that member's share of the squad's cost. No clicks; relay points join when a faction has them.
 - [built] **Vehicles:** a single unit with movement per type (wheeled or tracked). They accelerate, brake and turn at limited rates.
   - Tracked vehicles pivot almost on the spot; wheeled ones need speed to steer, so they arc.
   - **Easing:** everything is eased (ease in, ease out), as physics that reacts to new orders mid-move, not as tween curves.
@@ -160,6 +168,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
   - **Targets:** buildings and foundations are targets like depots. Losing them can lose the game (Win and lose).
   - **Not yet:** Energy (it comes with several building types) and squad reinforcement.
 - [decided] **Veterancy** (after the commander AI, outside the MVP): units rank up from kills, C&C-style, so keeping a unit alive, and repairing it, is worth more than its replacement cost.
+- [decided] **Retreat automation (2026-09-30):** a per-unit toggle on the command card, off by default, so nothing moves without being asked. With it on, a unit below 30% health pulls back to where it can be fixed: vehicles to an engineer, squads to base to reinforce. It stays there until mended, then is idle.
 - [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
 ## Controls
