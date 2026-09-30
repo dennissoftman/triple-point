@@ -13,7 +13,7 @@ using Sim;
 public partial class SelectionPanel : PanelContainer
 {
     public PlayerInput PlayerInput = null!;
-    public const float Width = 500;
+    public const float Width = 470; // between the minimap and the command card at 1152 wide
     const float Height = 3 * CommandCard.CellHeight + 2 * CommandCard.Gap + 12; // as tall as the command card: its grid and panel margins
     const float TileWidth = 92, TileHeight = 34;
     const int MaxTiles = 10; // two rows; more unit types than that aren't in the game

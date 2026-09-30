@@ -71,6 +71,9 @@ public static class GameData
                 throw new InvalidDataException($"Building type '{id}' becomes a {t.Kind} when finished, so it can't produce units.");
             parsed[id] = t with { Id = id, Produces = t.Produces ?? [], Units = produces, Defense = defense };
         }
+        foreach (var t in parsed.Values)
+            if (t.Requires is not null && !parsed.ContainsKey(t.Requires))
+                throw new InvalidDataException($"Building type '{t.Id}' requires unknown building type '{t.Requires}'.");
         foreach (var unit in units.Values)
             foreach (string b in unit.Builds ?? [])
                 if (!parsed.ContainsKey(b)) throw new InvalidDataException($"Unit type '{unit.Id}' builds unknown building type '{b}'.");

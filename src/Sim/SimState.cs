@@ -106,10 +106,12 @@ public enum BuildingKind { Building, Post, Defense }
 /// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), how many
 /// units its queue holds, and for building it, its Cost in packages paid over BuildTime seconds of a
 /// builder's work. Kind and Unit: what it becomes when finished. Sight, m beyond its footprint's edge:
-/// how far it sees under fog of war (a post keeps its type's). Id is its key in the file.
+/// how far it sees under fog of war (a post keeps its type's). Requires: a building type its owner needs a
+/// finished one of before starting this one. Id is its key in the file.
 /// </summary>
 public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int QueueLimit = 5, int Cost = 0,
-    float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, float Sight = 10, string Id = "")
+    float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, float Sight = 10,
+    string? Requires = null, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore] public UnitType? Defense { get; init; } // Kind Defense: the unit it becomes

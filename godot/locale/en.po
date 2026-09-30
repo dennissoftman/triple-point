@@ -33,6 +33,9 @@ msgstr "Engineer"
 msgid "unit.turret"
 msgstr "Turret"
 
+msgid "unit.heavy_turret"
+msgstr "Heavy turret"
+
 msgid "unit.tank"
 msgstr "Tank"
 
@@ -53,6 +56,9 @@ msgstr "Depot"
 
 msgid "building.turret"
 msgstr "Turret"
+
+msgid "building.heavy_turret"
+msgstr "Heavy turret"
 
 # --- Mouse buttons, as key names
 msgid "key.lmb"
@@ -159,6 +165,10 @@ msgid "card.train.tip"
 msgstr "{0}: {1} packages, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nRMB the ground: set the rally point"
 
 # {0} cost, {1} how much is missing
+# A build cell's tooltip, first line, while what it needs is missing: {0} that building
+msgid "card.requires"
+msgstr "Needs a {0} first."
+
 msgid "card.short"
 msgstr "{0} ({1} short)"
 
@@ -259,6 +269,10 @@ msgstr "another depot is closer than {0} m along this road"
 
 msgid "place.blocked"
 msgstr "something's in the way"
+
+# {0} the building it needs first
+msgid "place.requires"
+msgstr "needs a {0} first"
 
 # {0} its cost
 msgid "place.money"

@@ -37,7 +37,7 @@ public partial class PlayerInput : Node
     [Export] public int SelectedBuilding = -1;              // a building id, or -1; selected alone, never with units
 
     /// <summary>The command card's slots, in order: a building's unit types, or what builders can build.</summary>
-    public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4"];
+    public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4", "slot_5"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
     enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume }
@@ -234,7 +234,11 @@ public partial class PlayerInput : Node
         }
         var types = Buildable;
         for (int i = 0; i < SlotActions.Length && i < types.Count; i++)
-            if (e.IsActionPressed(SlotActions[i])) { StartPlacement(types[i].Id); return true; }
+            if (e.IsActionPressed(SlotActions[i]))
+            {
+                if (Host.Sim.HasRequired(LocalPlayer, types[i])) StartPlacement(types[i].Id); // as its cell: nothing until what it needs is up
+                return true;
+            }
         return false;
     }
 
@@ -258,6 +262,7 @@ public partial class PlayerInput : Node
             (at, problem) = (point, L.T("place.beside_belt"));
         if (problem is null && type.Kind == BuildingKind.Post && Host.Sim.TooCloseToPost(at))
             problem = L.T("place.post_spacing", Simulation.PostSpacing.ToString("0"));
+        if (problem is null && !Host.Sim.HasRequired(LocalPlayer, type)) problem = L.T("place.requires", L.Building(type.Requires!));
         if (problem is null && !Host.Sim.CanPlace(type, at)) problem = L.T("place.blocked");
         if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = L.T("place.money", type.Cost);
         Placing = new Placement(type, at, heading, problem);

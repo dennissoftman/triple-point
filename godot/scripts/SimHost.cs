@@ -247,7 +247,7 @@ public partial class SimHost : Node3D
         float alpha = (float)(_accumulator / TickSeconds);
         (Sight.Sim, Sight.Player, Sight.All) = (_sim, PlayerInput.LocalPlayer, _reveal || !_sim.FogOfWar);
         _fog.Sync((float)delta);
-        UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection);
+        UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection, PlayerInput.Placing);
         BeltView.Sync(_sim.State, alpha);
         BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding, PlayerInput.Placing);
         UpdatePerf(delta);
@@ -382,7 +382,7 @@ public partial class SimHost : Node3D
             case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] {Who(e.Id)} destroyed"); break;
             case SimEventKind.BuildingPlaced: GD.Print($"[{t}] {Who(e.Id)} placed by {Who(e.Index)}"); break;
             case SimEventKind.BuildingCompleted: GD.Print($"[{t}] {Who(e.Id)} completed" + (e.Index != e.Id ? $", now {Who(e.Index)}" : "")); break;
-            case SimEventKind.BuildBlocked: GD.Print($"[{t}] {Who(e.Id)} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough packages" : "the site is taken")); break;
+            case SimEventKind.BuildBlocked: GD.Print($"[{t}] {Who(e.Id)} couldn't build: " + (e.Index switch { Simulation.BlockedByMoney => "not enough packages", Simulation.BlockedByRequirement => "missing what it requires", _ => "the site is taken" })); break;
             case SimEventKind.GraceStarted: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} has no buildings: {Simulation.GraceSeconds:0} s to rebuild"); break;
             case SimEventKind.GraceEnded: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} rebuilt"); break;
             case SimEventKind.PlayerLost: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} lost"); break;

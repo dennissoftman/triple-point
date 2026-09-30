@@ -13,7 +13,7 @@ Named by `weapon` in units.json.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `kind` | `bullet` or `shell` | required | A bullet hits the moment it fires (drawn as a tracer). A shell flies at `shellSpeed` and hits on arrival. |
-| `damage` | number | required | Per shot; for a squad, per member. |
+| `damage` | number | required | Per shot; for a squad, per member. A direct hit on a squad fells one member at most: big guns waste most of a hit on infantry. |
 | `reload` | s | required | Between shots. Above 0. |
 | `range` | m | required | How far it reaches. Above 0. |
 | `minRange` | m | 0 | It won't pick or fire at anything closer. Below `range`. |
@@ -66,3 +66,4 @@ Named by `builds` in units.json, and by `BuildingType` on a map's building spawn
 | `kind` | `building`, `post` or `defense` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. |
 | `unit` | unit id | none | A defense: the unit it becomes. |
 | `sight` | m | 10 | How far beyond its footprint's edge it sees under fog of war (a finished post keeps it; a finished defense sees as its unit does). |
+| `requires` | building id | none | A finished building of this type its owner needs before starting one (a foundation already laid carries on if it's lost). |

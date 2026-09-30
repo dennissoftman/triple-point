@@ -8,15 +8,22 @@ public enum AiLevel { Easy, Normal }
 
 /// <summary>
 /// A level's numbers: how often it thinks (ticks; its reaction time), how long a building it trains at
-/// stands idle between units (s), and how many posts it takes at most. Easy is slow and leaves money
-/// unspent. (A hard level that only thought faster didn't beat normal; one waits for the behaviour tree.)
+/// stands idle between units (s), how many posts it takes at most; the fighters it gathers before it
+/// raids and before it pushes, and the game time (s) before it goes on the attack at all; how long (s) an
+/// enemy near its things must be in view before the army answers; and whether hurt units pull back.
+/// They exist to make it beatable by someone learning the game (first playtest: it raided at 3:30 and
+/// won every fight), never to change its plan. (A hard level that only thought faster didn't beat
+/// normal; one waits for the behaviour tree.)
 /// </summary>
-public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts)
+public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts,
+    int RaidSize, int PushSize, float FirstAttack, float ReactSeconds, bool Retreats)
 {
     public static AiSettings For(AiLevel level) => level switch
     {
-        AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 15, MaxPosts: int.MaxValue),
-        _ => new(ThinkTicks: 10, TrainPause: 0, MaxPosts: int.MaxValue),
+        AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 15, MaxPosts: int.MaxValue,
+            RaidSize: 6, PushSize: 12, FirstAttack: 7 * 60, ReactSeconds: 6, Retreats: false),
+        _ => new(ThinkTicks: 20, TrainPause: 0, MaxPosts: int.MaxValue,
+            RaidSize: 6, PushSize: 10, FirstAttack: 5 * 60, ReactSeconds: 3, Retreats: true),
     };
 }
 
@@ -48,7 +55,6 @@ public sealed class Commander
     const float RetreatHealth = 0.3f;               // share of full health below which a unit pulls back
     const float OrderSlack = 6f;                    // m: an order to within this of the current one isn't re-issued
     const float StagingDistance = 22f;              // m from home toward the enemy, where the army gathers
-    const int RaidSize = 4, PushSize = 8;           // fighters before it raids, and before it pushes
     const float PushRatio = 1.5f;                   // its strength over the enemy's before it pushes
     const int WantedEngineers = 1, WantedBuilders = 2;
     const float BuildClearance = 8f;                // m added to a new building's side when it looks for room: 4 m between buildings, so tanks get out
@@ -74,6 +80,7 @@ public sealed class Commander
     readonly Predicate<int> _gone;
     int _scout = -1;                                // the unit out looking, if any
     Vector3 _home, _enemyHome, _staging;
+    int _threatSince = -1;                          // the tick it first saw the enemy near its things, this time
     float _strength, _enemyStrength;
 
     public Commander(Simulation sim, int player, AiLevel level = AiLevel.Normal)
@@ -397,7 +404,7 @@ public sealed class Commander
         // worn-out armies sit at home for ever.
         int healthy = 0;
         foreach (int i in _army) if (units[i].Health > units[i].MaxHealth * RetreatHealth) healthy++;
-        if (healthy < RaidSize) _retreating.Clear();
+        if (!_level.Retreats || healthy < _level.RaidSize) _retreating.Clear();
         else
             foreach (int i in _army)
             {
@@ -407,10 +414,19 @@ public sealed class Commander
                 _out.Add(new MoveCommand(_me, u.Id, _home));
             }
 
-        if (Threat() is Vector3 threat) { AllAttackMove(threat); return; }
+        // An enemy near its things draws the whole army, once it has been in view a moment: a player needs
+        // that long to notice, too.
+        var tick = _sim.State.Tick;
+        if (Threat() is Vector3 threat)
+        {
+            if (_threatSince < 0) _threatSince = tick;
+            if (tick - _threatSince >= _level.ReactSeconds * Simulation.TicksPerSecond) { AllAttackMove(threat); return; }
+        }
+        else _threatSince = -1;
         int fighters = _army.Count - _retreating.Count - (_scout >= 0 ? 1 : 0);
-        if (fighters >= PushSize && _strength >= PushRatio * _enemyStrength && EnemyBase() is Vector3 target) { AllAttackMove(target); return; }
-        if (fighters >= RaidSize && Raid()) return;
+        bool attacking = tick >= _level.FirstAttack * Simulation.TicksPerSecond;
+        if (attacking && fighters >= _level.PushSize && _strength >= PushRatio * _enemyStrength && EnemyBase() is Vector3 target) { AllAttackMove(target); return; }
+        if (attacking && fighters >= _level.RaidSize && Raid()) return;
         AllMoveTo(_staging);
     }
 

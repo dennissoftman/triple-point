@@ -10,10 +10,11 @@
     "members": 1, "movement": "tracked", "speed": 4, "reverseSpeed": 2,
     "acceleration": 2, "braking": 4, "easeIn": 0.4, "easeOut": 0.6, "turnRate": 70,
     "memberHealth": 180, "cost": 8, "buildTime": 10,
-    "builds": ["barracks", "factory", "gatherer_post", "turret"], "repairSeconds": 5, "repairCost": 4, "radius": 1.4, "sight": 16
+    "builds": ["barracks", "factory", "gatherer_post", "turret", "heavy_turret"], "repairSeconds": 5, "repairCost": 4, "radius": 1.4, "sight": 16
   },
   "engineer": { "members": 1, "speed": 5, "memberHealth": 60, "cost": 6, "buildTime": 8, "repairSeconds": 2.5, "repairCost": 2, "radius": 0.5, "sight": 14 },
   "turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 120, "memberHealth": 400, "weapon": "turret_gun", "radius": 1, "sight": 16 },
+  "heavy_turret": { "members": 1, "movement": "static", "speed": 0, "turretTurnRate": 60, "memberHealth": 450, "weapon": "turret_cannon", "radius": 1, "sight": 17 },
   "tank": {
     "members": 1, "movement": "tracked", "speed": 4.5, "reverseSpeed": 2.2,
     "acceleration": 2, "braking": 4, "easeIn": 0.5, "easeOut": 0.7, "turnRate": 60, "turretTurnRate": 90,

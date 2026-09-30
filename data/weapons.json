@@ -3,6 +3,7 @@
   "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8 },                      // 2 dps a member
   "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12 },           // 9 dps
   "turret_gun": { "kind": "bullet", "damage": 2, "reload": 0.2, "range": 13 },                // 10 dps; tanks outrange it
+  "turret_cannon": { "kind": "shell", "hit": "direct", "damage": 45, "reload": 3, "range": 15, "shellSpeed": 45 }, // 15 dps on vehicles; a squad loses one member a hit
   "tank_cannon": { "kind": "shell", "hit": "direct", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40 }, // 14 dps, in big hits
   "artillery_gun": { "kind": "shell", "hit": "splash", "damage": 30, "splashRadius": 3.5, "reload": 5, "range": 28,
                      "minRange": 8, "shellSpeed": 22, "ballistic": true, "scatter": 3 }, // 6 dps, slow, lands near the aim

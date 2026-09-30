@@ -78,8 +78,9 @@ public partial class UnitView : Node3D
     // A heavy gun's barrel (artillery): at rest, and from its lowest to its highest, across its range.
     const float RestElevation = 12f, LowElevation = 18f, HighElevation = 45f, ElevationSpeed = 30f; // degrees; °/s
 
-    /// <summary>`heavyGunRange` above 0: a long barrel that raises with the distance it shoots, up to that range.</summary>
-    public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed, float heavyGunRange = 0)
+    /// <summary>`heavyGunRange` above 0: a long barrel that raises with the distance it shoots, up to that range.
+    /// `cannon`: a defense that fires shells (the heavy turret) gets a big turret and a thick barrel.</summary>
+    public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed, float heavyGunRange = 0, bool cannon = false)
     {
         PlayerIndex = player;
         var (body, turret) = materials.For(player);
@@ -89,7 +90,7 @@ public partial class UnitView : Node3D
             // A lone unarmed soldier (an engineer) carries a tool pack on its back (+Z: forward is -Z).
             if (!armed) _members[0].AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.36f, 0.42f, 0.24f) }, MaterialOverride = materials.Dark, Position = new Vector3(0, 0.1f, 0.3f) });
         }
-        else BuildVehicle(movement, armed, body, turret, materials.Dark, heavyGunRange > 0);
+        else BuildVehicle(movement, armed, body, turret, materials.Dark, heavyGunRange > 0, cannon && movement == Movement.Static);
         _gunRange = heavyGunRange;
 
         float ringRadius = members > 1 ? 2.1f : 1.9f;
@@ -112,7 +113,7 @@ public partial class UnitView : Node3D
     }
 
     // Forward is -Z throughout, as Basis.LookingAt expects.
-    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark, bool heavyGun)
+    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark, bool heavyGun, bool cannon)
     {
         bool tracked = movement == Movement.Tracked, fixedBase = movement == Movement.Static;
         (_pitchPerAccel, _rollPerAccel) = tracked ? (0.9f, 0.3f) : (0.7f, 0.45f);
@@ -149,9 +150,9 @@ public partial class UnitView : Node3D
         if (!armed) return;
         _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
         AddChild(_turret);
-        var turret = heavyGun ? new Vector3(1.2f, 0.55f, 1.4f) : tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
+        var turret = heavyGun || cannon ? new Vector3(1.2f, 0.6f, 1.4f) : tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
         AddBox(_turret, turret, turretBody, new Vector3(0, turret.Y / 2, 0));
-        _barrelLength = heavyGun ? 2.6f : tracked ? 1.4f : 0.8f;
+        _barrelLength = heavyGun ? 2.6f : cannon ? 2.0f : tracked ? 1.4f : 0.8f;
         if (heavyGun)
         {
             // A long barrel raised toward the sky, hinged at the front of the turret.
@@ -159,7 +160,11 @@ public partial class UnitView : Node3D
             _turret.AddChild(_hinge);
             AddBox(_hinge, new Vector3(0.2f, 0.2f, _barrelLength), dark, new Vector3(0, 0, -_barrelLength / 2));
         }
-        else AddBox(_turret, new Vector3(0.14f, 0.14f, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
+        else
+        {
+            float bore = cannon ? 0.26f : 0.14f;
+            AddBox(_turret, new Vector3(bore, bore, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
+        }
     }
 
     static void AddBox(Node3D parent, Vector3 size, Material material, Vector3 at) =>

@@ -16,17 +16,18 @@ public partial class CommandCard : PanelContainer
 {
     [Export] public PlayerInput PlayerInput = null!;
     [Export] public int QueueLength; // as shown; for tools
-    public const float Margin = 12, CellWidth = 70, CellHeight = 44, Gap = 4;
+    public const float Margin = 12, CellWidth = 76, CellHeight = 44, Gap = 4;
     const int Columns = 4, Rows = 3;
 
     // Each cell's key, by position; null where nothing is bound yet.
     static readonly string?[] CellActions =
     [
         "slot_1", "slot_2", "slot_3", "slot_4",
-        "attack_move", "stop", "hold", null,
+        "attack_move", "stop", "hold", "slot_5",
         "produce_repeat", null, null, null,
     ];
     const int AttackMoveCell = 4, StopCell = 5, HoldCell = 6, ZCell = 8;
+    static readonly int[] SlotCells = [0, 1, 2, 3, 7]; // where slot_1..slot_5 sit: the top row, then F
 
     readonly Button[] _cells = new Button[Columns * Rows];
     readonly Label[] _keys = new Label[Columns * Rows], _badges = new Label[Columns * Rows];
@@ -76,7 +77,7 @@ public partial class CommandCard : PanelContainer
             foreach (string look in new[] { "normal", "hover", "pressed", "disabled", "hover_pressed" })
                 if (button.GetThemeStylebox(look).Duplicate() is StyleBox box)
                 {
-                    (box.ContentMarginLeft, box.ContentMarginRight, box.ContentMarginTop, box.ContentMarginBottom) = (4, 4, 8, 4); // room for the key and the bar
+                    (box.ContentMarginLeft, box.ContentMarginRight, box.ContentMarginTop, box.ContentMarginBottom) = (3, 3, 8, 4); // room for the key and the bar
                     button.AddThemeStyleboxOverride(look, box);
                 }
             button.Pressed += () =>
@@ -140,7 +141,7 @@ public partial class CommandCard : PanelContainer
         else if (units)
         {
             var builds = PlayerInput.Buildable;
-            for (int i = 0; i < builds.Count && i < Columns; i++) ShowBuild(i, builds[i]);
+            for (int i = 0; i < builds.Count && i < SlotCells.Length; i++) ShowBuild(SlotCells[i], builds[i]);
             Set(AttackMoveCell, L.T("card.attack_move"), L.T("card.attack_move.tip"), PlayerInput.ArmAttackMove, pressed: PlayerInput.AttackMoveArmed);
             Set(StopCell, L.T("card.stop"), L.T("card.stop.tip"), () => PlayerInput.Halt(hold: false));
             Set(HoldCell, L.T("card.hold"), L.T("card.hold.tip"), () => PlayerInput.Halt(hold: true));
@@ -209,9 +210,10 @@ public partial class CommandCard : PanelContainer
         int short_ = type.Cost - PlayerInput.Host.Sim.State.Players[PlayerInput.LocalPlayer].Packages;
         string cost = short_ > 0 ? L.T("card.short", type.Cost, short_) : $"{type.Cost}";
         string id = type.Id;
-        Set(i, L.T("card.cell", L.Building(type.Id), cost),
-            L.T("card.build.tip", L.Building(type.Id), type.Cost, type.BuildTime.ToString("0"), Describe(type), KeyOf(CellActions[i]!), KeyOf("rotate_building")),
-            () => PlayerInput.StartPlacement(id), pressed: PlayerInput.PlacingType == type.Id);
+        string tip = L.T("card.build.tip", L.Building(type.Id), type.Cost, type.BuildTime.ToString("0"), Describe(type), KeyOf(CellActions[i]!), KeyOf("rotate_building"));
+        bool ready = PlayerInput.Host.Sim.HasRequired(PlayerInput.LocalPlayer, type);
+        if (!ready) tip = L.T("card.requires", L.Building(type.Requires!)) + "\n" + tip;
+        Set(i, L.T("card.cell", L.Building(type.Id), cost), tip, () => PlayerInput.StartPlacement(id), pressed: PlayerInput.PlacingType == type.Id, enabled: ready);
     }
 
     void Clear(int i)
@@ -222,10 +224,10 @@ public partial class CommandCard : PanelContainer
     }
 
     // A live cell: its text, tooltip, what a click does (and a right click), whether it shows as on, and its key.
-    void Set(int i, string text, string tip, Action press, Action? cancel = null, bool pressed = false, string? key = null)
+    void Set(int i, string text, string tip, Action press, Action? cancel = null, bool pressed = false, string? key = null, bool enabled = true)
     {
-        (_press[i], _cancel[i]) = (press, cancel);
-        _want[i] = (text, tip, KeyOf(key ?? CellActions[i]!), true, pressed);
+        (_press[i], _cancel[i]) = (enabled ? press : null, cancel);
+        _want[i] = (text, tip, KeyOf(key ?? CellActions[i]!), enabled, pressed);
     }
 
     static string Describe(BuildingType type) => type.Kind switch

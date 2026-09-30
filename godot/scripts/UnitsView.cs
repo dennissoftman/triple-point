@@ -95,7 +95,7 @@ public partial class UnitsView : Node3D
     }
 
     /// <summary>`delta` is the sim time this frame covers, for member movement.</summary>
-    public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection)
+    public void Sync(Simulation sim, float alpha, float delta, IReadOnlyList<int> selection, PlayerInput.Placement? placing = null)
     {
         _lines.ClearSurfaces();
         _positions.Clear();
@@ -105,7 +105,8 @@ public partial class UnitsView : Node3D
             {
                 view = UnitScene.Instantiate<UnitView>();
                 AddChild(view);
-                view.Setup(unit.Owner, _materials, unit.MaxMembers, unit.Movement, armed: unit.Damage > 0, heavyGunRange: unit.Ballistic ? unit.Range : 0);
+                view.Setup(unit.Owner, _materials, unit.MaxMembers, unit.Movement, armed: unit.Damage > 0, heavyGunRange: unit.Ballistic ? unit.Range : 0,
+                    cannon: unit.WeaponKind == WeaponKind.Shell);
                 _views[unit.Id] = view;
             }
             var position = ToGodot(unit.PrevPosition).Lerp(ToGodot(unit.Position), alpha);
@@ -125,7 +126,7 @@ public partial class UnitsView : Node3D
         RemoveGone();
         UpdateWrecks(delta);
         DrawOrderPaths(sim, selection);
-        DrawRanges(sim.State, selection);
+        DrawRanges(sim, selection, placing);
         DrawFire(sim.State);
         DrawShells(sim.State, alpha, delta);
     }
@@ -202,17 +203,23 @@ public partial class UnitsView : Node3D
         return (at + Vector3.Up * (rise * 4 * u * (1 - u)), along.Normalized());
     }
 
-    // Rings on the ground at full and minimum range, around selected units that have a minimum range.
-    void DrawRanges(SimState state, IReadOnlyList<int> selection)
+    // Rings on the ground at full and minimum range: around selected units that have a minimum range, and
+    // selected defenses; and where a defense is being placed, the range its gun will have.
+    void DrawRanges(Simulation sim, IReadOnlyList<int> selection, PlayerInput.Placement? placing)
     {
         bool drawing = false;
-        foreach (var unit in state.Units)
+        foreach (var unit in sim.State.Units)
         {
-            if (unit.MinRange <= 0 || !selection.Contains(unit.Id)) continue;
+            if (unit.Range <= 0 || (unit.MinRange <= 0 && unit.Movement != Movement.Static) || !selection.Contains(unit.Id)) continue;
             if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, PathMaterial); drawing = true; }
             var center = _positions[unit.Id] with { Y = RingHeight };
             Ring(center, unit.Range, RangeColor);
-            Ring(center, unit.MinRange, MinRangeColor);
+            if (unit.MinRange > 0) Ring(center, unit.MinRange, MinRangeColor);
+        }
+        if (placing is { Type.Defense: { } defense } p && defense.Gun.Range > 0)
+        {
+            if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, PathMaterial); drawing = true; }
+            Ring(ToGodot(p.At) with { Y = RingHeight }, defense.Gun.Range, RangeColor);
         }
         if (drawing) _lines.SurfaceEnd();
     }

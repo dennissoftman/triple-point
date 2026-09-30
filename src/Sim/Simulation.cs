@@ -249,8 +249,18 @@ public sealed partial class Simulation
 
     // ---- Queries ----
 
-    /// <summary>BuildBlocked reasons (its Index): the spot is taken, or its owner can't pay the whole cost.</summary>
-    public const int BlockedByTheSite = 0, BlockedByMoney = 1;
+    /// <summary>BuildBlocked reasons (its Index): the spot is taken, its owner can't pay the whole cost, or
+    /// hasn't got the finished building it requires.</summary>
+    public const int BlockedByTheSite = 0, BlockedByMoney = 1, BlockedByRequirement = 2;
+
+    /// <summary>Whether a player has what a building type requires: a finished building of that type, if any.</summary>
+    public bool HasRequired(int player, BuildingType type)
+    {
+        if (type.Requires is null) return true;
+        foreach (var b in State.Buildings)
+            if (b.Owner == player && b.Built && b.Type.Id == type.Requires) return true;
+        return false;
+    }
 
     /// <summary>Whether a player has the whole cost of a building in hand, as starting one needs.</summary>
     public bool CanAfford(int player, BuildingType type) => State.Players[player].Packages >= type.Cost;
@@ -588,13 +598,15 @@ public sealed partial class Simulation
             // Head for the footprint's edge on this side, not its middle, so it doesn't end up on top of it.
             var edge = at + new Vector3(Math.Clamp(unit.Position.X - at.X, -type.Size / 2, type.Size / 2), 0, Math.Clamp(unit.Position.Z - at.Z, -type.Size / 2, type.Size / 2));
             var stand = edge + outward * (unit.Radius + BuildReach / 2);
-            Move(ref unit, stand with { Y = unit.Position.Y });
-            return;
+            // Arrived counts as in reach: a vehicle parks up to VehicleParkRadius short of where it was
+            // going, which from just outside reach would leave it standing there for ever.
+            if (!Move(ref unit, stand with { Y = unit.Position.Y })) return;
         }
         if (site is null)
         {
             // Only a building its owner can afford is started: the whole cost in hand, though it's paid as it grows.
-            int blocked = !CanPlace(type, at) ? BlockedByTheSite : !CanAfford(unit.Owner, type) ? BlockedByMoney : -1;
+            int blocked = !CanPlace(type, at) ? BlockedByTheSite : !HasRequired(unit.Owner, type) ? BlockedByRequirement
+                : !CanAfford(unit.Owner, type) ? BlockedByMoney : -1;
             if (blocked >= 0)
             {
                 _events.Add(new SimEvent(SimEventKind.BuildBlocked, unit.Id, blocked));
@@ -1007,6 +1019,13 @@ public sealed partial class Simulation
             Complete(ref unit);
             return;
         }
+        if (unit.Movement == Movement.Static && (!SeesTarget(unit.Owner, targetId) || Vector3.Distance(unit.Position, at with { Y = unit.Position.Y }) > unit.Range))
+        {
+            // A defense can't follow: out of its reach or out of sight, the order is over, and it goes back to
+            // shooting whatever comes in range.
+            Complete(ref unit);
+            return;
+        }
         if (!SeesTarget(unit.Owner, targetId))
         {
             // Out of its side's sight: on to where it was last seen, giving up there if it's still not in view.
@@ -1367,7 +1386,7 @@ public sealed partial class Simulation
         if (u >= 0)
         {
             ref var target = ref CollectionsMarshal.AsSpan(State.Units)[u];
-            target.Health -= damage;
+            target.Health -= target.MaxMembers > 1 ? MathF.Min(damage, target.MemberHealth) : damage; // one hit fells one member at most
             (target.LastAttacker, target.LastHitTick) = (shooter, State.Tick);
             int victim = target.Owner;
             bool dead = target.Health <= 0;
