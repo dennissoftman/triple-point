@@ -39,9 +39,23 @@ Milestones:
    - Upkeep: repairers mend broken belt feeding its posts when no enemy is near; idle units pick up spilled packages that no enemy stands near.
    - Scouting: when part of the enemy's belt hasn't been seen for 45 s, its fastest fighter (never artillery) goes to look.
    - It knows only what its side sees and remembers, through one knowledge layer (`AiView`): the same fog as a player.
+   - [built] **Levels:** easy, normal, hard (`--ai-level=`, or SimHost's `AiLevel`; normal by default). A level only makes it worse at things that are plainly bad, never changes its plan: easy thinks every 2 s instead of twice a second and leaves each building idle 8 s between units; hard thinks four times a second and takes no posts beyond two. Handicaps that looked like weakness (one builder, fewer posts, raiding later) made it stronger, so they're out. A test checks each level beats the one below.
    - [decided] **The AI after v1 is a behaviour tree** that decides for itself. v1 is scripted to prove the belt fight first. Its steps (survey, build, produce, fight, mend, collect, scout) are the future tree's subtrees, and `AiView` is its blackboard.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
+
+### Playtests
+
+- [built] **Match reports:** every skirmish (not the demo) that ends, or runs a minute before it's left, writes a report to `user://matches`: totals per side (packages gathered, picked up and spent, posts and buildings built and lost, units trained and lost with their cost), belt breaks by whose shot and whose posts they cut off, the first time each building and unit type appeared, and every side's money, income, posts and army every 30 s. The event log names each thing's owner and type.
+- **2026-09-30, Denys vs the AI (normal), main map:** lost at 4:54: out-built (one post for two minutes against the AI's four), raided, then overrun. It felt:
+  - **Slow to start.** The belts start empty, and no package reaches a post for about 75 s.
+  - **The AI was too strong** for a first match, hence the levels.
+  - **The belt didn't matter.** One segment broke all match; it was a fight over posts and the base.
+- **What AI-vs-AI numbers add** (match reports and `AiTests`):
+  - Income is flat at about 1 package/s per side from 1:30 on, however many posts: a post downstream of another only gets what that one lets past, so posts beyond the first on a belt buy a spare, not income.
+  - Belt breaks are rare between AIs too, about one a match.
+  - Between AIs, patience wins: the side that attacks first, into the other's base and its fresh production, loses.
+- Open: see open decisions 9 and 10.
 
 **Not in the MVP:** the Eastern bloc, bridges, civilian unrest, multiplayer and lockstep, normal maps, FSR, CMAA2, ECS, save/load, wear transitions, decals, damage stages (a color swap per state is enough).
 
@@ -272,6 +286,8 @@ Still [decided], for when their systems exist:
 6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
 7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
 8. **Tax and unrest balance, final faction names:** later, Denys's call.
+9. **What makes the belt worth fighting over** (first playtest: it wasn't). Undecided. The numbers say income is set by which belts reach your posts, not how many posts you have, and nobody gains much by cutting a belt.
+10. **The slow start** (first playtest): about 75 s before the first package arrives. Undecided.
 
 ## Rejected (don't re-propose without a new reason)
 

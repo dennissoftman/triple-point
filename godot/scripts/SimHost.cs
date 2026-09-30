@@ -38,6 +38,8 @@ public partial class SimHost : Node3D
     [Export] public bool Paused;               // the pause menu is open: no ticks run
     [Export] public bool FogOfWar = true;      // `--reveal` shows everything anyway (spectating), as does the demo
     [Export] public int[] AiPlayers = [];      // players the commander AI plays; `--ai=1`, `--ai=0,1` or `--ai=none` overrides
+    [Export] public global::Sim.Ai.AiLevel AiLevel = global::Sim.Ai.AiLevel.Normal; // how hard it plays; `--ai-level=easy|normal|hard` overrides
+    [Export] public bool MatchReports = true;  // write a report per match (user://matches) at game over, or on leaving one that ran a minute; never in the demo
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
@@ -54,6 +56,9 @@ public partial class SimHost : Node3D
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
     readonly List<Sim.Ai.Commander> _ais = [];
+    MatchStats _stats = null!;
+    bool _reported;
+    const int ReportAfterTicks = 60 * Simulation.TicksPerSecond; // a match left before this isn't worth a report
     FogOverlay _fog = null!;
     bool _reveal;
     const double AlertSeconds = 5;
@@ -162,9 +167,16 @@ public partial class SimHost : Node3D
         _fog.Setup(_sim);
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
             AiPlayers = ai[5..] == "none" ? [] : ai[5..].Split(',').Select(int.Parse).ToArray();
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai-level=")) is string level)
+        {
+            if (Enum.TryParse<global::Sim.Ai.AiLevel>(level["--ai-level=".Length..], ignoreCase: true, out var parsed)) AiLevel = parsed;
+            else GD.PushWarning($"Unknown AI level in '{level}'; easy, normal or hard.");
+        }
         if (!_demo)
             foreach (int p in AiPlayers)
-                if (p >= 0 && p < _sim.State.Players.Count) _ais.Add(new Sim.Ai.Commander(_sim, p));
+                if (p >= 0 && p < _sim.State.Players.Count) _ais.Add(new Sim.Ai.Commander(_sim, p, AiLevel));
+        _stats = new MatchStats(_sim);
+        MatchReports &= EndConditions && !_demo;
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
     }
 
@@ -198,11 +210,13 @@ public partial class SimHost : Node3D
             _tickClock.Restart();
             var events = _sim.Tick(_commands);
             _tickSeconds += _tickClock.Elapsed.TotalSeconds;
+            _stats.Observe(_sim, events);
             _ticksInWindow++;
             _commands.Clear();
             foreach (var e in events)
             {
                 Log(e);
+                if (e.Kind == SimEventKind.GameOver) Report();
                 Alert(e);
                 UnitsView.OnEvent(e);
                 BeltView.OnEvent(e, _sim.State);
@@ -313,23 +327,51 @@ public partial class SimHost : Node3D
         Alerts.Add((curve.PositionAt(curve.Length / 2), Time.GetTicksMsec() / 1000.0 + AlertSeconds));
     }
 
+    // Leaving a match (restart, quit, closing the window) that ran long enough: its report, if not written yet.
+    public override void _ExitTree()
+    {
+        if (_stats is not null && _sim.State.Tick >= ReportAfterTicks) Report();
+    }
+
+    void Report()
+    {
+        if (!MatchReports || _reported) return;
+        _reported = true;
+        _stats.Finish(_sim.State);
+        string ai = _ais.Count == 0 ? "none" : string.Join(", ", _ais.Select(a => PlayerPalette.Name(a.Player))) + $" ({AiLevel})";
+        if (MatchReport.Write(_stats, _sim.State, GetTree().CurrentScene?.SceneFilePath ?? "", ai) is string path)
+            GD.Print($"Match report: {path}");
+    }
+
+    // A unit, building or post as the log names it: owner, type, id.
+    string Who(int id)
+    {
+        int owner = _stats.OwnerOf(id);
+        string type = _stats.TypeOf(id);
+        return $"{(owner >= 0 ? PlayerPalette.Name(owner) + " " : "")}{(type.Length > 0 ? type : "unit")} {id}";
+    }
+
     void Log(SimEvent e)
     {
         int t = _sim.State.Tick;
         switch (e.Kind)
         {
-            case SimEventKind.UnitDied: GD.Print($"[{t}] unit {e.Id} died"); break;
-            case SimEventKind.GathererDestroyed: GD.Print($"[{t}] gatherer {e.Id} destroyed"); break;
-            case SimEventKind.UnitProduced: GD.Print($"[{t}] unit {e.Id} produced at building {e.Index}"); break;
-            case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] building {e.Id} destroyed"); break;
-            case SimEventKind.BuildingPlaced: GD.Print($"[{t}] building {e.Id} placed by unit {e.Index}"); break;
-            case SimEventKind.BuildingCompleted: GD.Print($"[{t}] building {e.Id} completed" + (e.Index != e.Id ? $", now {e.Index}" : "")); break;
-            case SimEventKind.BuildBlocked: GD.Print($"[{t}] unit {e.Id} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough packages" : "the site is taken")); break;
+            case SimEventKind.UnitDied: GD.Print($"[{t}] {Who(e.Id)} died"); break;
+            case SimEventKind.GathererDestroyed: GD.Print($"[{t}] {Who(e.Id)} destroyed"); break;
+            case SimEventKind.UnitProduced: GD.Print($"[{t}] {Who(e.Id)} trained at {Who(e.Index)}"); break;
+            case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] {Who(e.Id)} destroyed"); break;
+            case SimEventKind.BuildingPlaced: GD.Print($"[{t}] {Who(e.Id)} placed by {Who(e.Index)}"); break;
+            case SimEventKind.BuildingCompleted: GD.Print($"[{t}] {Who(e.Id)} completed" + (e.Index != e.Id ? $", now {Who(e.Index)}" : "")); break;
+            case SimEventKind.BuildBlocked: GD.Print($"[{t}] {Who(e.Id)} couldn't build: " + (e.Index == Simulation.BlockedByMoney ? "not enough packages" : "the site is taken")); break;
             case SimEventKind.GraceStarted: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} has no buildings: {Simulation.GraceSeconds:0} s to rebuild"); break;
             case SimEventKind.GraceEnded: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} rebuilt"); break;
             case SimEventKind.PlayerLost: GD.Print($"[{t}] {PlayerPalette.Name(e.Id)} lost"); break;
             case SimEventKind.GameOver: GD.Print($"[{t}] game over: " + (e.Id == Player.None ? "a draw" : $"{PlayerPalette.Name(e.Id)} wins")); break;
-            case SimEventKind.SegmentBroken: GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken"); break;
+            case SimEventKind.SegmentBroken:
+                int by = _sim.State.Belts[e.Id].Segments[e.Index].BrokenBy;
+                GD.Print($"[{t}] belt {e.Id} segment {e.Index} broken" + (by >= 0 ? $" by {PlayerPalette.Name(by)}" : "")
+                         + string.Concat(Enumerable.Range(0, _sim.State.Players.Count).Where(p => _sim.FeedsPostOf(p, e.Id, e.Index)).Select(p => $", cutting off {PlayerPalette.Name(p)}")));
+                break;
             case SimEventKind.SegmentRepaired: GD.Print($"[{t}] belt {e.Id} segment {e.Index} repaired"); break;
         }
     }

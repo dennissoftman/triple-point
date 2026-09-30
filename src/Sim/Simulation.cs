@@ -462,7 +462,7 @@ public sealed partial class Simulation
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
                 break;
             case BreakSegmentCommand b when Open(b.Line, b.Segment):
-                Break(b.Line, b.Segment);
+                Break(b.Line, b.Segment, Player.None);
                 break;
             case DestroyCommand d:
                 Destroy(d.TargetId);
@@ -1201,16 +1201,16 @@ public sealed partial class Simulation
     // target died on the way. True if the aimed-at target was destroyed.
     bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius)
     {
-        if (radius <= 0) return targetId != -2 && Hit(shooter, targetId, line, segment, damage);
-        bool destroyed = targetId == -1 && Hit(shooter, -1, line, segment, damage);
+        if (radius <= 0) return targetId != -2 && Hit(owner, shooter, targetId, line, segment, damage);
+        bool destroyed = targetId == -1 && Hit(owner, shooter, -1, line, segment, damage);
         Splash(owner, shooter, at, damage, radius, targetId, ref destroyed);
-        SplashBelts(at, damage, radius, targetId == -1 ? line : -1, segment);
+        SplashBelts(owner, at, damage, radius, targetId == -1 ? line : -1, segment);
         return destroyed;
     }
 
     // Splash damages belt too, anyone's: every open segment within the radius of the blast, less toward the
     // edge, except one the shot was aimed at (it took its hit directly). What that breaks spills as usual.
-    void SplashBelts(Vector3 at, float damage, float radius, int aimedLine, int aimedSegment)
+    void SplashBelts(int owner, Vector3 at, float damage, float radius, int aimedLine, int aimedSegment)
     {
         for (int l = 0; l < State.Belts.Count; l++)
         {
@@ -1222,7 +1222,7 @@ public sealed partial class Simulation
                 segment.Curve.ClosestDistanceAlong(at with { Y = segment.Curve.PositionAt(0).Y }, out float d);
                 if (d > radius) continue;
                 segment.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
-                if (segment.Health <= 0) Break(l, s);
+                if (segment.Health <= 0) Break(l, s, owner);
             }
         }
     }
@@ -1270,8 +1270,8 @@ public sealed partial class Simulation
         }
     }
 
-    // Damages a unit, post or building by id, or else a belt segment, for `shooter`; true if that destroyed it.
-    bool Hit(int shooter, int targetId, int line, int segment, float damage)
+    // Damages a unit, post or building by id, or else a belt segment, for `shooter` (a unit of `owner`'s); true if that destroyed it.
+    bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage)
     {
         if (targetId < 0)
         {
@@ -1279,7 +1279,7 @@ public sealed partial class Simulation
             if (s.State == SegmentState.Broken) return false;
             s.Health -= damage;
             if (s.Health > 0) return false;
-            Break(line, segment);
+            Break(line, segment, owner);
             return true;
         }
         int u = FindUnit(targetId);
@@ -1523,12 +1523,12 @@ public sealed partial class Simulation
         }
     }
 
-    void Break(int lineIndex, int segmentIndex)
+    void Break(int lineIndex, int segmentIndex, int by)
     {
         var line = State.Belts[lineIndex];
         var segment = line.Segments[segmentIndex];
         if (segment.State == SegmentState.Broken) return;
-        (segment.State, segment.Health) = (SegmentState.Broken, 0);
+        (segment.State, segment.Health, segment.BrokenBy) = (SegmentState.Broken, 0, by);
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
         TellCutOff(lineIndex, segmentIndex);
 

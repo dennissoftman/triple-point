@@ -3,8 +3,27 @@ using System.Runtime.InteropServices;
 
 namespace Sim.Ai;
 
+/// <summary>How hard the commander plays. Normal is the full script; the others change only its numbers.</summary>
+public enum AiLevel { Easy, Normal, Hard }
+
 /// <summary>
-/// A computer player that fights over the belt. Every ThinkTicks it looks at the world (through its
+/// A level's numbers: how often it thinks (ticks; its reaction time), how long a building it trains at
+/// stands idle between units (s), and how many posts it takes at most. Easy is slow and leaves money
+/// unspent; Hard reacts at once and doesn't pay for posts a belt can't feed (a post downstream of
+/// another only gets what that one lets past).
+/// </summary>
+public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts)
+{
+    public static AiSettings For(AiLevel level) => level switch
+    {
+        AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 8, MaxPosts: int.MaxValue),
+        AiLevel.Hard => new(ThinkTicks: 5, TrainPause: 0, MaxPosts: 2),
+        _ => new(ThinkTicks: 10, TrainPause: 0, MaxPosts: int.MaxValue),
+    };
+}
+
+/// <summary>
+/// A computer player that fights over the belt. Every few ticks (its level's ThinkTicks) it looks at the world (through its
 /// AiView) and returns the commands a player would give: the same objects, checked the same way.
 ///
 /// - Economy: keeps builders, takes post spots on its side of the map (nearest home first), puts up a
@@ -23,7 +42,6 @@ namespace Sim.Ai;
 /// </summary>
 public sealed class Commander
 {
-    public const int ThinkTicks = 10;               // twice a second, on ticks that are multiples of it
     const float PostSearchStep = 4f;                // m along free belt between the post spots it weighs
     const float ThreatRadius = 30f;                 // m around its posts and buildings that counts as under attack
     const float SpotDangerRadius = 22f;             // m: no post where enemy fighters stand this close
@@ -43,6 +61,7 @@ public sealed class Commander
     readonly Simulation _sim;
     readonly AiView _view;
     readonly int _me;
+    readonly AiSettings _level;
     readonly List<Command> _out = [];
 
     // What it sees this think; kept between thinks only to be reused.
@@ -51,26 +70,28 @@ public sealed class Commander
     readonly List<(int Line, float From, float To)> _spots = [];
     readonly HashSet<int> _retreating = [];
     readonly HashSet<int> _ordered = [];            // units given an order this think
+    readonly Dictionary<int, int> _idleSince = [];  // per building it trains at: the tick its queue was first seen empty
     readonly Predicate<int> _gone;
     int _scout = -1;                                // the unit out looking, if any
     Vector3 _home, _enemyHome, _staging;
     float _strength, _enemyStrength;
 
-    public Commander(Simulation sim, int player)
+    public Commander(Simulation sim, int player, AiLevel level = AiLevel.Normal)
     {
-        (_sim, _me) = (sim, player);
+        (_sim, _me, _level) = (sim, player, AiSettings.For(level));
         _view = new AiView(sim, player);
         _gone = id => !Alive(id);
     }
 
     public int Player => _me;
+    public AiSettings Level => _level;
 
     /// <summary>The commands for the coming tick: on a think tick, whatever it decided; otherwise none.</summary>
     public IReadOnlyList<Command> Think()
     {
         _out.Clear();
         var state = _sim.State;
-        if (state.GameOver || state.Players[_me].Lost || state.Tick % ThinkTicks != 0) return _out;
+        if (state.GameOver || state.Players[_me].Lost || state.Tick % _level.ThinkTicks != 0) return _out;
         Survey();
         Build();
         Produce();
@@ -193,7 +214,7 @@ public sealed class Commander
         var state = _sim.State;
         foreach (var b in state.Buildings)
         {
-            if (b.Owner != _me || b.Built || b.WorkedTick >= state.Tick - 2 * ThinkTicks) continue;
+            if (b.Owner != _me || b.Built || b.WorkedTick >= state.Tick - 2 * _level.ThinkTicks) continue;
             bool someoneOnIt = false;
             foreach (int i in _builders)
                 if (state.Units[i].Current.Kind == UnitOrder.Build && state.Units[i].Current.TargetId == b.Id) someoneOnIt = true;
@@ -202,7 +223,7 @@ public sealed class Commander
         return null;
     }
 
-    // What to put up next: two posts, a barracks, a factory, then more posts while there's room.
+    // What to put up next: two posts, a barracks, a factory, then more posts while there's room (up to its level's cap).
     BuildingType? NextBuilding(in Unit builder)
     {
         if (builder.Builds is null) return null;
@@ -222,7 +243,7 @@ public sealed class Commander
         if (post is not null && posts < 2 && !Planned(post)) return post;
         if (barracks is not null && Count(barracks) == 0 && !Planned(barracks)) return barracks;
         if (factory is not null && Count(factory) == 0 && !Planned(factory) && Built(barracks)) return factory;
-        if (post is not null && !Planned(post) && _sim.State.Players[_me].Packages >= post.Cost + PostWorthMin) return post;
+        if (post is not null && posts < _level.MaxPosts && !Planned(post) && _sim.State.Players[_me].Packages >= post.Cost + PostWorthMin) return post;
         return null;
     }
 
@@ -314,7 +335,9 @@ public sealed class Commander
         {
             if (b.Owner != _me || !b.Built || b.Type.Units.Length == 0) continue;
             if (Vector3.Distance(b.Rally, _staging) > 3 && !TrainsBuilders(b.Type)) _out.Add(new SetRallyCommand(_me, b.Id, _staging));
-            if (b.Queue.Count > 0) continue;
+            if (b.Queue.Count > 0) { _idleSince.Remove(b.Id); continue; }
+            if (!_idleSince.TryGetValue(b.Id, out int idle)) _idleSince[b.Id] = idle = state.Tick;
+            if (state.Tick - idle < _level.TrainPause * Simulation.TicksPerSecond) continue;
             if (Choose(b) is UnitType type) _out.Add(new ProduceCommand(_me, b.Id, type.Id));
         }
     }

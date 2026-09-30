@@ -232,6 +232,7 @@ public sealed class BeltSegment
     public SegmentState State;
     public readonly bool Covered; // can't be damaged, takes no posts (see BeltLine)
     public float RepairCredit { get; internal set; } // health already paid for and not yet repaired
+    public int BrokenBy { get; internal set; } = Player.None; // whose shot broke it last (Player.None: scripted, or never)
 
     public BeltSegment(BezierSegment curve, float start, float maxHealth, bool covered = false) =>
         (Curve, Start, MaxHealth, Health, Covered) = (curve, start, maxHealth, maxHealth, covered);

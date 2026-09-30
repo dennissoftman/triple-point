@@ -113,6 +113,63 @@ public class AiTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Each_level_beats_the_one_below_it()
+    {
+        // Two seeds, each with the stronger level on either side: it should win nearly all of them.
+        var pairs = new[] { (Weak: AiLevel.Easy, Strong: AiLevel.Normal), (Weak: AiLevel.Normal, Strong: AiLevel.Hard) };
+        var games = (from pair in pairs from seed in new uint[] { 1, 2 } from strongIsRed in new[] { false, true } select (pair, seed, strongIsRed)).ToArray();
+        var won = new bool[games.Length];
+        var lines = new string[games.Length];
+        Parallel.For(0, games.Length, i =>
+        {
+            var (pair, seed, strongIsRed) = games[i];
+            var sim = MainMap.Load(seed);
+            int strong = strongIsRed ? Red : Blue;
+            Play(sim, [new Commander(sim, Blue, strongIsRed ? pair.Weak : pair.Strong), new Commander(sim, Red, strongIsRed ? pair.Strong : pair.Weak)], 30 * 60);
+            won[i] = sim.State.GameOver && sim.State.Winner == strong;
+            lines[i] = $"{pair.Strong} (p{strong}) vs {pair.Weak}, seed {seed}: {(sim.State.GameOver ? $"p{sim.State.Winner} won at {sim.State.Tick / T} s" : "no end")}";
+        });
+        foreach (var line in lines) output.WriteLine(line);
+        for (int p = 0; p < pairs.Length; p++)
+            Assert.True(won.Where((_, i) => games[i].pair == pairs[p]).Count(w => w) >= 3, $"{pairs[p].Strong} beats {pairs[p].Weak}");
+    }
+
+    [Fact]
+    public void Match_stats_add_up()
+    {
+        var sim = MainMap.Load(3);
+        var stats = new MatchStats(sim);
+        int produced = 0, broken = 0, brokenByPlayers = 0;
+        Play(sim, [new Commander(sim, Blue), new Commander(sim, Red)], 30 * 60, (_, events) =>
+        {
+            stats.Observe(sim, events);
+            foreach (var e in events)
+            {
+                if (e.Kind == SimEventKind.UnitProduced) produced++;
+                if (e.Kind != SimEventKind.SegmentBroken) continue;
+                broken++;
+                if (sim.State.Belts[e.Id].Segments[e.Index].BrokenBy >= 0) brokenByPlayers++;
+            }
+        });
+        stats.Finish(sim.State);
+
+        Assert.Equal(produced, stats.Sides.Sum(s => s.Trained.Values.Sum()));
+        Assert.Equal(brokenByPlayers, stats.Sides.Sum(s => s.Breaks));
+        Assert.True(broken > 0 && brokenByPlayers == broken, "every break here is someone's shot");
+        Assert.True(stats.Sides.Sum(s => s.BreaksCuttingEnemy) > 0, "some cut an enemy's posts off");
+        Assert.Equal(sim.State.GameOver ? sim.State.Winner : Player.None, stats.Winner);
+        foreach (var (side, p) in stats.Sides.Select((s, p) => (s, p)))
+        {
+            Assert.Equal(sim.State.Players[p].Gathered, side.Samples[^1].Gathered);
+            Assert.Equal(side.Samples.Count, side.Samples.Select(s => s.Tick).Distinct().Count());
+            Assert.All(side.Samples.SkipLast(1), s => Assert.Equal(0, s.Tick % (int)(MatchStats.SampleSeconds * T)));
+            Assert.Contains(stats.Firsts, f => f.Player == p && f.Type == "gatherer_post");
+        }
+        // Firsts come in the order they happened.
+        Assert.Equal(stats.Firsts.Select(f => f.Tick).Order(), stats.Firsts.Select(f => f.Tick));
+    }
+
+    [Fact]
     public void Commands_only_its_own_units_and_buildings()
     {
         var sim = MainMap.Load();
