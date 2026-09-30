@@ -269,4 +269,21 @@ public class ConstructionTests
         Assert.Equal(new Vector3(4, 0, 0), Simulation.SnapToGrid(new Vector3(3.3f, 0, -0.9f), 4)); // 2 cells: center on a grid line
         Assert.Equal(new Vector3(3, 0, -1), Simulation.SnapToGrid(new Vector3(3.3f, 0, -0.9f), 6)); // 3 cells: on a cell's middle
     }
+
+    [Theory]
+    [InlineData(0f)]   // straight at a side
+    [InlineData(45f)]  // at a corner
+    [InlineData(30f)]
+    public void A_big_builder_finishes_what_it_lays_from_any_side_once_the_foundation_is_solid(float degrees)
+    {
+        var sim = NewConstructionSim();
+        sim.EnableNavigation(-50, -50, 50, 50);
+        float a = degrees * MathF.PI / 180;
+        int builder = sim.AddUnit(Blue, new Vector3(MathF.Cos(a), 0, MathF.Sin(a)) * 15, Builder with { Radius = 1.4f });
+        var site = Vector3.Zero;
+        sim.Tick([new BuildCommand(Blue, builder, "barracks", site)]);
+        Run(sim, 10 * T);
+        Assert.True(BuildingAt(sim, site).Built, "it's built, not left waiting for a builder standing beside it");
+        Assert.Equal(UnitOrder.None, UnitById(sim, builder).Current.Kind);
+    }
 }

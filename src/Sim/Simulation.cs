@@ -43,7 +43,7 @@ public sealed partial class Simulation
     const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
     const float SpotMargin = 0.05f;                 // m inside a free stretch's ends that SnapPost aims for, clear of rounding
     public const float PostSpacing = 30f;           // m along a line between any two posts (foundations too); two posts drain a belt
-    const float BuildReach = 2f;                    // m beyond a footprint's edge that a builder works from
+    const float BuildReach = 1.5f;                  // m beyond a footprint's edge, past its own radius, that a builder works from
     const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
     const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
@@ -524,12 +524,13 @@ public sealed partial class Simulation
             return;
         }
         var at = site?.Position ?? order.Target;
-        float reach = type.Size / 2 + BuildReach;
-        if (GroundDistanceSq(unit.Position, at) > reach * reach)
+        // Measured from the square footprint's edge, beyond the builder's own size: once laid, the
+        // foundation is solid, and a big builder can't stand closer to it (least of all at a corner).
+        if (FromFootprint(unit.Position, at, type.Size / 2, out var outward) > unit.Radius + BuildReach)
         {
             // Head for the footprint's edge on this side, not its middle, so it doesn't end up on top of it.
-            var away = (unit.Position - at) with { Y = 0 };
-            var stand = at + away / away.Length() * (type.Size / 2 + BuildReach / 2);
+            var edge = at + new Vector3(Math.Clamp(unit.Position.X - at.X, -type.Size / 2, type.Size / 2), 0, Math.Clamp(unit.Position.Z - at.Z, -type.Size / 2, type.Size / 2));
+            var stand = edge + outward * (unit.Radius + BuildReach / 2);
             Move(ref unit, stand with { Y = unit.Position.Y });
             return;
         }
@@ -1711,6 +1712,18 @@ public sealed partial class Simulation
         for (int i = 0; i < units.Count; i++)
             if (GroundDistanceSq(units[i].Position, point) <= CollectRadius * CollectRadius) return i;
         return -1;
+    }
+
+    // How far a point is outside a square footprint (0 inside), and the way out from it: away from the
+    // nearest point of the square, or from the middle when inside.
+    static float FromFootprint(Vector3 p, Vector3 center, float half, out Vector3 outward)
+    {
+        float dx = p.X - center.X, dz = p.Z - center.Z;
+        var off = new Vector3(dx - Math.Clamp(dx, -half, half), 0, dz - Math.Clamp(dz, -half, half));
+        float gap = off.Length();
+        var away = gap > 1e-4f ? off : new Vector3(dx, 0, dz);
+        outward = away.LengthSquared() > 1e-8f ? Vector3.Normalize(away) : Vector3.UnitX;
+        return gap;
     }
 
     static float GroundDistanceSq(Vector3 a, Vector3 b)
