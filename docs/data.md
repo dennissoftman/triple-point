@@ -22,6 +22,7 @@ Named by `weapon` in units.json.
 | `splashRadius` | m | 0 | Above 0 exactly when `hit` is `splash`. |
 | `ballistic` | bool | false | Shells only. It flies in an arc to where the target stood when it fired and bursts there, instead of homing on the target. |
 | `scatter` | m | 0 | Shells only. How far off the aim point a ballistic shell may land at full range, less closer in, anywhere around it. |
+| `prefers` | `any`, `infantry` or `vehicle` | `any` | Which units it picks first when several are in range: infantry is anything on foot, vehicles everything else (defenses too). Within that class, and among the rest after it, the weakest. Units always come before depots and buildings. |
 | `structureDamage` | factor | 1 | Times its damage against buildings, foundations and depots (not defenses, which take damage as units do; not road or trucks): siege guns above 1, small arms below. |
 
 ## units.json

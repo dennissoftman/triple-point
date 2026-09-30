@@ -150,6 +150,7 @@ public sealed partial class Simulation
             Ballistic = weapon.Kind == WeaponKind.Shell && weapon.Ballistic,
             Scatter = weapon.Scatter,
             StructureDamage = weapon.StructureDamage,
+            Prefers = weapon.Prefers,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
             LastAttacker = -1,
@@ -846,6 +847,7 @@ public sealed partial class Simulation
     void Start(ref Unit unit, Order order)
     {
         unit.Holding = false; // any order ends holding position
+        if (unit.PathSlot >= 0) _paths[unit.PathSlot].Planned = false; // the way to the last order's target isn't this one's
         // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
         unit.Current = order with { Target = OrderPoint(order, unit.Position) };
         (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
@@ -1166,20 +1168,25 @@ public sealed partial class Simulation
         (unit.RespondTo, unit.Returning) = (attacker, false);
     }
 
-    // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties.
-    // Units come before posts and buildings. Allies near the same enemies pick the same target, so they focus fire
-    // without the player clicking.
+    // The weakest enemy in range: fewest hit points left, so it dies soonest, nearest first on ties. Units
+    // come before posts and buildings, and among units, the class its weapon prefers (a tank's cannon goes
+    // for vehicles, a rifle for infantry) before the rest. Allies near the same enemies pick the same
+    // target, so they focus fire without the player clicking.
     bool FindTarget(in Unit unit, out int target, out Vector3 at)
     {
         (target, at) = (-1, Vector3.Zero);
         float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range, minSq = unit.MinRange * unit.MinRange;
+        bool bestPreferred = false;
         foreach (var other in State.Units)
         {
             if (other.Owner == unit.Owner || other.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
-            if (sq > rangeSq || sq < minSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
+            if (sq > rangeSq || sq < minSq) continue;
+            bool preferred = unit.Prefers != TargetClass.Any && ClassOf(other) == unit.Prefers;
+            if (bestPreferred && !preferred) continue;
+            if (preferred == bestPreferred && (other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq))) continue;
             if (!SeesUnit(unit.Owner, other)) continue; // only what its side sees
-            (target, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
+            (target, bestHealth, bestSq, at, bestPreferred) = (other.Id, other.Health, sq, other.Position, preferred);
         }
         if (target >= 0) return true;
         foreach (var post in State.Gatherers)
@@ -1200,6 +1207,9 @@ public sealed partial class Simulation
         }
         return target >= 0;
     }
+
+    /// <summary>Infantry is anything on foot; everything else, defenses too, is a vehicle.</summary>
+    public static TargetClass ClassOf(in Unit unit) => unit.Movement == Movement.Foot ? TargetClass.Infantry : TargetClass.Vehicle;
 
     // Turns the turret toward `yaw` at its turn rate; true once it's on target. Units without a turret
     // (squads) aim instantly.

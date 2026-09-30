@@ -54,6 +54,12 @@ public enum WeaponKind { Bullet, Shell }
 public enum HitKind { Direct, Splash }
 
 /// <summary>
+/// What a weapon would rather shoot, among units in range (Simulation.FindTarget): infantry (foot units)
+/// or vehicles (anything else, defenses too). Any: no preference, the weakest in range.
+/// </summary>
+public enum TargetClass { Any, Infantry, Vehicle }
+
+/// <summary>
 /// A weapon type, as loaded from /data/weapons.json (fields: docs/data.md): Damage per shot (per member,
 /// for a squad), Reload seconds between shots, Range and MinRange in m, for shells their speed in m/s,
 /// for splash its radius in m. A Ballistic shell flies to where its target stood, off by up to Scatter m,
@@ -61,7 +67,7 @@ public enum HitKind { Direct, Splash }
 /// </summary>
 public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
     HitKind Hit = HitKind.Direct, float SplashRadius = 0, float MinRange = 0, bool Ballistic = false, float Scatter = 0,
-    float StructureDamage = 1, string Id = "")
+    float StructureDamage = 1, TargetClass Prefers = TargetClass.Any, string Id = "")
 {
     /// <summary>No weapon: builders and the like. It never finds anything in range to shoot.</summary>
     public static readonly WeaponType Unarmed = new(WeaponKind.Bullet, 0, 1, 0, Id: "");
@@ -186,6 +192,7 @@ public struct Unit
     public float MinRange, Scatter;        // m: won't fire closer; how far off a ballistic shell may land
     public bool Ballistic;                 // its shells fly to a point instead of homing
     public float StructureDamage;          // times its damage against buildings and depots
+    public TargetClass Prefers;            // the units it picks first when several are in range
     public bool StopsToFire;               // fires only while standing still
     public int ReloadTicks, ReadyAtTick, LastShotTick;
     public bool Firing;                    // engaging something this tick (on target, in range), reloading or not

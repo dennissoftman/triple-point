@@ -547,6 +547,30 @@ public class CombatTests
     }
 
     [Fact]
+    public void A_weapon_picks_the_class_it_prefers_before_weaker_targets_of_the_other()
+    {
+        var sim = NewSim();
+        var cannon = new WeaponType(WeaponKind.Bullet, Damage: 10, Reload: 100, Range: 12, Prefers: TargetClass.Vehicle);
+        var rifle = new WeaponType(WeaponKind.Bullet, Damage: 1, Reload: 100, Range: 12, Prefers: TargetClass.Infantry);
+        int squad = sim.AddUnit(Red, new Vector3(5, 0, 0), speed: 0, maxHealth: 20, dps: 0, members: 5); // nearly dead
+        int tank = sim.AddUnit(Red, new Vector3(-5, 0, 0), speed: 0, maxHealth: 300, dps: 0, movement: Movement.Tracked);
+        sim.AddUnit(Blue, Vector3.Zero, speed: 0, weapon: cannon);
+        Run(sim, 2);
+        Assert.Equal(290, UnitById(sim, tank).Health, 0.01f); // the tank, full health and all
+        Assert.Equal(20, UnitById(sim, squad).Health, 0.01f);
+
+        sim.AddUnit(Blue, Vector3.Zero, speed: 0, weapon: rifle);
+        Run(sim, 2);
+        Assert.Equal(19, UnitById(sim, squad).Health, 0.01f); // a rifle goes for the infantry
+
+        // No preference: the weakest, as before.
+        var any = new WeaponType(WeaponKind.Bullet, Damage: 1, Reload: 100, Range: 12);
+        sim.AddUnit(Blue, Vector3.Zero, speed: 0, weapon: any);
+        Run(sim, 2);
+        Assert.Equal(18, UnitById(sim, squad).Health, 0.01f);
+    }
+
+    [Fact]
     public void Only_splash_breaks_road()
     {
         var sim = NewSim();

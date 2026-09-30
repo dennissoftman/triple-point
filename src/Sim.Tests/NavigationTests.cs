@@ -300,4 +300,24 @@ public class MainMapNavigationTests
             Assert.True(Vector3.Distance(path[^1], Vector3.Zero) < 3, $"from {hq.Exit} it gets to {path[^1]}");
         }
     }
+
+    [Fact]
+    public void A_new_order_drops_the_path_to_the_old_ones_target()
+    {
+        var sim = NewSim();
+        sim.EnableNavigation(-40, -40, 40, 40);
+        int unit = sim.AddUnit(Blue, Vector3.Zero, speed: 5, dps: 0, range: 8);
+        int far = sim.AddUnit(Red, new Vector3(35, 0, 0), speed: 0, maxHealth: 1000, dps: 0);
+        int near = sim.AddUnit(Red, new Vector3(-1, 0, -6), speed: 0, maxHealth: 1000, dps: 0);
+        sim.Tick([new AttackCommand(Blue, unit, far)]);
+        Run(sim, T / 2);
+        Assert.NotNull(sim.PathOf(UnitById(sim, unit), out _));
+
+        // Not queued: the attack on the near one, already in range, replaces it, so it doesn't move and has
+        // no path; the way to the far one mustn't linger (the view draws it as a waypoint).
+        sim.Tick([new AttackCommand(Blue, unit, near)]);
+        Run(sim, 2);
+        Assert.Equal(near, UnitById(sim, unit).Current.TargetId);
+        Assert.Null(sim.PathOf(UnitById(sim, unit), out _));
+    }
 }

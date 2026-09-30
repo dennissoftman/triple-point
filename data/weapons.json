@@ -1,10 +1,10 @@
 // Prototype weapons, named by units.json. Every field, its units and its default: docs/data.md.
 {
-  "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8, "structureDamage": 0.4 }, // 2 dps a member
-  "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12, "structureDamage": 0.4 }, // 9 dps
-  "turret_gun": { "kind": "bullet", "damage": 2, "reload": 0.2, "range": 13, "structureDamage": 0.4 }, // 10 dps; tanks outrange it
-  "turret_cannon": { "kind": "shell", "hit": "direct", "damage": 45, "reload": 3, "range": 15, "shellSpeed": 45 }, // 15 dps on vehicles; a squad loses one member a hit
-  "tank_cannon": { "kind": "shell", "hit": "direct", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40, "structureDamage": 1.5 }, // 14 dps, in big hits
+  "rifle": { "kind": "bullet", "damage": 1, "reload": 0.5, "range": 8, "structureDamage": 0.4, "prefers": "infantry" }, // 2 dps a member
+  "machine_gun": { "kind": "bullet", "damage": 1.35, "reload": 0.15, "range": 12, "structureDamage": 0.4, "prefers": "infantry" }, // 9 dps
+  "turret_gun": { "kind": "bullet", "damage": 2, "reload": 0.2, "range": 13, "structureDamage": 0.4, "prefers": "infantry" }, // 10 dps; tanks outrange it
+  "turret_cannon": { "kind": "shell", "hit": "direct", "damage": 45, "reload": 3, "range": 15, "shellSpeed": 45, "prefers": "vehicle" }, // 15 dps on vehicles; a squad loses one member a hit
+  "tank_cannon": { "kind": "shell", "hit": "direct", "damage": 42, "reload": 3, "range": 14, "shellSpeed": 40, "structureDamage": 1.5, "prefers": "vehicle" }, // 14 dps, in big hits
   "artillery_gun": { "kind": "shell", "hit": "splash", "damage": 30, "splashRadius": 3.5, "reload": 5, "range": 28,
-                     "minRange": 8, "shellSpeed": 22, "ballistic": true, "scatter": 3, "structureDamage": 3 }, // 6 dps, slow, lands near the aim; 18 on buildings
+                     "minRange": 8, "shellSpeed": 22, "ballistic": true, "scatter": 3, "structureDamage": 3, "prefers": "infantry" }, // 6 dps, slow, lands near the aim; 18 on buildings
 }
