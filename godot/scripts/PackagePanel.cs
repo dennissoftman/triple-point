@@ -2,18 +2,19 @@ using Godot;
 using Sim;
 
 /// <summary>
-/// The local player's packages, just above the minimap and as wide: the amount, and what they've earned
-/// per minute over the last half minute (posts and pickups), which is what winning or losing the belt
+/// The local player's packages, in the middle of the top bar: the amount, and what they've earned per
+/// minute over the last half minute (depots and pickups), which is what winning or losing the routes
 /// changes. Styled in the player's color. Placeholder look.
 /// </summary>
 public partial class PackagePanel : PanelContainer
 {
     const int WindowSeconds = 30; // the income rate's window
-    const float Gap = 6f;         // px above the minimap
+    const int MaxShown = 9999, MaxRate = 999; // what the fixed slots have room for; more shows as the most
+    const float PanelWidth = 250;
 
     [Export] public SimHost Host = null!;
     [Export] public PlayerInput PlayerInput = null!;
-    [Export] public Control Minimap = null!;
+    [Export] public Control Minimap = null!; // no longer placed by it; kept so the scenes load unchanged
     [Export] public int Shown = -1; // the amount as shown; for tools
 
     // Earned so far (gathered + collected) per player, once a sim second, for the last WindowSeconds + 1 seconds.
@@ -24,7 +25,9 @@ public partial class PackagePanel : PanelContainer
 
     public override void _Ready()
     {
-        (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0, 0, 0, 0); // placed over the minimap in _Process
+        (AnchorLeft, AnchorRight, AnchorTop, AnchorBottom) = (0.5f, 0.5f, 0, 0);
+        (GrowHorizontal, OffsetTop) = (GrowDirection.Both, 1);
+        CustomMinimumSize = new Vector2(PanelWidth, TopBar.Height - 2); // wider than its contents ever get, so it never resizes
         MouseFilter = MouseFilterEnum.Pass; // for its tooltip
         TooltipText = L.T("packages.tip", WindowSeconds);
         _style = new StyleBoxFlat
@@ -32,11 +35,11 @@ public partial class PackagePanel : PanelContainer
             BgColor = new Color(0.08f, 0.09f, 0.1f, 0.82f),
             BorderWidthBottom = 3,
             CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6, CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6,
-            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 3, ContentMarginBottom = 3,
+            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 0, ContentMarginBottom = 0,
         };
         AddThemeStyleboxOverride("panel", _style);
 
-        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Begin, MouseFilter = MouseFilterEnum.Ignore }; // clicks go through to the world
+        var row = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center, MouseFilter = MouseFilterEnum.Ignore };
         row.AddThemeConstantOverride("separation", 10);
         AddChild(row);
         row.AddChild(new Label
@@ -48,21 +51,20 @@ public partial class PackagePanel : PanelContainer
         row.AddChild(_amount = new Label
         {
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
             LabelSettings = new LabelSettings { FontSize = 20, FontColor = new Color(1, 0.72f, 0.25f), OutlineSize = 2, OutlineColor = Colors.Black },
         });
+        UiSizes.Reserve(_amount, MaxShown.ToString().Replace('9', '8'), 20, extra: 4); // 8 is about the widest digit
         row.AddChild(_income = new Label
         {
             VerticalAlignment = VerticalAlignment.Center,
             LabelSettings = new LabelSettings { FontSize = 12, FontColor = new Color(0.8f, 0.82f, 0.85f) },
         });
+        UiSizes.Reserve(_income, L.T("packages.rate", 888), 12, extra: 4);
     }
 
     public override void _Process(double delta)
     {
-        var place = new Vector2(Minimap.Position.X, Minimap.Position.Y - Size.Y - Gap);
-        if (Position != place) Position = place;
-        if (CustomMinimumSize.X != Minimap.Size.X) CustomMinimumSize = new Vector2(Minimap.Size.X, 0);
-
         var state = Host.Sim.State;
         Sample(state);
         int local = PlayerInput.LocalPlayer;
@@ -73,9 +75,9 @@ public partial class PackagePanel : PanelContainer
             _player = local;
             _style.BorderColor = PlayerPalette.Color(local);
         }
-        int amount = state.Players[local].Packages;
+        int amount = Mathf.Min(state.Players[local].Packages, MaxShown);
         if (amount != Shown) _amount.Text = (Shown = amount).ToString();
-        int rate = Rate(local);
+        int rate = Mathf.Min(Rate(local), MaxRate);
         if (rate != _rate) _income.Text = L.T("packages.rate", _rate = rate);
     }
 

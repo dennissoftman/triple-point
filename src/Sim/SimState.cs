@@ -198,6 +198,7 @@ public struct Unit
     public int RepairCost;                 // packages that full repair costs, paid as it goes
     public Vector3 Anchor;
     public bool Returning;
+    public bool Holding;                   // holding position (HoldCommand) until its next order
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
     public float Radius;                   // m: the room it takes, for paths and pushing (with navigation on)

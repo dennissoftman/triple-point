@@ -3,7 +3,8 @@
 # and the repair cursor over it, the hotseat swap with its per-side camera,
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, rally point, cancel),
-# construction (a builder's build key arms a ghost, a click lays the foundation), and the minimap.
+# construction (a builder's build key arms a ghost, a click lays the foundation), the minimap, the pause
+# menu, the selection panel, Hold (D) and Stop (S), and control groups (Ctrl+1, then 1).
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -101,7 +102,7 @@ func _process(_delta) -> bool:
 			motion(screen(red[0]))
 		1250:
 			check("cursor over an enemy: attack", player.get("CursorName"), "Attack")
-			motion(cam.unproject_position(Vector3(0, 0, -5)))
+			motion(cam.unproject_position(Vector3(12, 0, -5))) # open ground, clear of Blue's units
 		1255:
 			check("cursor over open ground: move", player.get("CursorName"), "Move")
 			key(KEY_CTRL, true)
@@ -158,7 +159,7 @@ func _process(_delta) -> bool:
 			key(KEY_BACKSPACE, false)
 		1630:
 			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 0)
-			click(cam.unproject_position(Vector3(-20, 0, -8))) # empty ground
+			click(cam.unproject_position(Vector3(-24, 0, -12))) # empty ground, clear of the bottom panels
 		1635:
 			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/CommandCard").visible], [-1, false])
 			click(cam.unproject_position(BLUE_HQ))
@@ -210,6 +211,28 @@ func _process(_delta) -> bool:
 			key(KEY_ESCAPE, false)
 		3235:
 			check("Esc again resumes", [root.get_node("Main/Ui/PauseMenu").visible, root.get_node("Main/SimHost").get("Paused")], [false, false])
+			cam.set("Focus", Vector2(builder.global_position.x, builder.global_position.z))
+		3245:
+			click(screen(builder))
+		3250:
+			check("selecting a unit shows the selection panel", root.get_node("Main/Ui/SelectionPanel").visible, true)
+			key(KEY_1, true, true) # Ctrl+1 makes it group 1
+			key(KEY_1, false, true)
+			key(KEY_D, true)
+			key(KEY_D, false)
+		3255:
+			check("D holds position", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), true)
+			key(KEY_S, true)
+			key(KEY_S, false)
+		3260:
+			check("S stops (and ends the hold)", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), false)
+			click(cam.unproject_position(builder.global_position + Vector3(8, 0, 8))) # empty ground: deselect
+		3265:
+			check("clicking away deselects", player.get("SelectedCount"), 0)
+			key(KEY_1, true)
+			key(KEY_1, false)
+		3270:
+			check("1 reselects control group 1", player.get("SelectedCount"), 1)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
@@ -322,8 +345,10 @@ func right_click(pos: Vector2):
 	mouse(MOUSE_BUTTON_RIGHT, pos, true)
 	mouse(MOUSE_BUTTON_RIGHT, pos, false)
 
-func key(code: int, pressed: bool):
+func key(code: int, pressed: bool, ctrl := false):
 	var e := InputEventKey.new()
+	e.ctrl_pressed = ctrl
 	e.keycode = code
+	e.physical_keycode = code # the command grid matches physical keys (on a US layout, the same)
 	e.pressed = pressed
 	Input.parse_input_event(e)

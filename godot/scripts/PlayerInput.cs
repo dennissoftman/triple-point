@@ -23,6 +23,9 @@ public partial class PlayerInput : Node
     static readonly Vector2 HintOffset = new(22, 14); // px from the cursor to the belt hint
     const float FormationSpacing = 3f;    // m between units of a group move
     const float PostSnapRadius = 6f;      // m from the cursor to a belt that a post being placed snaps to
+    const ulong DoubleTapMs = 350;        // a control group's key twice within this: the camera goes to it
+    static readonly string[] GroupActions = ["group_1", "group_2", "group_3", "group_4", "group_5", "group_6", "group_7", "group_8", "group_9"];
+    static readonly string[] GroupSetActions = ["group_set_1", "group_set_2", "group_set_3", "group_set_4", "group_set_5", "group_set_6", "group_set_7", "group_set_8", "group_set_9"];
 
     [Export] public SimHost Host = null!;
     [Export] public RtsCamera Camera = null!;
@@ -50,6 +53,7 @@ public partial class PlayerInput : Node
     }
 
     public IReadOnlyList<int> Selection => _selection;
+    public int SelectedCount => _selection.Count;
 
     /// <summary>The building being placed, while placement is armed and the cursor is over the ground.</summary>
     public Placement? Placing { get; private set; }
@@ -66,6 +70,10 @@ public partial class PlayerInput : Node
     int _spotsSignature = -1;
     float _placingHeading; // radians, in 90° steps
     CursorKind _cursor = CursorKind.Default;
+    readonly Dictionary<(int Player, int Group), List<int>> _groups = []; // control groups, per side (hotseat)
+    int _lastGroup = -1;
+    ulong _lastGroupMs;
+    int _idleCursor;       // which idle builder the idle_builder key went to last
 
     public override void _Process(double delta)
     {
@@ -93,7 +101,7 @@ public partial class PlayerInput : Node
             return; // the world takes no input while paused
         }
         if (e.IsActionPressed("debug_swap_player")) { SwapPlayer(); return; }
-        if (e.IsActionPressed("attack_move")) { _attackMoveArmed = _selection.Count > 0; return; }
+        if (e.IsActionPressed("attack_move")) { ArmAttackMove(); return; }
         if (e.IsActionPressed("cancel"))
         {
             if (_attackMoveArmed || _placingType is not null) (_attackMoveArmed, _placingType) = (false, null);
@@ -102,6 +110,10 @@ public partial class PlayerInput : Node
         }
         if (Building is Building building && ProductionKey(e, building)) return;
         if (BuildKey(e)) return;
+        if (e.IsActionPressed("stop") && _selection.Count > 0) { Halt(hold: false); return; }
+        if (e.IsActionPressed("hold") && _selection.Count > 0) { Halt(hold: true); return; }
+        if (e.IsActionPressed("idle_builder")) { SelectIdleBuilder(); return; }
+        if (GroupKey(e)) return;
         if (e is not InputEventMouse mouse) return;
 
         if (_placingType is not null)
@@ -217,7 +229,7 @@ public partial class PlayerInput : Node
     {
         if (_placingType is not null && e.IsActionPressed("rotate_building"))
         {
-            _placingHeading = (_placingHeading + MathF.PI / 2) % MathF.Tau;
+            RotatePlacement();
             return true;
         }
         var types = Buildable;
@@ -507,6 +519,97 @@ public partial class PlayerInput : Node
         foreach (var u in Host.Sim.State.Units)
             if (u.Owner == LocalPlayer && u.Type == type && ScreenPosition(u) is Vector2 p && onScreen.HasPoint(p) && !_selection.Contains(u.Id))
                 _selection.Add(u.Id);
+    }
+
+    /// <summary>From the selection panel: keep only the selected units of a type, or (drop) all but them.</summary>
+    public void NarrowTo(string type, bool drop)
+    {
+        var units = Host.Sim.State.Units;
+        _selection.RemoveAll(id => (units.Find(u => u.Id == id).Type == type) == drop);
+    }
+
+    // Control groups: group_set_N remembers the selection as group N, group_N selects what's left of it,
+    // and pressing it twice quickly also takes the camera there. Keys must match exactly, so Ctrl+1 is
+    // only a set.
+    bool GroupKey(InputEvent e)
+    {
+        for (int n = 0; n < GroupActions.Length; n++)
+        {
+            if (e.IsActionPressed(GroupSetActions[n], false, true))
+            {
+                if (_selection.Count > 0) _groups[(LocalPlayer, n)] = [.. _selection];
+                return true;
+            }
+            if (!e.IsActionPressed(GroupActions[n], false, true)) continue;
+            if (!_groups.TryGetValue((LocalPlayer, n), out var group)) return true;
+            group.RemoveAll(id => !Host.Sim.TryGetTarget(id, out _, out _));
+            if (group.Count == 0) return true;
+            _selection.Clear();
+            (SelectedBuilding, _placingType) = (-1, null);
+            _selection.AddRange(group);
+            ulong now = Time.GetTicksMsec();
+            if (_lastGroup == n && now - _lastGroupMs < DoubleTapMs) CenterOn(group);
+            (_lastGroup, _lastGroupMs) = (n, now);
+            return true;
+        }
+        return false;
+    }
+
+    void CenterOn(List<int> units)
+    {
+        var sum = SVector3.Zero;
+        int n = 0;
+        foreach (var u in Host.Sim.State.Units)
+            if (units.Contains(u.Id)) (sum, n) = (sum + u.Position, n + 1);
+        if (n > 0) Camera.FlyTo(new CameraView(new Vector2(sum.X / n, sum.Z / n), Camera.View.Distance));
+    }
+
+    /// <summary>The local player's builders with nothing to do.</summary>
+    public int IdleBuilders
+    {
+        get
+        {
+            int n = 0;
+            foreach (var u in Host.Sim.State.Units)
+                if (IsIdleBuilder(u)) n++;
+            return n;
+        }
+    }
+
+    bool IsIdleBuilder(in Unit u) => u.Owner == LocalPlayer && u.Builds is not null && u.Current.Kind == UnitOrder.None && u.Pending.Count == 0;
+
+    /// <summary>Selects the next idle builder, in turn, and takes the camera to it.</summary>
+    public void SelectIdleBuilder()
+    {
+        var idle = new List<Unit>();
+        foreach (var u in Host.Sim.State.Units) if (IsIdleBuilder(u)) idle.Add(u);
+        if (idle.Count == 0) return;
+        var pick = idle[_idleCursor++ % idle.Count];
+        _selection.Clear();
+        (SelectedBuilding, _placingType, _attackMoveArmed) = (-1, null, false);
+        _selection.Add(pick.Id);
+        Camera.FlyTo(new CameraView(new Vector2(pick.Position.X, pick.Position.Z), Camera.View.Distance));
+    }
+
+    // ---- Orders from keys and the command card ----
+
+    /// <summary>Whether the next left click attack-moves.</summary>
+    public bool AttackMoveArmed => _attackMoveArmed;
+
+    public void ArmAttackMove() => (_attackMoveArmed, _placingType) = (_selection.Count > 0, null);
+
+    /// <summary>Stops the selection (drops every order), or has it hold position.</summary>
+    public void Halt(bool hold)
+    {
+        foreach (int id in _selection)
+            Host.Issue(hold ? new HoldCommand(LocalPlayer, id) : new StopCommand(LocalPlayer, id));
+        _attackMoveArmed = false;
+    }
+
+    /// <summary>Turns the building being placed a quarter turn.</summary>
+    public void RotatePlacement()
+    {
+        if (_placingType is not null) _placingHeading = (_placingHeading + MathF.PI / 2) % MathF.Tau;
     }
 
     // ---- Picking ----

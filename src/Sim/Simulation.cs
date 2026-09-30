@@ -506,6 +506,12 @@ public sealed partial class Simulation
             case AttackMoveCommand am:
                 Issue(am.Player, am.UnitId, new Order(UnitOrder.AttackMove, am.Target), am.Queued);
                 break;
+            case StopCommand stop:
+                Halt(stop.Player, stop.UnitId, hold: false);
+                break;
+            case HoldCommand hold:
+                Halt(hold.Player, hold.UnitId, hold: true);
+                break;
             case AttackSegmentCommand s when Open(s.Line, s.Segment):
                 Issue(s.Player, s.UnitId, new Order(UnitOrder.AttackSegment, default, s.Line, s.Segment), s.Queued);
                 break;
@@ -813,8 +819,20 @@ public sealed partial class Simulation
         else unit.Pending.Enqueue(order);
     }
 
+    // Stop, or hold position: every order dropped, standing where it is, and that's its spot now.
+    void Halt(int player, int unitId, bool hold)
+    {
+        int i = FindUnit(unitId);
+        if (i < 0 || State.Units[i].Owner != player) return;
+        ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[i];
+        unit.Pending.Clear();
+        (unit.Current, unit.Anchor, unit.Holding) = (default, unit.Position, hold);
+        (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1);
+    }
+
     void Start(ref Unit unit, Order order)
     {
+        unit.Holding = false; // any order ends holding position
         // Resolved now rather than when issued: a queued segment order starts from wherever the unit ended up.
         unit.Current = order with { Target = OrderPoint(order, unit.Position) };
         (unit.RespondTo, unit.Returning, unit.GaveUpOn) = (-1, false, -1); // a new order ends any return fire
@@ -1052,7 +1070,7 @@ public sealed partial class Simulation
             return false;
         }
         float sq = GroundDistanceSq(unit.Position, at);
-        if (sq < unit.MinRange * unit.MinRange || (unit.StopsToFire && sq > unit.Range * unit.Range))
+        if (sq < unit.MinRange * unit.MinRange || ((unit.StopsToFire || unit.Holding) && sq > unit.Range * unit.Range))
         {
             (unit.GaveUpOn, unit.RespondTo, unit.Returning) = (unit.RespondTo, -1, unit.Current.Kind == UnitOrder.None);
             return false; // inside the minimum range, or out of reach of one that holds its ground: let it be
@@ -1074,12 +1092,12 @@ public sealed partial class Simulation
 
     // Armed, mobile, free to leave, nothing in range to fight where it is, and the attacker still alive
     // and not inside its minimum range (artillery can't answer what's on top of it). A unit that stops to
-    // fire holds its ground: it answers only what it can already reach, and never chases.
+    // fire holds its ground, as does one holding position: it answers only what it can already reach, and never chases.
     bool CanAnswer(in Unit unit, int attacker)
     {
         if (unit.Damage <= 0 || unit.Speed <= 0 || FindTarget(unit, out _, out _) || !TryGetTarget(attacker, out var at, out _)) return false;
         float sq = GroundDistanceSq(unit.Position, at);
-        return sq >= unit.MinRange * unit.MinRange && (!unit.StopsToFire || sq <= unit.Range * unit.Range);
+        return sq >= unit.MinRange * unit.MinRange && ((!unit.StopsToFire && !unit.Holding) || sq <= unit.Range * unit.Range);
     }
 
     static void Answer(ref Unit unit, int attacker)
@@ -1665,8 +1683,8 @@ public sealed partial class Simulation
     }
 
     // A unit just ahead of a truck on open road holds it up. An idle one steps off the road, to the right
-    // of the way the truck drives (or its own side), and stays there; anyone else busy there is in the way
-    // until they move on.
+    // of the way the truck drives (or its own side), and stays there; anyone else busy there, or holding
+    // position, is in the way until they move on.
     bool InTheWay(BeltLine line, in Package truck)
     {
         if (line.Segments[truck.Segment].Covered) return false;
@@ -1680,7 +1698,7 @@ public sealed partial class Simulation
             float reach = BlockRadius + u.Radius;
             if (u.Health <= 0 || GroundDistanceSq(u.Position, ahead) > reach * reach) continue;
             blocked = true;
-            bool idle = u.Current.Kind == UnitOrder.None && u.Pending.Count == 0 && !u.Firing && u.RespondTo < 0 && u.Movement != Movement.Static;
+            bool idle = u.Current.Kind == UnitOrder.None && u.Pending.Count == 0 && !u.Firing && u.RespondTo < 0 && !u.Holding && u.Movement != Movement.Static;
             if (!idle) continue;
             float side = Vector3.Dot((u.Position - ahead) with { Y = 0 }, right);
             var away = side < -1e-3f ? -right : right;

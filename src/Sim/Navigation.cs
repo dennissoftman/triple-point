@@ -301,9 +301,9 @@ public sealed partial class Simulation
         return Vector3.Normalize(away + lateral);
     }
 
-    // How readily a unit gives way: the smaller, and the one doing nothing, the more (one under way or
-    // firing holds its ground).
-    static float Give(in Unit u) => 1 / (MathF.Max(0.1f, u.Radius * u.Radius) * (u.Driving || u.Firing ? MovingMass : 1));
+    // How readily a unit gives way: the smaller, and the one doing nothing, the more (one under way,
+    // firing or holding position holds its ground).
+    static float Give(in Unit u) => 1 / (MathF.Max(0.1f, u.Radius * u.Radius) * (u.Driving || u.Firing || u.Holding ? MovingMass : 1));
 
     int Bucket(Vector3 at) =>
         Math.Clamp((int)((at.Z - Nav!.MinZ) / BucketSize), 0, _bucketsZ - 1) * _bucketsX

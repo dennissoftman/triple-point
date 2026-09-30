@@ -97,9 +97,6 @@ msgid "packages.tip"
 msgstr "Packages to spend. Your depots unload them from passing trucks, and your units pick up what destroyed trucks spill.\n+N/min: what you took per minute over the last {0} s"
 
 # --- Command card
-msgid "card.repeat"
-msgstr "Repeat"
-
 msgid "card.repeat.tip"
 msgstr "{0}: each finished unit goes back to the end of the queue, so a mix keeps its ratio"
 
@@ -116,12 +113,43 @@ msgstr "building"
 msgid "card.site.waiting"
 msgstr "waiting for a builder"
 
-# A button: {0} name, {1} its key, {2} cost
-msgid "card.button"
-msgstr "{0}  [{1}]\n{2}"
+# A cell of the command grid (its key is drawn in its corner): {0} name, {1} cost
+msgid "card.cell"
+msgstr "{0}\n{1}"
 
+msgid "card.attack_move"
+msgstr "Attack\nmove"
+
+msgid "card.attack_move.tip"
+msgstr "Then click where to go: they fight whatever they meet on the way. Click an enemy to attack it."
+
+msgid "card.stop"
+msgstr "Stop"
+
+msgid "card.stop.tip"
+msgstr "Drop every order and stand. They still shoot what comes in range, and answer fire."
+
+msgid "card.hold"
+msgstr "Hold"
+
+msgid "card.hold.tip"
+msgstr "Hold this spot: shoot what comes in range, never chase, never give way. On a road, trucks can't pass."
+
+msgid "card.rotate"
+msgstr "Rotate"
+
+msgid "card.rotate.tip"
+msgstr "Turn the building being placed a quarter turn."
+
+msgid "card.repeat.on"
+msgstr "Repeat\non"
+
+msgid "card.repeat.off"
+msgstr "Repeat\noff"
+
+# The queued count in a cell's corner: {0} how many
 msgid "card.queued"
-msgstr "queued {0}"
+msgstr "×{0}"
 
 msgid "card.stalled"
 msgstr "stalled"
@@ -133,9 +161,6 @@ msgstr "{0}: {1} packages, {2} s, paid as it trains\n{3} or click: train one   R
 # {0} cost, {1} how much is missing
 msgid "card.short"
 msgstr "{0} ({1} short)"
-
-msgid "card.placing"
-msgstr "placing"
 
 # {0} building, {1} cost, {2} build time s, {3} what it is, {4} its key, {5} the rotate key
 msgid "card.build.tip"
@@ -154,6 +179,75 @@ msgstr "Trains: {0}."
 # {0} why
 msgid "card.cant_place"
 msgstr "Can't place: {0}."
+
+# --- The selection panel. One unit: {0} health, {1} full health, {2} what it's doing
+msgid "select.unit"
+msgstr "{0}/{1}  {2}"
+
+# Several: {0} how many
+msgid "select.units"
+msgstr "{0} units"
+
+# {0} the key that adds to a selection
+msgid "select.narrow"
+msgstr "Click a type to keep only it; {0}+click to drop it."
+
+# A tile: {0} type, {1} how many
+msgid "select.tile"
+msgstr "{0}\nx{1}"
+
+# {0} type, {1} how many, {2} the most hurt one's health, percent
+msgid "select.tile.tip"
+msgstr "{1} {0}. The most hurt is at {2}%."
+
+msgid "select.unnamed"
+msgstr "Unit"
+
+# A building: {0} the unit in production, {1} how far (or stalled), {2} how many more are queued
+msgid "select.training"
+msgstr "Training {0}, {1}; {2} more queued"
+
+msgid "select.not_training"
+msgstr "Not training anything"
+
+# --- What a unit is doing
+msgid "order.idle"
+msgstr "idle"
+
+msgid "order.move"
+msgstr "moving"
+
+msgid "order.attack"
+msgstr "attacking"
+
+msgid "order.attack_move"
+msgstr "attack-moving"
+
+msgid "order.attack_road"
+msgstr "attacking the road"
+
+msgid "order.repair"
+msgstr "repairing"
+
+msgid "order.build"
+msgstr "building"
+
+msgid "order.hold"
+msgstr "holding position"
+
+msgid "order.answering"
+msgstr "answering fire"
+
+# {0} what it's doing
+msgid "order.firing"
+msgstr "{0}, firing"
+
+# --- The idle builder button: {0} how many, {1} its key
+msgid "idle.builders"
+msgstr "Idle builders: {0}  [{1}]"
+
+msgid "idle.tip"
+msgstr "{0} or click: select the next idle builder and look at it"
 
 # --- Why a building can't go there
 msgid "place.beside_belt"

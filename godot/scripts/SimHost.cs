@@ -157,6 +157,7 @@ public partial class SimHost : Node3D
         for (int p = 0; p < PlayerCount; p++)
             _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
         BeltView.Build(_sim.State);
+        BuildInterface();
         Hud.MouseFilter = Control.MouseFilterEnum.Pass; // for its tooltip: the keys it no longer spells out
         Hud.TooltipText = L.T("hud.tip", CommandCard.KeyOf("speed_down"), CommandCard.KeyOf("speed_up"), CommandCard.KeyOf("debug_swap_player"), CommandCard.KeyOf("toggle_debug"));
 
@@ -182,6 +183,21 @@ public partial class SimHost : Node3D
         _stats = new MatchStats(_sim);
         MatchReports &= EndConditions && !_demo;
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
+    }
+
+    // The screen's layout: a slim bar across the top (the HUD line at its left, packages in the middle,
+    // alerts at the right); the minimap bottom-left with the idle-builder button above it; what's selected
+    // bottom-center; the command card bottom-right. The scene has the HUD line, packages panel, minimap and
+    // command card; the rest is made here.
+    void BuildInterface()
+    {
+        var ui = Hud.GetParent();
+        var top = new TopBar { Name = "TopBar", Host = this };
+        ui.AddChild(top);
+        ui.MoveChild(top, 0); // behind the rest
+        Hud.Position = new Vector2(16, 7);
+        ui.AddChild(new SelectionPanel { Name = "SelectionPanel", PlayerInput = PlayerInput });
+        ui.AddChild(new IdleBuilderButton { Name = "IdleBuilders", PlayerInput = PlayerInput, Minimap = ui.GetChildren().OfType<Minimap>().FirstOrDefault() });
     }
 
     // Unit types from units.json with their weapons from weapons.json, and building types from buildings.json.
@@ -287,8 +303,7 @@ public partial class SimHost : Node3D
         int seconds = state.Tick / Simulation.TicksPerSecond;
         var hud = L.T("hud.line", GameSpeed.ToString("0.##"), $"{seconds / 60}:{seconds % 60:00}", PlayerPalette.Name(PlayerInput.LocalPlayer));
         double now = Time.GetTicksMsec() / 1000.0;
-        Alerts.RemoveAll(a => a.Until < now);
-        if (Alerts.Count > 0) hud += "\n" + L.T("alert.belt_cut");
+        Alerts.RemoveAll(a => a.Until < now); // the top bar shows them
         foreach (var p in state.Players)
         {
             if (p.Lost) hud += "\n" + L.T("hud.out", PlayerPalette.Name(p.Index));

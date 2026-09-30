@@ -92,8 +92,8 @@ transform = Transform3D(1, 0, 0, 0, 0.5736, 0.8192, 0, -0.8192, 0.5736, 6, 39.32
 current = true
 fov = 38.0
 script = ExtResource("6_camera")
-Focus = Vector2(6, 5)
-Distance = 48.0
+Focus = Vector2(6, 8)
+Distance = 56.0
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")

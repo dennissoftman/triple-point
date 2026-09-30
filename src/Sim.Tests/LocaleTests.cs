@@ -10,7 +10,7 @@ namespace Sim.Tests;
 public class LocaleTests
 {
     // Key families: a quoted string in the scripts starting with one of these is a key.
-    static readonly string[] Families = ["side", "unit", "building", "key", "hud", "packages", "card", "place", "belt", "truck", "gauge", "gameover", "menu", "alert"];
+    static readonly string[] Families = ["side", "unit", "building", "key", "hud", "packages", "card", "place", "belt", "truck", "gauge", "gameover", "menu", "alert", "select", "order", "idle"];
 
     static string Repo()
     {

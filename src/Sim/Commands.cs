@@ -23,6 +23,15 @@ public sealed record AttackSegmentCommand(int Player, int UnitId, int Line, int 
 /// <summary>Walk to the segment and restore it to full health; a broken one works again once full.</summary>
 public sealed record RepairSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
+/// <summary>Drop every order, current and queued, and stand there: an idle unit (it fires at what's in range and answers fire).</summary>
+public sealed record StopCommand(int Player, int UnitId) : Command(Player);
+
+/// <summary>
+/// Stop and hold this spot: fire at what's in range, but never chase, never answer fire from out of range,
+/// never give way to other units and never step off a road for a truck. Any other order ends it.
+/// </summary>
+public sealed record HoldCommand(int Player, int UnitId) : Command(Player);
+
 
 /// <summary>Adds a unit of `UnitType` (an id in units.json) to the back of a building's queue, if it produces that type and has room.</summary>
 public sealed record ProduceCommand(int Player, int BuildingId, string UnitType) : Command(Player);
