@@ -81,6 +81,10 @@ msgstr "{0} has no buildings: {1} s to rebuild"
 msgid "hud.rebuild.paused"
 msgstr " (paused while building)"
 
+# A segment feeding one of your posts was broken; the minimap pings where
+msgid "alert.belt_cut"
+msgstr "Your belt is cut!"
+
 # --- Packages panel
 msgid "packages.label"
 msgstr "PACKAGES"

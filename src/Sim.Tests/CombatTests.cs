@@ -31,6 +31,7 @@ public class CombatTests
 
         Assert.InRange(diedAt, 247, 251);
         Assert.DoesNotContain(sim.State.Units, u => u.Id == red);
+        sim.Tick(NoCommands); // shots land after every unit has acted, so the order ends the tick after
         Assert.Equal(UnitOrder.None, UnitById(sim, blue).Current.Kind);
         Assert.Equal(12f, UnitById(sim, blue).Position.X, 0.3f); // fired from range, didn't walk up to it
     }

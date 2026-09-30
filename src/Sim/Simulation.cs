@@ -12,9 +12,10 @@ public sealed partial class Simulation
     public const float RepairRange = 2.5f;          // m from the segment
     public const float BeltAimSpread = 0.7f;        // m: shots at a segment land anywhere this close to its middle
     public const float AutoRepairRadius = 12f;      // m; an idle unit that repairs goes for damaged belt this close by itself
-    const int AutoRepairCheckTicks = 10;            // how often it looks
+    const int AutoRepairCheckTicks = 10;            // how often it looks (every unit on the same ticks: phases by id favour one side)
     public const float GatherSeconds = 2f;          // a gatherer post's work per package
     public const float GathererHealth = 300f;
+    public const float PostSight = 12f;             // m; a post authored on the map (built ones take their type's)
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
     const float GrabReach = 0.5f;                   // m either side of a post's pull point
@@ -94,7 +95,7 @@ public sealed partial class Simulation
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
         (unit.Builds, unit.RepairSeconds, unit.RepairCost, unit.StopsToFire) = (type.Builds, type.RepairSeconds, type.RepairCost, type.StopsToFire);
-        unit.Radius = type.Radius;
+        (unit.Radius, unit.Sight) = (type.Radius, type.Sight);
         unit.TurretArc = type.TurretArc * MathF.PI / 180;
         return id;
     }
@@ -155,6 +156,7 @@ public sealed partial class Simulation
             RepairSeconds = repairSeconds,
             RepairCost = repairCost,
             Radius = radius,
+            Sight = DefaultSight,
             PathSlot = -1,
             Anchor = position,
             RestGoal = new Vector3(float.NaN),
@@ -176,7 +178,7 @@ public sealed partial class Simulation
     /// Adds a gatherer post for `owner` at `position`, pulling from the nearest belt point within
     /// `maxDistance`. Returns its id, or -1 if no belt is that close.
     /// </summary>
-    public int AddGatherer(int owner, Vector3 position, float maxDistance, float health = GathererHealth)
+    public int AddGatherer(int owner, Vector3 position, float maxDistance, float health = GathererHealth, float sight = PostSight)
     {
         if (!PullPoint(position, maxDistance, out int line, out float along)) return -1;
         int id = _nextId++;
@@ -190,6 +192,7 @@ public sealed partial class Simulation
             Health = health,
             MaxHealth = health,
             LastGrabTick = int.MinValue / 2,
+            Sight = sight,
         });
         _navDirty = true;
         return id;
@@ -423,6 +426,7 @@ public sealed partial class Simulation
         RebuildNav();
         ResetSearches();
         UpdateUnits();
+        LandBullets();
         Separate();
         MoveShells();
         RemoveDead();
@@ -433,6 +437,7 @@ public sealed partial class Simulation
         UpdateEndConditions();
         foreach (var line in State.Belts) SpawnPackage(line);
         UpdatePickups();
+        UpdateVision();
         State.Tick++;
         return _events;
     }
@@ -444,7 +449,7 @@ public sealed partial class Simulation
             case MoveCommand m:
                 Issue(m.Player, m.UnitId, new Order(UnitOrder.Move, m.Target), m.Queued);
                 break;
-            case AttackCommand a:
+            case AttackCommand a when Knows(a.Player, a.TargetId, out _): // only what its side sees or remembers
                 Issue(a.Player, a.UnitId, new Order(UnitOrder.Attack, default, TargetId: a.TargetId), a.Queued);
                 break;
             case AttackMoveCommand am:
@@ -580,7 +585,7 @@ public sealed partial class Simulation
             {
                 State.Buildings.RemoveAt(i);
                 _navDirty = true;
-                became = AddGatherer(site.Owner, site.Position, PostReach, site.MaxHealth);
+                became = AddGatherer(site.Owner, site.Position, PostReach, site.MaxHealth, site.Type.Sight);
                 if (became >= 0) CollectionsMarshal.AsSpan(State.Gatherers)[^1].Health = site.Health;
             }
             else if (site.Type is { Kind: BuildingKind.Defense, Defense: { } defense })
@@ -820,11 +825,16 @@ public sealed partial class Simulation
         return -1;
     }
 
+    // Units act one after another, and whoever acts first in a tick has the edge (it shoots before it can be
+    // shot, and sees the others where they stood). So the order alternates, front to back one tick and back
+    // to front the next, and no side always goes first.
     void UpdateUnits()
     {
         var units = CollectionsMarshal.AsSpan(State.Units);
-        for (int i = 0; i < units.Length; i++)
+        bool backwards = (State.Tick & 1) == 1;
+        for (int k = 0; k < units.Length; k++)
         {
+            int i = backwards ? units.Length - 1 - k : k;
             ref var unit = ref units[i];
             unit.PrevPosition = unit.Position;
             unit.PrevHeading = unit.Heading;
@@ -836,7 +846,7 @@ public sealed partial class Simulation
             {
                 case UnitOrder.None:
                     // An idle unit that repairs goes for damaged belt close by, while its owner can pay for it.
-                    if (unit.RepairSeconds > 0 && (State.Tick + unit.Id) % AutoRepairCheckTicks == 0
+                    if (unit.RepairSeconds > 0 && State.Tick % AutoRepairCheckTicks == 0
                         && State.Players[unit.Owner].Packages > 0 && FindDamagedSegment(unit.Position, out int dl, out int ds))
                     {
                         Start(ref unit, new Order(UnitOrder.Repair, default, dl, ds));
@@ -886,8 +896,9 @@ public sealed partial class Simulation
                     var middle = segment.Curve.PositionAt(segment.Curve.Length / 2) with { Y = unit.Position.Y };
                     bool onTarget = AimAt(ref unit, middle, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
                     if (!InFiringRange(ref unit, unit.Current.Target) || !onTarget) break;
+                    if (!Sees(unit.Owner, middle)) { Move(ref unit, unit.Current.Target); break; } // closer, until its side sees it
 
-                    if (Fire(ref unit, -1, middle, l, s, spread: BeltAimSpread)) Complete(ref unit);
+                    Fire(ref unit, -1, middle, l, s, spread: BeltAimSpread); // the order ends once the segment is broken
                     break;
                 }
 
@@ -923,10 +934,15 @@ public sealed partial class Simulation
             Complete(ref unit);
             return;
         }
+        if (!SeesTarget(unit.Owner, targetId))
+        {
+            // Out of its side's sight: on to where it was last seen, giving up there if it's still not in view.
+            if (Move(ref unit, unit.Current.Target)) Complete(ref unit);
+            return;
+        }
         unit.Current = unit.Current with { Target = at with { Y = unit.Position.Y } };
         bool onTarget = AimAt(ref unit, at, turnHull: Vector3.Distance(unit.Position, unit.Current.Target) <= unit.Range);
-        // The killing shot ends the order at once, so a queued one starts without a wasted tick.
-        if (InFiringRange(ref unit, unit.Current.Target) && onTarget && Fire(ref unit, targetId, at)) Complete(ref unit);
+        if (InFiringRange(ref unit, unit.Current.Target) && onTarget) Fire(ref unit, targetId, at); // it ends once the target's gone
     }
 
     // Turns the turret to the best enemy in range (FindTarget), or back over the nose if there's none, and
@@ -987,7 +1003,7 @@ public sealed partial class Simulation
             return false; // inside the minimum range, or out of reach of one that holds its ground: let it be
         }
         bool onTarget = AimAt(ref unit, at, turnHull: GroundDistanceSq(unit.Position, at) <= unit.Range * unit.Range);
-        if (InFiringRange(ref unit, at with { Y = unit.Position.Y }) && onTarget) Fire(ref unit, unit.RespondTo, at);
+        if (InFiringRange(ref unit, at with { Y = unit.Position.Y }) && onTarget && SeesTarget(unit.Owner, unit.RespondTo)) Fire(ref unit, unit.RespondTo, at);
         return true;
     }
 
@@ -1029,6 +1045,7 @@ public sealed partial class Simulation
             if (other.Owner == unit.Owner || other.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
             if (sq > rangeSq || sq < minSq || other.Health > bestHealth || (other.Health == bestHealth && sq >= bestSq)) continue;
+            if (!SeesUnit(unit.Owner, other)) continue; // only what its side sees
             (target, bestHealth, bestSq, at) = (other.Id, other.Health, sq, other.Position);
         }
         if (target >= 0) return true;
@@ -1037,6 +1054,7 @@ public sealed partial class Simulation
             if (post.Owner == unit.Owner || post.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, post.Position);
             if (sq > rangeSq || sq < minSq || post.Health > bestHealth || (post.Health == bestHealth && sq >= bestSq)) continue;
+            if (!SeesArea(unit.Owner, post.Position, PostHalfSize)) continue;
             (target, bestHealth, bestSq, at) = (post.Id, post.Health, sq, post.Position);
         }
         foreach (var building in State.Buildings)
@@ -1044,6 +1062,7 @@ public sealed partial class Simulation
             if (building.Owner == unit.Owner || building.Health <= 0) continue;
             float sq = GroundDistanceSq(unit.Position, building.Position);
             if (sq > rangeSq || sq < minSq || building.Health > bestHealth || (building.Health == bestHealth && sq >= bestSq)) continue;
+            if (!SeesArea(unit.Owner, building.Position, building.Type.Size / 2)) continue;
             (target, bestHealth, bestSq, at) = (building.Id, building.Health, sq, building.Position);
         }
         return target >= 0;
@@ -1082,9 +1101,10 @@ public sealed partial class Simulation
     }
 
     // Engages a target (a unit or post by id, or else a belt segment) and shoots if the weapon has reloaded:
-    // every living member's Damage in one shot. A bullet hits at once; a shell flies (MoveShells). Returns
-    // true if this shot destroyed the target, which only a bullet can: a shell's kill lands later.
-    // `spread`: the shot lands anywhere within that radius of `at`.
+    // every living member's Damage in one shot. A bullet lands once every unit has acted this tick
+    // (LandBullets), so two units shooting each other both fire at full strength whoever acts first; a
+    // shell flies (MoveShells). `spread`: the shot lands anywhere within that radius of `at`. Returns
+    // whether it fired.
     bool Fire(ref Unit unit, int targetId, Vector3 at, int line = -1, int segment = -1, float spread = 0)
     {
         float distance = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
@@ -1101,7 +1121,11 @@ public sealed partial class Simulation
         if (line >= 0) at.Y = State.Belts[line].Segments[segment].Curve.PositionAt(0).Y + BeltHitRise; // up on the belt
         unit.FireAt = at;
         float damage = unit.Damage * unit.Members;
-        if (unit.WeaponKind == WeaponKind.Bullet) return Impact(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius);
+        if (unit.WeaponKind == WeaponKind.Bullet)
+        {
+            _bullets.Add(new Bullet(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius));
+            return true;
+        }
 
         var muzzle = unit.Position + Forward(unit.Turret) * MuzzleReach + new Vector3(0, MuzzleHeight, 0);
         var aim = line >= 0 ? at : at with { Y = HitHeight };
@@ -1129,7 +1153,17 @@ public sealed partial class Simulation
             SplashRadius = unit.SplashRadius,
             Ballistic = unit.Ballistic,
         });
-        return false;
+        return true;
+    }
+
+    readonly record struct Bullet(int Owner, int Shooter, int TargetId, int Line, int Segment, Vector3 At, float Damage, float Radius);
+    readonly List<Bullet> _bullets = [];
+
+    // The bullets fired this tick hit, all at once after every unit has acted.
+    void LandBullets()
+    {
+        foreach (var b in _bullets) Impact(b.Owner, b.Shooter, b.TargetId, b.Line, b.Segment, b.At, b.Damage, b.Radius);
+        _bullets.Clear();
     }
 
     // Shells fly at the target, where it is now while it lives, and hit when they get there. One whose
@@ -1212,6 +1246,7 @@ public sealed partial class Simulation
             if (hit <= 0) continue;
             unit.Health -= hit;
             (unit.LastAttacker, unit.LastHitTick) = (shooter, State.Tick);
+            GiveAway(shooter, unit.Owner);
             destroyed |= unit.Id == targetId && unit.Health <= 0;
         }
         foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
@@ -1220,6 +1255,7 @@ public sealed partial class Simulation
             float d = MathF.Sqrt(GroundDistanceSq(post.Position, at));
             if (d > radius) continue;
             post.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            GiveAway(shooter, post.Owner);
             destroyed |= post.Id == targetId && post.Health <= 0;
         }
         foreach (var building in State.Buildings)
@@ -1228,6 +1264,7 @@ public sealed partial class Simulation
             float d = MathF.Sqrt(GroundDistanceSq(building.Position, at));
             if (d > radius) continue;
             building.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            GiveAway(shooter, building.Owner);
             destroyed |= building.Id == targetId && building.Health <= 0;
         }
     }
@@ -1250,19 +1287,24 @@ public sealed partial class Simulation
             ref var target = ref CollectionsMarshal.AsSpan(State.Units)[u];
             target.Health -= damage;
             (target.LastAttacker, target.LastHitTick) = (shooter, State.Tick);
-            return target.Health <= 0;
+            int victim = target.Owner;
+            bool dead = target.Health <= 0;
+            GiveAway(shooter, victim); // after its last use of `target`: this may look up the shooter in the same list
+            return dead;
         }
         int g = FindGatherer(targetId);
         if (g >= 0)
         {
             ref var post = ref CollectionsMarshal.AsSpan(State.Gatherers)[g];
             post.Health -= damage;
+            GiveAway(shooter, post.Owner);
             return post.Health <= 0;
         }
         foreach (var building in State.Buildings)
         {
             if (building.Id != targetId) continue;
             building.Health -= damage;
+            GiveAway(shooter, building.Owner);
             return building.Health <= 0;
         }
         return false;
@@ -1487,6 +1529,7 @@ public sealed partial class Simulation
         if (segment.State == SegmentState.Broken) return;
         (segment.State, segment.Health) = (SegmentState.Broken, 0);
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
+        TellCutOff(lineIndex, segmentIndex);
 
         // Everything on the segment falls off onto the pile, while there's room; the rest stays put.
         var packages = line.Packages;

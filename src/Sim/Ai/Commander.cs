@@ -15,6 +15,8 @@ namespace Sim.Ai;
 /// - The push: clearly stronger, it attack-moves on the enemy's base.
 /// - Damaged units pull back home; repairers mend broken belt that feeds its posts.
 /// - Spilled packages where no enemy stands get picked up by whoever is idle nearest.
+/// - Under fog of war it knows only what its side sees and remembers (AiView), and sends its fastest
+///   fighter to look along the enemy's half of the belt wherever it hasn't looked for a while.
 ///
 /// Deterministic: no randomness, and it thinks on fixed ticks, the same ones for every player: thinking a
 /// tick apart handed one side a steady edge in mirror matches. Nothing it keeps allocates once warm.
@@ -36,6 +38,7 @@ public sealed class Commander
     const float CollectReach = 45f;                 // m an idle unit goes out of its way for a spilled package
     const float CollectDanger = 20f;                // m: no package this close to enemy fighters is worth fetching
     const int CollectorsPerThink = 3;
+    const float ScoutStaleSeconds = 45f;            // belt it hasn't seen for this long is worth a look
 
     readonly Simulation _sim;
     readonly AiView _view;
@@ -49,6 +52,7 @@ public sealed class Commander
     readonly HashSet<int> _retreating = [];
     readonly HashSet<int> _ordered = [];            // units given an order this think
     readonly Predicate<int> _gone;
+    int _scout = -1;                                // the unit out looking, if any
     Vector3 _home, _enemyHome, _staging;
     float _strength, _enemyStrength;
 
@@ -73,6 +77,7 @@ public sealed class Commander
         Fight();
         Mend();
         Collect();
+        Scout();
         return _out;
     }
 
@@ -97,15 +102,16 @@ public sealed class Commander
                     if (!_retreating.Contains(u.Id)) _strength += Strength(u);
                 }
             }
-            else if (u.Owner != Sim.Player.None && u.Damage > 0 && _view.Sees(u.Position))
+            else if (u.Owner != Sim.Player.None && u.Damage > 0 && _view.SeesUnit(u))
             {
                 _enemyFighters.Add(i);
                 _enemyStrength += Strength(u);
             }
         }
         _retreating.RemoveWhere(_gone);
+        if (_scout >= 0 && !Alive(_scout)) _scout = -1;
 
-        _home = Home(_me, out bool _);
+        _home = Home(out bool _);
         _enemyHome = EnemyHome();
         var toward = Flat(_enemyHome - _home);
         _staging = toward.LengthSquared() > 1 ? _home + Vector3.Normalize(toward) * StagingDistance : _home;
@@ -120,37 +126,42 @@ public sealed class Commander
     }
 
     // Its first building that trains builders (an HQ), else any building, else its first unit.
-    Vector3 Home(int player, out bool found)
+    Vector3 Home(out bool found)
     {
         found = true;
         Vector3? any = null;
         foreach (var b in _sim.State.Buildings)
         {
-            if (b.Owner != player) continue;
-            foreach (var t in b.Type.Units) if (t.Builds is not null) return b.Position;
+            if (b.Owner != _me) continue;
+            if (TrainsBuilders(b.Type)) return b.Position;
             any ??= b.Position;
         }
         if (any is Vector3 a) return a;
-        foreach (var u in _sim.State.Units) if (u.Owner == player) return u.Position;
+        foreach (var u in _sim.State.Units) if (u.Owner == _me) return u.Position;
         found = false;
         return Vector3.Zero;
     }
 
-    // The nearest enemy's home as far as it can see; failing that, across the map from its own.
+    // The nearest enemy home it knows of (a remembered building that trains builders, else any remembered
+    // building); failing that, across the map from its own.
     Vector3 EnemyHome()
     {
-        var state = _sim.State;
-        float best = float.MaxValue;
-        var at = -_home;
-        foreach (var p in state.Players)
+        float best = float.MaxValue, bestAny = float.MaxValue;
+        Vector3? home = null, any = null;
+        foreach (var g in _view.Ghosts)
         {
-            if (p.Index == _me || p.Lost) continue;
-            var home = Home(p.Index, out bool found);
-            if (!found || !_view.Sees(home)) continue;
-            float d = Vector3.DistanceSquared(home, _home);
-            if (d < best) (best, at) = (d, home);
+            if (g.IsPost || g.Type is null || _sim.State.Players[g.Owner].Lost) continue;
+            float d = Vector3.DistanceSquared(g.Position, _home);
+            if (TrainsBuilders(g.Type) && d < best) (best, home) = (d, g.Position);
+            if (d < bestAny) (bestAny, any) = (d, g.Position);
         }
-        return at;
+        return home ?? any ?? -_home;
+    }
+
+    static bool TrainsBuilders(BuildingType type)
+    {
+        foreach (var t in type.Units) if (t.Builds is not null) return true;
+        return false;
     }
 
     // ---- Building ----
@@ -302,16 +313,10 @@ public sealed class Commander
         foreach (var b in state.Buildings)
         {
             if (b.Owner != _me || !b.Built || b.Type.Units.Length == 0) continue;
-            if (Vector3.Distance(b.Rally, _staging) > 3 && !TrainsBuilders(b)) _out.Add(new SetRallyCommand(_me, b.Id, _staging));
+            if (Vector3.Distance(b.Rally, _staging) > 3 && !TrainsBuilders(b.Type)) _out.Add(new SetRallyCommand(_me, b.Id, _staging));
             if (b.Queue.Count > 0) continue;
             if (Choose(b) is UnitType type) _out.Add(new ProduceCommand(_me, b.Id, type.Id));
         }
-    }
-
-    static bool TrainsBuilders(Building b)
-    {
-        foreach (var t in b.Type.Units) if (t.Builds is not null) return true;
-        return false;
     }
 
     // What a building trains next: builders and engineers up to what it wants, else the fighter it has
@@ -363,17 +368,23 @@ public sealed class Commander
     {
         var units = CollectionsMarshal.AsSpan(_sim.State.Units);
 
-        // The badly hurt pull back home and stay there as its guard.
-        foreach (int i in _army)
-        {
-            ref var u = ref units[i];
-            if (_retreating.Contains(u.Id) || u.Health > u.MaxHealth * RetreatHealth) continue;
-            _retreating.Add(u.Id);
-            _out.Add(new MoveCommand(_me, u.Id, _home));
-        }
+        // The badly hurt pull back home and stay there as its guard, while it has enough healthy fighters to
+        // raid without them. Nothing heals them yet, so with fewer than that, everyone fights: otherwise two
+        // worn-out armies sit at home for ever.
+        int healthy = 0;
+        foreach (int i in _army) if (units[i].Health > units[i].MaxHealth * RetreatHealth) healthy++;
+        if (healthy < RaidSize) _retreating.Clear();
+        else
+            foreach (int i in _army)
+            {
+                ref var u = ref units[i];
+                if (_retreating.Contains(u.Id) || u.Health > u.MaxHealth * RetreatHealth) continue;
+                _retreating.Add(u.Id);
+                _out.Add(new MoveCommand(_me, u.Id, _home));
+            }
 
         if (Threat() is Vector3 threat) { AllAttackMove(threat); return; }
-        int fighters = _army.Count - _retreating.Count;
+        int fighters = _army.Count - _retreating.Count - (_scout >= 0 ? 1 : 0);
         if (fighters >= PushSize && _strength >= PushRatio * _enemyStrength && EnemyBase() is Vector3 target) { AllAttackMove(target); return; }
         if (fighters >= RaidSize && Raid()) return;
         AllMoveTo(_staging);
@@ -396,13 +407,13 @@ public sealed class Commander
         return at;
     }
 
+    // The nearest enemy building it remembers.
     Vector3? EnemyBase()
     {
-        var state = _sim.State;
         float best = float.MaxValue;
         Vector3? at = null;
-        foreach (var b in state.Buildings)
-            if (b.Owner != _me && _view.Sees(b.Position) && Vector3.DistanceSquared(b.Position, _home) is float d && d < best) (best, at) = (d, b.Position);
+        foreach (var g in _view.Ghosts)
+            if (!g.IsPost && Vector3.DistanceSquared(g.Position, _home) is float d && d < best) (best, at) = (d, g.Position);
         return at;
     }
 
@@ -413,9 +424,9 @@ public sealed class Commander
         var state = _sim.State;
         int target = -1;
         float best = float.MaxValue;
-        foreach (var g in state.Gatherers)
+        foreach (var g in _view.Ghosts)
         {
-            if (g.Owner == _me || g.Owner == Sim.Player.None || !_view.Sees(g.Position)) continue;
+            if (!g.IsPost) continue;
             float score = 40 * FightersNear(g.Position, 20, enemy: true) + Vector3.Distance(g.Position, _home);
             if (score < best) (best, target) = (score, g.Id);
         }
@@ -426,7 +437,7 @@ public sealed class Commander
         foreach (int i in _army)
         {
             var u = units[i];
-            if (_retreating.Contains(u.Id)) continue;
+            if (Busy(u.Id)) continue;
             if (u.Id == breaker)
             {
                 if (u.Current.Kind != UnitOrder.AttackSegment) _out.Add(new AttackSegmentCommand(_me, u.Id, line, segment));
@@ -442,15 +453,15 @@ public sealed class Commander
     {
         var state = _sim.State;
         (line, segment) = (-1, -1);
-        foreach (var g in state.Gatherers)
+        foreach (var g in _view.Ghosts)
         {
-            if (g.Owner == _me || g.Owner == Sim.Player.None) continue;
+            if (!g.IsPost) continue;
             float mine = -1;
             foreach (var m in state.Gatherers) if (m.Owner == _me && m.Line == g.Line) mine = MathF.Max(mine, m.Distance);
             var belt = state.Belts[g.Line];
             int s = belt.SegmentAt(MathF.Max(0, g.Distance - 6));
             var seg = belt.Segments[s];
-            if (seg.Covered || seg.State == SegmentState.Broken || seg.Start <= mine + 2 || seg.End > g.Distance) continue;
+            if (seg.Covered || _view.SeenState(g.Line, s) == SegmentState.Broken || seg.Start <= mine + 2 || seg.End > g.Distance) continue;
             (line, segment) = (g.Line, s);
             return true;
         }
@@ -465,7 +476,7 @@ public sealed class Commander
         foreach (int i in _army)
         {
             var u = units[i];
-            if (_retreating.Contains(u.Id)) continue;
+            if (Busy(u.Id)) continue;
             if (u.StopsToFire) return u.Id;
             if (pick < 0) pick = u.Id;
         }
@@ -478,7 +489,7 @@ public sealed class Commander
         foreach (int i in _army)
         {
             var u = units[i];
-            if (_retreating.Contains(u.Id)) continue;
+            if (Busy(u.Id)) continue;
             if (u.Current.Kind == UnitOrder.AttackMove && Vector3.Distance(u.Current.Target, at) < OrderSlack) continue;
             _out.Add(new AttackMoveCommand(_me, u.Id, at));
         }
@@ -491,7 +502,7 @@ public sealed class Commander
         foreach (int i in _army)
         {
             var u = units[i];
-            if (_retreating.Contains(u.Id) || u.Current.Kind != UnitOrder.None || Vector3.Distance(u.Position, at) < 10) continue;
+            if (Busy(u.Id) || u.Current.Kind != UnitOrder.None || Vector3.Distance(u.Position, at) < 10) continue;
             _out.Add(new AttackMoveCommand(_me, u.Id, at));
         }
     }
@@ -510,7 +521,7 @@ public sealed class Commander
             for (int s = 0; s < belt.Segments.Length && belt.Segments[s].End <= g.Distance; s++)
             {
                 var seg = belt.Segments[s];
-                if (seg.State != SegmentState.Broken) continue;
+                if (_view.SeenState(g.Line, s) != SegmentState.Broken) continue;
                 var mid = seg.Curve.PositionAt(seg.Curve.Length / 2) with { Y = 0 };
                 if (EnemyFighterNear(mid, 20) || Mending(g.Line, s)) continue;
                 int repairer = IdleRepairer(mid);
@@ -599,7 +610,62 @@ public sealed class Commander
         return pick;
     }
 
+    // ---- Scouting ----
+
+    // Under fog, one fighter (the fastest) goes to look at the open belt on the enemy's half where it's gone
+    // longest unseen, once that's more than ScoutStaleSeconds: that's where their posts would be. It
+    // rejoins the army when it gets there.
+    void Scout()
+    {
+        if (!_view.Fogged) return;
+        var state = _sim.State;
+        if (_scout >= 0)
+        {
+            int i = IndexOf(_scout);
+            if (i >= 0 && state.Units[i].Current.Kind != UnitOrder.None && !_retreating.Contains(_scout)) return;
+            _scout = -1;
+        }
+        int stale = state.Tick - (int)(ScoutStaleSeconds * Simulation.TicksPerSecond);
+        Vector3? look = null;
+        int oldest = int.MaxValue;
+        float nearest = float.MaxValue; // of the equally stale, the nearest home (never by which line comes first)
+        foreach (var line in state.Belts)
+            foreach (var seg in line.Segments)
+            {
+                if (seg.Covered) continue;
+                var mid = seg.Curve.PositionAt(seg.Curve.Length / 2) with { Y = 0 };
+                if (Vector3.Distance(mid, _enemyHome) >= Vector3.Distance(mid, _home) || EnemyFighterNear(mid, SpotDangerRadius)) continue;
+                int seen = _view.LastSeen(mid);
+                float d = Vector3.Distance(mid, _home);
+                if (seen < stale && (seen < oldest || (seen == oldest && d < nearest))) (oldest, nearest, look) = (seen, d, mid);
+            }
+        if (look is not Vector3 at) return;
+
+        var units = state.Units;
+        int pick = -1;
+        float fastest = 0;
+        foreach (int i in _army)
+        {
+            var u = units[i];
+            if (_retreating.Contains(u.Id) || u.StopsToFire || u.Speed <= fastest) continue;
+            (fastest, pick) = (u.Speed, u.Id);
+        }
+        if (pick < 0) return;
+        _scout = pick;
+        _out.Add(new MoveCommand(_me, pick, at));
+    }
+
+    int IndexOf(int id)
+    {
+        var units = _sim.State.Units;
+        for (int i = 0; i < units.Count; i++) if (units[i].Id == id) return i;
+        return -1;
+    }
+
     // ---- Helpers ----
+
+    // Out of the army's hands: pulling back, or out looking.
+    bool Busy(int id) => id == _scout || _retreating.Contains(id);
 
     bool EnemyFighterNear(Vector3 at, float radius)
     {

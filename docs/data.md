@@ -49,6 +49,7 @@ Named by `produces` and `unit` in buildings.json, and by `UnitType` on a map's u
 | `repairCost` | packages | 0 | What a full repair of a segment costs it, paid as it goes; repair stalls while broke. 0 with `repairSeconds`: free. |
 | `stopsToFire` | bool | false | It only fires while standing still, never on the move (artillery). |
 | `radius` | m | 0.5 | The room it takes on the ground: paths keep its middle this far from anything solid (buildings, posts, defenses, obstacles, the map edge), so it only fits through gaps twice as wide, and two units push apart until their circles of this radius no longer overlap. With navigation off (test maps), it does nothing. |
+| `sight` | m | 20 | How far it sees under fog of war: enemy units show to its side within this of it. Keep it above its weapon's range, or it needs another unit to spot for it (artillery does, on purpose). |
 
 ## buildings.json
 
@@ -64,3 +65,4 @@ Named by `builds` in units.json, and by `BuildingType` on a map's building spawn
 | `buildTime` | s | 0 | How long a builder takes to put it up. |
 | `kind` | `building`, `post` or `defense` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. |
 | `unit` | unit id | none | A defense: the unit it becomes. |
+| `sight` | m | 10 | How far beyond its footprint's edge it sees under fog of war (a finished post keeps it; a finished defense sees as its unit does). |

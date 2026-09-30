@@ -8,7 +8,9 @@ using static SimConvert;
 /// a health bar once damaged, and a progress bar while it trains a unit or, as a foundation, while it's
 /// built (amber while stalled for packages). A foundation rises as it's built. The selected building
 /// gets an outline and a flag on its rally point, and a building being placed shows as a ghost, green
-/// where it fits and red where it doesn't. Placeholder look, built in code.
+/// where it fits and red where it doesn't. Under fog of war an enemy building shows live while seen, as
+/// last seen while remembered (even once it's gone, until the player looks again), and not at all before
+/// it's been seen. Placeholder look, built in code.
 /// </summary>
 public partial class BuildingsView : Node3D
 {
@@ -93,6 +95,13 @@ void fragment() {
             _seen.Add(building.Id);
             if (!_views.TryGetValue(building.Id, out var view)) _views[building.Id] = view = Build(building);
 
+            bool live = Sight.SeesStructure(building.Owner, building.Position, building.Type.Size / 2);
+            if (!live)
+            {
+                ShowRemembered(building.Id, view);
+                continue;
+            }
+            view.Root.Visible = true;
             float health = building.Health / building.MaxHealth;
             view.Health.Set(health, HealthBar.HealthColor(health));
             view.Health.Visible = building.Built && health < 1;
@@ -115,13 +124,28 @@ void fragment() {
 
         if (_views.Count == _seen.Count) return;
         _gone.Clear();
-        foreach (int id in _views.Keys)
-            if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (var (id, view) in _views)
+            if (!_seen.Contains(id) && !ShowRemembered(id, view)) _gone.Add(id); // a gone one stays while remembered
         foreach (int id in _gone)
         {
             _views[id].Root.QueueFree();
             _views.Remove(id);
         }
+    }
+
+    // An enemy building out of sight: as the local player last saw it, if it remembers it at all. False if not.
+    bool ShowRemembered(int id, View view)
+    {
+        bool remembered = Sight.Remembers(id, out var ghost);
+        view.Root.Visible = remembered;
+        view.Health.Visible = view.Progress.Visible = false;
+        if (view.Selected) view.Outline.Visible = view.Selected = false;
+        if (remembered && ghost.Type is not null)
+        {
+            float height = ghost.Built ? 1 : MinFoundation;
+            if (height != view.Height) view.Block.Scale = new Vector3(1, view.Height = height, 1);
+        }
+        return remembered;
     }
 
     void SyncGhost(PlayerInput.Placement? placing)

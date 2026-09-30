@@ -12,7 +12,7 @@ public sealed partial class Simulation
 {
     const int MaxSearchesPerTick = 12;       // path searches a tick for each player; the rest wait a tick or two
     const float RepathDistance = 1.5f;       // m a goal may move before its path is planned again
-    const int SightCheckTicks = 5;           // how often a unit on a path looks past its next waypoint
+    const int SightCheckTicks = 5;           // how often units on paths look past their next waypoint: all on the same ticks, never by id (ids favour one side)
     const float FootWaypointReach = 0.3f;    // m from a waypoint that counts as there, on foot
     const float VehicleWaypointReach = 1.5f; // m, for vehicles (at least their radius)
     const float CrowdRadius = 12f;           // m from its goal within which a unit settles against others there
@@ -127,7 +127,7 @@ public sealed partial class Simulation
         while (path.Next < path.Points.Count - 1)
         {
             bool there = GroundDistanceSq(unit.Position, path.Points[path.Next]) <= reach * reach;
-            if (!there && ((State.Tick + unit.Id) % SightCheckTicks != 0 || !Nav.LineClear(unit.Position, path.Points[path.Next + 1], unit.Radius))) break;
+            if (!there && (State.Tick % SightCheckTicks != 0 || !Nav.LineClear(unit.Position, path.Points[path.Next + 1], unit.Radius))) break;
             path.Next++;
         }
         bool last = path.Next == path.Points.Count - 1;

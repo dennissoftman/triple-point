@@ -14,6 +14,7 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 | `godot/assets/belt.png`, `godot/assets/supplies.png` | Source sheets: belt parts, crate faces | ChatGPT (OpenAI image generation) | Yes | Real textures |
 | `godot/assets/textures/belt_atlas.png`, `package_crates.png` | Atlases cut from the source sheets | `tools/make_textures.py` | Yes (from the sheets above) | Real textures |
 | `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots, squares and rock shapes | Canvas drawing in code | No | Real minimap art |
+| `godot/scripts/FogOverlay.cs` | Fog of war: a flat dark-blue shade over unseen ground, blurred a cell, and the same shade on the minimap; the belt-cut alert rings on the minimap | Shader and canvas drawing in code | No | Real fog look (clouds or shroud) and alert UI |
 | `godot/scripts/MapObstacle.cs` | Rocks: a flat grey box each | Built-in mesh and flat color, in code | No | Real rock models |
 | `godot/scripts/PackagePanel.cs` | Packages panel: a flat dark box with a player-colored edge, default font | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |
 | `godot/scripts/GameOverOverlay.cs` | Game-over banner: a flat dark box, default font and buttons | Godot's default theme and a StyleBoxFlat, in code | No | Real UI |

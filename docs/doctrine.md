@@ -31,14 +31,15 @@ Milestones:
 2. [built] Belt, packages, gatherer posts, a debug overlay (HUD counters, under F3).
 3. [built] Break, spill and repair segments. (Merges and switches were built, then removed: see Rejected.) Not yet: jammed segments, roads.
 3.5. [decided] Symmetric belt test: a mirror match with generic units, before asymmetry. This way a failed asymmetric test can be traced to the factions, not the belt.
-4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose, and navigation (see Units: Navigation), built after the AI so there was an opponent to test it against.
+4. Two factions (Asian vs Western), 2-3 units each, one of them an infantry squad. Groundwork [built]: two players, ownership, combat with return fire, a rifle squad, a scout car and a tank, production, a construction prototype (builder, barracks, factory, post, turret), a minimap, F2 hotseat, win/lose, navigation and fog of war (see Units: Navigation, Fog of war), built after the AI so there was an opponent to test them against.
 5. [built] **A basic commander AI that fights over the belt** (v1, scripted), playing Red on the main map:
    - Economy: two builders; posts on its own half, nearest home first, never where enemy fighters stand; a barracks, then a factory; more posts while money allows. It saves for a building it wants instead of training.
    - Army: one engineer once it has a post, then whichever fighter it has fewest of (artillery counts double). Rally at a staging point in front of home.
-   - Fighting: it defends anything of its own under attack; with 8 fighters and 1.5× the enemy's strength it pushes on the nearest enemy building; with 4 it raids the enemy's most exposed post, and sends one unit (artillery first) to break the enemy belt just upstream of their posts, but never belt that feeds its own. Units below 30% health pull back home.
+   - Fighting: it defends anything of its own under attack; with 8 fighters and 1.5× the enemy's strength it pushes on the nearest enemy building; with 4 it raids the enemy's most exposed post, and sends one unit (artillery first) to break the enemy belt just upstream of their posts, but never belt that feeds its own. Units below 30% health pull back home, unless fewer than four healthy fighters are left: then everyone fights (nothing heals yet).
    - Upkeep: repairers mend broken belt feeding its posts when no enemy is near; idle units pick up spilled packages that no enemy stands near.
-   - It sees everything, but only through one knowledge layer (`AiView`), so fog of war plugs in there.
-   - [decided] **The AI after v1 is a behaviour tree** that decides for itself. v1 is scripted to prove the belt fight first. Its steps (survey, build, produce, fight, mend, collect) are the future tree's subtrees, and `AiView` is its blackboard.
+   - Scouting: when part of the enemy's belt hasn't been seen for 45 s, its fastest fighter (never artillery) goes to look.
+   - It knows only what its side sees and remembers, through one knowledge layer (`AiView`): the same fog as a player.
+   - [decided] **The AI after v1 is a behaviour tree** that decides for itself. v1 is scripted to prove the belt fight first. Its steps (survey, build, produce, fight, mend, collect, scout) are the future tree's subtrees, and `AiView` is its blackboard.
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
 
@@ -109,6 +110,13 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - A building put up on units pushes them out. A move into something solid ends at the nearest spot beside it, on the side the unit comes from.
   - **Fairness:** nothing breaks a tie by map direction, so mirrored sides of a map get mirrored paths (a test plays mirror matches and checks that both sides win some).
   - Not yet: flow fields for big group moves, units steering round each other, terrain costs (roads).
+- [built] **Fog of war:** each side sees round its units, buildings and posts, each out to its `sight` (data), a plain radius: nothing blocks sight yet. Sight is kept on 2 m cells over the map.
+  - **Hidden:** enemy units, and packages and pickups, show only while seen. Enemy buildings and posts are remembered as last seen (a ghost) until you look again; the ones standing at the start are known from the start.
+  - **Belt:** each segment is remembered as last seen, except that a break upstream of one of your posts is news at once, with an alert ("your belt is cut") and a ring on the minimap.
+  - **Firing needs sight:** a unit fires only at what its side sees, so long guns need a spotter. An attack order needs a target its side has seen; if the target slips out of sight, the unit goes to where it was last seen and stops.
+  - **Giving yourself away:** a unit that hits an enemy is seen by that enemy's side for 3 s, so artillery can be answered.
+  - The AI plays under the same fog. `--reveal` (and the demo) shows everything, for watching.
+  - Not yet: sight blocked by terrain or rocks, radar, shroud (black, never-seen ground).
 - [built] **Start:** each player starts with an HQ, one builder and a little money: no army, no posts. Everything else gets built. (The small test map keeps starting units for its tests.)
 - [built] **Production:** buildings train units. The HQ trains builders, the barracks squads and engineers, the factory cars, tanks and artillery.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows belt income directly.
@@ -133,7 +141,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - A building (selected alone, by clicking it): a button per unit type. A slot key or left-click queues one, T toggles repeat, Backspace cancels the last queued unit and a right-click on a button cancels one of that type. Right-clicking the ground sets the rally point.
   - A foundation: how far along it is, and whether a builder is on it.
   - Builders: a button per building type. A slot key or click arms placement: a ghost follows the cursor, snapped to the grid (shown around it, fading out), green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
-- [built] **Minimap** (bottom-left): the whole map, with belts and their packages, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Everything shows until fog of war exists.
+- [built] **Minimap** (bottom-left): the whole map, with belts and their packages, posts, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Under fog it shows what your side sees, remembered buildings and posts, the belt as last seen, and the fog itself.
 - [built] The game opens at 1920×1080; the interface scales with the window.
 - [built] **Above the minimap:** your packages, with income per minute over the last 30 s (posts and pickups). The HUD line (top-left) keeps only speed, game time, whose side you're on, and anyone's rebuild clock; every side's numbers, belt counters and performance are under F3.
 - [built] **Every word the player reads is translatable:** symbolic keys into gettext .po files, English the fallback; the language is the OS's unless chosen (`--lang=xx` until there's a settings menu). English only for now.
@@ -259,8 +267,8 @@ Still [decided], for when their systems exist:
 1. **Grid and MVP map:** [built] a 2 m building grid and 1 m navigation cells; units are sized by a radius in their data, not by cell footprints (a tank fits a 4 m gap, not only 6 m). The playable map is 256×180 m; grow it if fights feel cramped.
 2. **Belt flow:** [built] fixed-rate sources, finite on the main map; packages reaching an end go back into their source's reserve (see Belt economy).
 3. **Western rebuild fallback:** a mobile relay unit, or an airdropped first structure.
-4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall.
-5. **Fog of war:** [decided] grid-based, on the navigation grid, so it comes after navigation. The AI already asks `AiView.Sees` before acting on anything of an enemy's; fog only has to answer it.
+4. **When every source is dry:** the fight goes on with what's banked, and destruction decides. Revisit if matches stall. They can: the scripted AI sometimes ends up in mirror matches with both sides broke, every post gone and too little left in the sources to matter, and neither attacks. Look at it again with the behaviour-tree AI and real playtests.
+5. **Fog of war:** [built] grid-based over the navigation bounds (2 m cells), radius sight only (see Units: Fog of war).
 6. **Baseline test machine:** undecided (Steam Deck or a mid-range laptop).
 7. **Name:** working title *Triple Point*. [decided] The code is open source under Apache 2.0 (public on GitHub); art, audio, story and the name are not covered by it and are what a release sells. Code names stay neutral (`Game.sln`, assembly `Game`).
 8. **Tax and unrest balance, final faction names:** later, Denys's call.

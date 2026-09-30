@@ -272,15 +272,17 @@ public sealed class NavGrid
         return best;
     }
 
-    // Octile distance, in cells, nudged up a hair (well under a step) for cells off the straight line from
-    // the start to the goal: among equally short ways the search prefers the straightest, whichever way
-    // the map faces, so mirrored sides of a map get mirrored paths. Plain ties in the heap would otherwise
-    // go by cell order, which favours one corner of the map.
+    // Octile distance, in cells, nudged a hair (well under a step) by where the cell lies against the
+    // straight line from the start to the goal: up for cells off it, so among equally short ways the search
+    // prefers the straightest, and down a smaller hair on its right, so a way round either side of
+    // something that's exactly as long goes right. Both measure from the line, not the map, so mirrored
+    // sides of a map get mirrored paths; ties in the heap would otherwise go by the order cells are
+    // visited in, which favours one corner of the map.
     float Heuristic(int cell, int gx, int gz)
     {
         int ox = cell % Width - gx, oz = cell / Width - gz, dx = Math.Abs(ox), dz = Math.Abs(oz);
-        float offLine = MathF.Abs(ox * _lineZ - oz * _lineX) / (MathF.Abs(_lineX) + MathF.Abs(_lineZ) + 1);
-        return Math.Max(dx, dz) + (Sqrt2 - 1) * Math.Min(dx, dz) + 1e-3f * offLine;
+        float side = (ox * _lineZ - oz * _lineX) / (MathF.Abs(_lineX) + MathF.Abs(_lineZ) + 1);
+        return Math.Max(dx, dz) + (Sqrt2 - 1) * Math.Min(dx, dz) + 1e-3f * MathF.Abs(side) - 1e-5f * side;
     }
     int _lineX, _lineZ; // the search's start to goal, in cells
 

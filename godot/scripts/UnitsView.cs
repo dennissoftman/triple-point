@@ -9,7 +9,8 @@ using static SimConvert;
 /// units, colored by what each order does, flickering tracers from bullet weapons, and shells in flight with a flash where they're fired and
 /// where they land. Ballistic shells fly a high arc (drawn here; the sim flies them straight) and leave a
 /// smoke trail that traces it as they go. Selected units with a minimum range (artillery) show their
-/// reach: a ring at full range and one at the minimum.
+/// reach: a ring at full range and one at the minimum. Under fog of war, enemy units, their shots and
+/// shells show only where the local player sees them (Sight).
 /// </summary>
 public partial class UnitsView : Node3D
 {
@@ -89,7 +90,7 @@ public partial class UnitsView : Node3D
     public void OnEvent(SimEvent e)
     {
         // A splash impact flashes as big as its blast (the flash ball is 0.35 m across the radius).
-        if (e.Kind == SimEventKind.ShellHit && _shellsAt.Remove(e.Id, out var shell))
+        if (e.Kind == SimEventKind.ShellHit && _shellsAt.Remove(e.Id, out var shell) && Sight.SeesAt(ToSim(shell.At)))
             _flashes.Add((shell.At, shell.Radius > 0 ? shell.Radius / 0.35f : 1, FlashSeconds));
     }
 
@@ -114,7 +115,9 @@ public partial class UnitsView : Node3D
             view.Sync(position, heading, turret, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt),
                 unit.CurrentAcceleration, unit.LateralAcceleration);
             view.Selected = selection.Contains(unit.Id);
-            if (unit.WeaponKind == WeaponKind.Shell && _lastShots.GetValueOrDefault(unit.Id, unit.LastShotTick) != unit.LastShotTick)
+            bool shown = Sight.Sees(unit);
+            if (view.Visible != shown) view.Visible = shown;
+            if (shown && unit.WeaponKind == WeaponKind.Shell && _lastShots.GetValueOrDefault(unit.Id, unit.LastShotTick) != unit.LastShotTick)
                 _flashes.Add((view.Muzzles[0], 1, FlashSeconds));
             _lastShots[unit.Id] = unit.LastShotTick;
         }
@@ -136,14 +139,14 @@ public partial class UnitsView : Node3D
             var (from, to) = (ToGodot(p.PrevPosition), ToGodot(p.Position));
             var at = from.Lerp(to, alpha);
             var direction = to - from is { } v && v.LengthSquared() > 1e-8f ? v.Normalized() : Vector3.Forward;
+            _shellsAt[p.Id] = (ToGodot(p.Target), p.SplashRadius);
+            if (!Sight.SeesAt(p.Position)) continue; // in the fog
             if (p.Ballistic)
             {
                 _shadowBatch.Add(at with { Y = 0.06f }, Vector3.Forward);
                 (at, direction) = Arc(p, at, direction);
             }
-            _shellBatch.Add(at, direction);
-            // The flash goes where the sim hits, not where the shell was last drawn: that's up to a tick short.
-            _shellsAt[p.Id] = (ToGodot(p.Target), p.SplashRadius);
+            _shellBatch.Add(at, direction); // its flash goes where the sim hits (_shellsAt), not where it was last drawn
             if (!p.Ballistic) continue;
             // Smoke every PuffEvery m of flight, so the trail draws itself along the arc as the shell goes.
             if (!_lastPuff.TryGetValue(p.Id, out var last)) last = at;
@@ -236,7 +239,7 @@ public partial class UnitsView : Node3D
             var view = _views[id];
             _views.Remove(id);
             _lastShots.Remove(id);
-            if (!view.IsVehicle)
+            if (!view.IsVehicle || !view.Visible) // died in the fog: nothing to see
             {
                 view.QueueFree();
                 continue;
@@ -325,7 +328,7 @@ public partial class UnitsView : Node3D
         bool drawing = false;
         foreach (var unit in state.Units)
         {
-            if (!unit.Firing || unit.WeaponKind != WeaponKind.Bullet) continue;
+            if (!unit.Firing || unit.WeaponKind != WeaponKind.Bullet || !_views[unit.Id].Visible) continue;
             var muzzles = _views[unit.Id].Muzzles;
             var at = ToGodot(unit.FireAt) + new Vector3(0, AimHeight, 0);
             for (int i = 0; i < muzzles.Count; i++)

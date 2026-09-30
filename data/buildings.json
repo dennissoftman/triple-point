@@ -1,9 +1,9 @@
 // Prototype building types. The HQ is placed on the map (BuildingSpawn markers); builders put up the rest.
 // Every field, its units and its default: docs/data.md.
 {
-  "hq": { "health": 1200, "size": 5, "produces": ["builder"] },
-  "barracks": { "health": 600, "size": 4, "cost": 16, "buildTime": 20, "produces": ["rifle_squad", "engineer"] },
-  "factory": { "health": 800, "size": 6, "cost": 24, "buildTime": 25, "produces": ["scout_car", "tank", "artillery"] },
-  "gatherer_post": { "kind": "post", "health": 300, "size": 2, "cost": 10, "buildTime": 10 },
-  "turret": { "kind": "defense", "unit": "turret", "health": 400, "size": 2, "cost": 14, "buildTime": 12 },
+  "hq": { "health": 1200, "size": 5, "produces": ["builder"], "sight": 16 },
+  "barracks": { "health": 600, "size": 4, "cost": 16, "buildTime": 20, "produces": ["rifle_squad", "engineer"], "sight": 10 },
+  "factory": { "health": 800, "size": 6, "cost": 24, "buildTime": 25, "produces": ["scout_car", "tank", "artillery"], "sight": 10 },
+  "gatherer_post": { "kind": "post", "health": 300, "size": 2, "cost": 10, "buildTime": 10, "sight": 12 },
+  "turret": { "kind": "defense", "unit": "turret", "health": 400, "size": 2, "cost": 14, "buildTime": 12, "sight": 8 },
 }

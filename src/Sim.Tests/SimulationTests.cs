@@ -278,6 +278,7 @@ public class SimulationTests
         // 12 m to get within 8 m (48 ticks), then 100 health at 10 dps (200 ticks).
         Assert.InRange(brokenAt, 247, 251);
         Assert.Equal(SegmentState.Broken, sim.State.Belts[0].Segments[1].State);
+        sim.Tick(NoCommands); // shots land after every unit has acted, so the order ends the tick after
         Assert.Equal(UnitOrder.None, sim.State.Units[0].Current.Kind);
         Assert.True(sim.State.Units[0].Position.Z > 7.9f); // fired from range, didn't walk up to it
     }

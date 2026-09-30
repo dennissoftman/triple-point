@@ -79,7 +79,8 @@ public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, flo
 /// production. Builds lists the building types (ids in buildings.json) it can construct: builders only.
 /// RepairSeconds and RepairCost make it repair belt (0: it doesn't): how long and how much a segment from 0 to full takes.
 /// StopsToFire: it only fires while standing still (artillery). Radius, m: the room it takes (paths keep
-/// it that far from anything solid, and units push apart to it). Fields: docs/data.md.
+/// it that far from anything solid, and units push apart to it). Sight, m: how far it sees under fog of
+/// war. Fields: docs/data.md.
 /// No Weapon: unarmed. Id is the type's key in the file, filled in when parsed.
 /// </summary>
 public sealed record UnitType(
@@ -87,7 +88,7 @@ public sealed record UnitType(
     Movement Movement = Movement.Foot, float Acceleration = 0, float Braking = 0, float EaseIn = 0, float EaseOut = 0,
     float TurnRate = 0, float TurretTurnRate = 0, float TurretArc = 0, float ReverseSpeed = 0,
     int Cost = 0, float BuildTime = 0, string[]? Builds = null, float RepairSeconds = 0, int RepairCost = 0,
-    bool StopsToFire = false, float Radius = 0.5f, string Id = "")
+    bool StopsToFire = false, float Radius = 0.5f, float Sight = Simulation.DefaultSight, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public WeaponType Gun { get; init; } = null!;
     public int BuildTicks => Math.Max(1, (int)MathF.Round(BuildTime * Simulation.TicksPerSecond));
@@ -104,10 +105,11 @@ public enum BuildingKind { Building, Post, Defense }
 /// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
 /// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), how many
 /// units its queue holds, and for building it, its Cost in packages paid over BuildTime seconds of a
-/// builder's work. Kind and Unit: what it becomes when finished. Id is its key in the file.
+/// builder's work. Kind and Unit: what it becomes when finished. Sight, m beyond its footprint's edge:
+/// how far it sees under fog of war (a post keeps its type's). Id is its key in the file.
 /// </summary>
 public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int QueueLimit = 5, int Cost = 0,
-    float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, string Id = "")
+    float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, float Sight = 10, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore] public UnitType? Defense { get; init; } // Kind Defense: the unit it becomes
@@ -199,6 +201,10 @@ public struct Unit
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
     public float Radius;                   // m: the room it takes, for paths and pushing (with navigation on)
+    public float Sight;                    // m: how far it sees (with fog of war on)
+    // Given away by its shots: from the tick after RevealSince until RevealUntil, the players in RevealMask
+    // (a bit per player) see it anywhere.
+    public int RevealSince, RevealUntil, RevealMask;
     internal int PathSlot;                 // its path in the simulation's pool; -1 until it first moves
     internal Vector3 RestGoal;             // where its last move was headed when it stopped (NaN: none), for crowds settling
 
@@ -322,6 +328,7 @@ public struct Gatherer
     public float Distance;   // pull point along the line
     public float Health, MaxHealth;
     public int ReadyAtTick;  // idle from this tick on
+    public float Sight;      // m, under fog of war
     public int LastGrabTick; // for effects
     public int Gathered;
 }

@@ -495,7 +495,7 @@ public partial class PlayerInput : Node
         foreach (var post in Host.Sim.State.Gatherers)
         {
             float dx = post.Position.X - ground.X, dz = post.Position.Z - ground.Z;
-            if (post.Owner != LocalPlayer && dx * dx + dz * dz <= PostPickRadius * PostPickRadius) return post.Id;
+            if (post.Owner != LocalPlayer && dx * dx + dz * dz <= PostPickRadius * PostPickRadius && Known(post.Id, post.Owner, post.Position, 1)) return post.Id;
         }
         return BuildingAt(ground, mine: false);
     }
@@ -506,11 +506,15 @@ public partial class PlayerInput : Node
         foreach (var b in Host.Sim.State.Buildings)
         {
             float half = b.Type.Size / 2;
-            if ((b.Owner == LocalPlayer) == mine && MathF.Abs(b.Position.X - ground.X) <= half && MathF.Abs(b.Position.Z - ground.Z) <= half)
+            if ((b.Owner == LocalPlayer) == mine && MathF.Abs(b.Position.X - ground.X) <= half && MathF.Abs(b.Position.Z - ground.Z) <= half
+                && Known(b.Id, b.Owner, b.Position, half))
                 return b.Id;
         }
         return null;
     }
+
+    // A building or post the local player sees now or remembers (under fog of war), so it can be targeted.
+    static bool Known(int id, int owner, SVector3 at, float radius) => Sight.SeesStructure(owner, at, radius) || Sight.Remembers(id, out _);
 
     // The nearest unit (yours, or anyone else's) whose screen position is close to `screen`.
     int? UnitAt(Vector2 screen, bool mine)
@@ -519,7 +523,7 @@ public partial class PlayerInput : Node
         float bestDistance = float.MaxValue;
         foreach (var unit in Host.Sim.State.Units)
         {
-            if ((unit.Owner == LocalPlayer) != mine || ScreenPosition(unit) is not Vector2 p) continue;
+            if ((unit.Owner == LocalPlayer) != mine || !Sight.Sees(unit) || ScreenPosition(unit) is not Vector2 p) continue;
             float d = p.DistanceTo(screen);
             float radius = unit.MaxMembers > 1 ? SquadPickRadius : VehiclePickRadius;
             if (d <= radius && d < bestDistance) (best, bestDistance) = (unit.Id, d);

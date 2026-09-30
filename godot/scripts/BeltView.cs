@@ -15,7 +15,9 @@ using static SimConvert;
 /// stretches are a closed housing over the belt, dark where the open belt comes out. While a post is
 /// being placed, green strips beside the belts mark where one can go (ShowPostSpots). A spilled package
 /// jumps off the belt tumbling and lands; one that breaks in the fall bursts into shards. A finite source
-/// shows what it has left as a gauge on the housing where its belt comes into play.
+/// shows what it has left as a gauge on the housing where its belt comes into play. Under fog of war,
+/// packages, spills and enemy posts show only where the local player sees, and segments as it last saw
+/// them (Sight); a remembered enemy post stays until it looks again.
 /// </summary>
 public partial class BeltView : Node3D
 {
@@ -245,8 +247,11 @@ void fragment() {
         _spots.Mesh = st.Commit();
     }
 
+    SimState _state = null!;
+
     public void Sync(SimState state, float alpha)
     {
+        _state = state;
         RenderingServer.GlobalShaderParameterSet(TimeParameter, (state.Tick - 1 + alpha) / Simulation.TicksPerSecond);
         var lift = new Vector3(0, PackageSize / 2, 0); // sit on the surface, not in it
 
@@ -258,7 +263,7 @@ void fragment() {
             var line = state.Belts[l];
             SyncSegments(l, line, _segments[l]);
             foreach (var p in line.Packages)
-                _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction), custom: Crate(p.Id));
+                if (Sight.SeesAt(p.Position)) _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction), custom: Crate(p.Id));
         }
         _packages.End();
 
@@ -272,6 +277,7 @@ void fragment() {
         _pickups.Begin(state.Pickups.Count);
         foreach (var p in state.Pickups)
         {
+            if (!Sight.SeesAt(p.Position)) continue;
             float yaw = Random01(p.Id, 0) * MathF.Tau;
             var rest = new Basis(Vector3.Up, yaw);
             float t = Math.Clamp((now - p.SpilledAtTick) / (p.LandsAtTick - p.SpilledAtTick), 0, 1);
@@ -310,7 +316,7 @@ void fragment() {
     /// <summary>Effects for belt events: a collected pickup flies into its unit, with a +1 over it.</summary>
     public void OnEvent(SimEvent e, SimState state)
     {
-        if (e.Kind != SimEventKind.PickupCollected || !_pickupAt.Remove(e.Id, out var at)) return;
+        if (e.Kind != SimEventKind.PickupCollected || !_pickupAt.Remove(e.Id, out var at) || !Sight.SeesAt(ToSim(at))) return;
         _collecting.Add((at, e.Index, Random01(e.Id, 0) * MathF.Tau, _seconds, Crate(e.Id)));
         var label = _spareLabels.Count > 0 ? _spareLabels.Pop() : NewPopLabel();
         int owner = state.Units.Find(u => u.Id == e.Index).Owner;
@@ -440,8 +446,8 @@ void fragment() {
             var segment = line.Segments[s];
             if (segment.Covered) continue; // never damaged, never picked
             var view = views[s];
-            float health = segment.Health / segment.MaxHealth;
-            bool broken = segment.State == SegmentState.Broken;
+            float health = Sight.SeenHealth(_state, l, s) / segment.MaxHealth; // as the local player last saw it
+            bool broken = Sight.SeenState(_state, l, s) == SegmentState.Broken;
 
             var tint = broken ? BrokenTint.Lerp(Colors.White, health * 0.5f) : Colors.White.Lerp(DamagedTint, 1 - health);
             if (view.Tint != tint) view.Material.SetShaderParameter("tint", view.Tint = tint);
@@ -541,6 +547,12 @@ void fragment() {
         {
             _seen.Add(gatherer.Id);
             if (!_posts.TryGetValue(gatherer.Id, out var post)) _posts[gatherer.Id] = post = BuildPost(state, gatherer);
+            if (!Sight.SeesStructure(gatherer.Owner, gatherer.Position, 1))
+            {
+                ShowRemembered(gatherer.Id, post);
+                continue;
+            }
+            post.Root.Visible = true;
 
             bool glowing = state.Tick - gatherer.LastGrabTick < FlashTicks;
             if (post.Glowing != glowing) post.Material.EmissionEnergyMultiplier = (post.Glowing = glowing) ? 1.5f : 0f;
@@ -551,13 +563,23 @@ void fragment() {
 
         if (_posts.Count == _seen.Count) return;
         _gone.Clear();
-        foreach (int id in _posts.Keys)
-            if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (var (id, post) in _posts)
+            if (!_seen.Contains(id) && !ShowRemembered(id, post)) _gone.Add(id); // a gone one stays while remembered
         foreach (int id in _gone)
         {
             _posts[id].Root.QueueFree();
             _posts.Remove(id);
         }
+    }
+
+    // An enemy post out of sight: shown, unlit, if the local player remembers it. False if not.
+    static bool ShowRemembered(int id, PostView post)
+    {
+        bool remembered = Sight.Remembers(id, out _);
+        post.Root.Visible = remembered;
+        post.Health.Visible = false;
+        if (post.Glowing) (post.Glowing, post.Material.EmissionEnergyMultiplier) = (false, 0f);
+        return remembered;
     }
 
     // A box in the owner's colors, with an arm reaching to its pull point on the belt.

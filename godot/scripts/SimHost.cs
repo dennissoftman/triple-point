@@ -36,6 +36,7 @@ public partial class SimHost : Node3D
     [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools
     [Export] public int ShownTick;             // the sim's tick as of the last frame; for tools
     [Export] public bool Paused;               // the pause menu is open: no ticks run
+    [Export] public bool FogOfWar = true;      // `--reveal` shows everything anyway (spectating), as does the demo
     [Export] public int[] AiPlayers = [];      // players the commander AI plays; `--ai=1`, `--ai=0,1` or `--ai=none` overrides
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
@@ -53,6 +54,15 @@ public partial class SimHost : Node3D
     readonly Simulation _sim = new();
     readonly List<Command> _commands = [];
     readonly List<Sim.Ai.Commander> _ais = [];
+    FogOverlay _fog = null!;
+    bool _reveal;
+    const double AlertSeconds = 5;
+
+    /// <summary>The fog drawn over the world; its texture shades the minimap too.</summary>
+    public FogOverlay Fog => _fog;
+
+    /// <summary>Where something happened the local player should know about (a belt cut upstream of its posts), and until when (real seconds).</summary>
+    public readonly List<(SVector3 At, double Until)> Alerts = [];
     readonly List<List<int>> _unitsOf = [];    // starting unit ids per player, for the demo
     readonly List<Vector2> _homes = [];        // per player: the middle of its unit spawns, on the ground (x, z)
     double _accumulator;
@@ -145,6 +155,11 @@ public partial class SimHost : Node3D
         RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
         _perfLog = OS.GetCmdlineUserArgs().Contains("--perf-log");
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");
+        _reveal = _demo || OS.GetCmdlineUserArgs().Contains("--reveal");
+        _sim.FogOfWar = FogOfWar;
+        _sim.Vision(0); // sizes the fog's grid
+        AddChild(_fog = new FogOverlay { Name = "Fog" });
+        _fog.Setup(_sim);
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
             AiPlayers = ai[5..] == "none" ? [] : ai[5..].Split(',').Select(int.Parse).ToArray();
         if (!_demo)
@@ -188,6 +203,7 @@ public partial class SimHost : Node3D
             foreach (var e in events)
             {
                 Log(e);
+                Alert(e);
                 UnitsView.OnEvent(e);
                 BeltView.OnEvent(e, _sim.State);
             }
@@ -195,6 +211,8 @@ public partial class SimHost : Node3D
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
+        (Sight.Sim, Sight.Player, Sight.All) = (_sim, PlayerInput.LocalPlayer, _reveal || !_sim.FogOfWar);
+        _fog.Sync((float)delta);
         UnitsView.Sync(_sim, alpha, (float)(delta * GameSpeed), PlayerInput.Selection);
         BeltView.Sync(_sim.State, alpha);
         BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding, PlayerInput.Placing);
@@ -250,6 +268,9 @@ public partial class SimHost : Node3D
         ShownTick = state.Tick;
         int seconds = state.Tick / Simulation.TicksPerSecond;
         var hud = L.T("hud.line", GameSpeed.ToString("0.##"), $"{seconds / 60}:{seconds % 60:00}", PlayerPalette.Name(PlayerInput.LocalPlayer));
+        double now = Time.GetTicksMsec() / 1000.0;
+        Alerts.RemoveAll(a => a.Until < now);
+        if (Alerts.Count > 0) hud += "\n" + L.T("alert.belt_cut");
         foreach (var p in state.Players)
         {
             if (p.Lost) hud += "\n" + L.T("hud.out", PlayerPalette.Name(p.Index));
@@ -282,6 +303,14 @@ public partial class SimHost : Node3D
                  + "RMB: move / attack enemy / repair damaged belt   Ctrl+RMB belt: attack   Shift: queue\n"
                  + "A then LMB: attack-move (Shift: more waypoints; RMB/Esc: cancel)      Camera: arrows / screen edge / MMB drag, wheel: zoom\n"
                  + _perf;
+    }
+
+    // A break upstream of one of the local player's posts: it's told, wherever it happened.
+    void Alert(SimEvent e)
+    {
+        if (e.Kind != SimEventKind.SegmentBroken || !_sim.FeedsPostOf(PlayerInput.LocalPlayer, e.Id, e.Index)) return;
+        var curve = _sim.State.Belts[e.Id].Segments[e.Index].Curve;
+        Alerts.Add((curve.PositionAt(curve.Length / 2), Time.GetTicksMsec() / 1000.0 + AlertSeconds));
     }
 
     void Log(SimEvent e)

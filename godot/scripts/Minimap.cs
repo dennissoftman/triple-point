@@ -7,8 +7,9 @@ using SVector3 = System.Numerics.Vector3;
 /// The minimap, bottom-left: the whole map (the camera's bounds) from above, north up like the main view.
 /// Belts (broken segments red) with their packages, posts, buildings
 /// (foundations hollow), units as dots (the selection brighter), and the camera's view as an outline.
-/// Click or drag to move the camera there; right-click to move the selection there. Everything shows:
-/// no fog of war yet. Drawn with the canvas API each frame, in few calls: every draw call and every
+/// Click or drag to move the camera there; right-click to move the selection there. Under fog of war it
+/// shows what the local player sees and remembers (Sight), with unseen ground shaded, and pings where a
+/// belt feeding its posts was cut. Drawn with the canvas API each frame, in few calls: every draw call and every
 /// array handed to the engine costs, so belts are two batched line lists, rebuilt only when a segment
 /// breaks or is repaired. Placeholder look.
 /// </summary>
@@ -73,25 +74,51 @@ public partial class Minimap : Control
         if (_broken.Length > 0) DrawMultiline(_broken, BrokenColor, 2);
         _packages.Clear();
         foreach (var line in state.Belts)
-            foreach (var p in line.Packages) AddDot(_packages, ToMap(p.Position), 1);
+            foreach (var p in line.Packages)
+                if (Sight.SeesAt(p.Position)) AddDot(_packages, ToMap(p.Position), 1);
         if (_packages.Count > 0) DrawMultiline(_packages.ToArray(), PackageColor, 2);
 
         foreach (var rock in state.Obstacles) DrawObstacle(rock);
         foreach (var post in state.Gatherers)
-            DrawRect(new Rect2(ToMap(post.Position) - new Vector2(2, 2), new Vector2(4, 4)), PlayerPalette.Color(post.Owner));
+            if (Sight.SeesStructure(post.Owner, post.Position, 1)) DrawPost(post.Position, post.Owner);
         foreach (var building in state.Buildings)
+            if (Sight.SeesStructure(building.Owner, building.Position, building.Type.Size / 2)) DrawBuilding(building.Position, building.Type.Size, building.Owner, building.Built);
+        // What it remembers and doesn't see now, as last seen.
+        foreach (var ghost in Sight.Ghosts)
         {
-            var half = new Vector2(building.Type.Size, building.Type.Size) * PxPerMeter() / 2;
-            half = half.Max(new Vector2(2, 2));
-            var rect = new Rect2(ToMap(building.Position) - half, half * 2);
-            DrawRect(rect, PlayerPalette.Color(building.Owner), filled: building.Built, width: building.Built ? -1 : 1); // a filled rect takes no width
+            if (Sight.SeesArea(ghost.Position, ghost.IsPost ? 1 : ghost.Type!.Size / 2)) continue;
+            if (ghost.IsPost) DrawPost(ghost.Position, ghost.Owner);
+            else DrawBuilding(ghost.Position, ghost.Type!.Size, ghost.Owner, ghost.Built);
         }
         DrawUnits(state);
+        if (!Sight.All && Host.Fog.Texture is { } fog) DrawTextureRect(fog, new Rect2(Vector2.Zero, Size), false, new Color(1, 1, 1, FogShade));
+        DrawAlerts();
         DrawView();
         DrawRect(new Rect2(Vector2.Zero, Size), Border, filled: false, width: 1);
     }
 
     readonly Vector2[] _corners = new Vector2[4];
+    const float FogShade = 0.6f;
+    static readonly Color AlertColor = new(1, 0.25f, 0.2f);
+
+    void DrawPost(SVector3 at, int owner) => DrawRect(new Rect2(ToMap(at) - new Vector2(2, 2), new Vector2(4, 4)), PlayerPalette.Color(owner));
+
+    void DrawBuilding(SVector3 at, float size, int owner, bool built)
+    {
+        var half = (new Vector2(size, size) * PxPerMeter() / 2).Max(new Vector2(2, 2));
+        DrawRect(new Rect2(ToMap(at) - half, half * 2), PlayerPalette.Color(owner), filled: built, width: built ? -1 : 1); // a filled rect takes no width
+    }
+
+    // A ring that keeps pulsing out from each alert while it lasts.
+    void DrawAlerts()
+    {
+        double now = Time.GetTicksMsec() / 1000.0;
+        foreach (var (at, _) in Host.Alerts)
+        {
+            float t = (float)(now % 1.0);
+            DrawArc(ToMap(at), 4 + 14 * t, 0, Mathf.Tau, 24, AlertColor with { A = 1 - t }, 2);
+        }
+    }
 
     void DrawObstacle(in Sim.Obstacle rock)
     {
@@ -110,7 +137,7 @@ public partial class Minimap : Control
         {
             _dots.Clear();
             foreach (var unit in state.Units)
-                if (unit.Owner == player.Index) AddDot(_dots, ToMap(unit.Position), 1.5f);
+                if (unit.Owner == player.Index && Sight.Sees(unit)) AddDot(_dots, ToMap(unit.Position), 1.5f);
             if (_dots.Count > 0) DrawMultiline(_dots.ToArray(), PlayerPalette.Color(player.Index), 3);
         }
         _dots.Clear();
@@ -137,10 +164,10 @@ public partial class Minimap : Control
     {
         int i = 0;
         bool changed = false;
-        foreach (var line in state.Belts)
-            foreach (var segment in line.Segments)
+        for (int l = 0; l < state.Belts.Count; l++)
+            for (int s = 0; s < state.Belts[l].Segments.Length; s++)
             {
-                bool broken = segment.State == SegmentState.Broken;
+                bool broken = Sight.SeenState(state, l, s) == SegmentState.Broken; // as the local player last saw it
                 if (i == _brokenShown.Count)
                 {
                     _brokenShown.Add(broken);

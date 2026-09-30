@@ -7,7 +7,7 @@ namespace Sim.Tests;
 /// <summary>
 /// The playable map, godot/scenes/main.tscn, as SimHost builds it, read straight from the scene file:
 /// its belts (curves and covered ends), starting buildings and units, and SimHost's belt settings, with
-/// the real game data, and navigation over the camera's bounds. So tests can play on the map players play on.
+/// the real game data, navigation over the camera's bounds, and fog of war. So tests can play on the map players play on.
 /// </summary>
 static class MainMap
 {
@@ -20,7 +20,7 @@ static class MainMap
 
     static float F(string s) => float.Parse(s, CultureInfo.InvariantCulture);
 
-    public static Simulation Load(uint seed = 1)
+    public static Simulation Load(uint seed = 1, bool redFirst = false)
     {
         var repo = Repo();
         var scene = File.ReadAllText(Path.Combine(repo, "godot", "scenes", "main.tscn"));
@@ -28,7 +28,7 @@ static class MainMap
         var units = GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(repo, "data", "units.json")), weapons);
         var buildings = GameData.ParseBuildingTypes(File.ReadAllText(Path.Combine(repo, "data", "buildings.json")), units);
 
-        var sim = new Simulation(seed) { BuildingTypes = buildings, EndConditions = true };
+        var sim = new Simulation(seed) { BuildingTypes = buildings, EndConditions = true, FogOfWar = true };
         // The map is the camera's bounds, as SimHost takes it.
         var bounds = Regex.Match(scene, @"Bounds = Rect2\(([^)]*)\)").Groups[1].Value.Split(',').Select(F).ToArray();
         sim.EnableNavigation(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3]);
@@ -60,12 +60,17 @@ static class MainMap
             var size = Regex.Match(body, @"Size = Vector3\(([^)]*)\)").Groups[1].Value.Split(',').Select(F).ToArray();
             sim.AddObstacle(position, size[0] / 2, size[2] / 2, heading);
         }
-        foreach (var (body, position, heading) in Spawns(scene, "Buildings"))
+        foreach (var (body, position, heading) in Ordered(Spawns(scene, "Buildings"), redFirst))
             sim.AddBuilding(Prop(body, "Player") is string p ? int.Parse(p) : 0, position, buildings[Prop(body, "BuildingType")?.Trim('"') ?? "hq"], heading);
-        foreach (var (body, position, heading) in Spawns(scene, "Units"))
+        foreach (var (body, position, heading) in Ordered(Spawns(scene, "Units"), redFirst))
             sim.AddUnit(Prop(body, "Player") is string p ? int.Parse(p) : 0, position, units[Prop(body, "UnitType")?.Trim('"') ?? "rifle_squad"], heading);
         return sim;
     }
+
+    // With `redFirst`, Red's (Player 1's) come first: whose things come first in the sim's lists acts first
+    // within a tick, which a mirror match needs to try both ways.
+    static IEnumerable<(string Body, Vector3 Position, float Heading)> Ordered(IEnumerable<(string Body, Vector3 Position, float Heading)> spawns, bool redFirst) =>
+        redFirst ? spawns.OrderByDescending(s => Prop(s.Body, "Player") is string p ? int.Parse(p) : 0) : spawns;
 
     // Nodes under a parent (markers, unless said): each one's properties, its position, and the heading its -Z faces.
     static IEnumerable<(string Body, Vector3 Position, float Heading)> Spawns(string scene, string parent, string type = "Marker3D")
