@@ -140,10 +140,10 @@ transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 1.5, 0, -19)
 script = ExtResource("8_spawn")
 UnitType = "tank"
 
-[node name="BlueCar" type="Marker3D" parent="Units"]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 6.5, 0, -19)
+[node name="BlueArtillery" type="Marker3D" parent="Units"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 6.5, 0, -30)
 script = ExtResource("8_spawn")
-UnitType = "scout_car"
+UnitType = "artillery"
 
 [node name="RedSquad1" type="Marker3D" parent="Units"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 16.5)
@@ -163,11 +163,11 @@ script = ExtResource("8_spawn")
 Player = 1
 UnitType = "tank"
 
-[node name="RedCar" type="Marker3D" parent="Units"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0, 19)
+[node name="RedArtillery" type="Marker3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0, 30)
 script = ExtResource("8_spawn")
 Player = 1
-UnitType = "scout_car"
+UnitType = "artillery"
 
 [node name="Buildings" type="Node3D" parent="."]
 

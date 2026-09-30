@@ -1,5 +1,6 @@
 # Input smoke test: feeds real mouse/keyboard events through Godot's Input into the main scene and
-# checks selection (only your own units), group moves, breaking an enemy belt segment (Ctrl+right-click)
+# checks selection (only your own units), group moves, shelling an enemy road piece down (Ctrl+right-click,
+# with the artillery: only splash breaks road)
 # and the repair cursor over it, the hotseat swap with its per-side camera,
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, rally point, cancel),
@@ -11,6 +12,7 @@
 extends SceneTree
 
 const RED_BELT := Vector3(9, 0, 11) # on Red's road, on the prototype map
+const FORMATION := Vector3(0, 0, -6)  # where Blue's four units gather first
 
 var frame := 0
 var failures := 0
@@ -38,206 +40,208 @@ func _process(_delta) -> bool:
 			box(blue)
 		25:
 			check("box selects all of your units", selected(blue), 4)
-			right_click(cam.unproject_position(Vector3.ZERO))
-		560:
-			# Four units around (0, 0, 0) in a 2x2 grid with 3 m spacing. Squads stop exactly on their slot;
+			right_click(cam.unproject_position(FORMATION)) # out of the enemy's sight: artillery would start the fight
+		760:
+			# Four units around the point in a 2x2 grid with 3 m spacing. Squads stop exactly on their slot;
 			# vehicles ease to a stop within about 0.6 m of it.
-			var slots := [Vector3(-1.5, 0, -1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, 1.5), Vector3(1.5, 0, 1.5)]
+			var slots := [Vector3(-1.5, 0, -1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, 1.5), Vector3(1.5, 0, 1.5)].map(func(v): return v + FORMATION)
 			for i in blue.size():
 				check("unit %d at its formation slot" % i, blue[i].global_position.distance_to(slots[i]) < 1.0, true)
 			click(screen(blue[0]))
-		565:
+		765:
 			check("click selects one", selected(blue), 1)
 			key(KEY_SHIFT, true)
 			click(screen(blue[1]))
-		570:
+		770:
 			check("shift-click adds", selected(blue), 2)
 			click(screen(blue[1]))
-		575:
+		775:
 			check("shift-click toggles off", selected(blue), 1)
 			key(KEY_SHIFT, false)
 			click(screen(red[0]))
-		580:
+		780:
 			check("enemy units can't be selected", [selected(blue), selected(red)], [0, 0])
-			# The vehicles, already in range of Red's belt; the squads would walk up into Red's guns.
+			# The vehicles: the artillery, in range of Red's road from here, and the tank, which can't break road.
 			click(screen(blue[2]))
-		582:
+		782:
 			key(KEY_SHIFT, true)
 			click(screen(blue[3]))
-		585:
+		785:
 			key(KEY_SHIFT, false)
 			key(KEY_CTRL, true)
 			right_click(cam.unproject_position(RED_BELT))
-		590:
+		790:
 			key(KEY_CTRL, false)
-		1120:
-			# Walked into range (~2 s) and shot the 100-health segment down.
+		2320:
+			# Only splash breaks road: the artillery (the tank can't) shells the 100-health piece down, ~20 s.
 			check("Ctrl+right-click on an enemy belt segment breaks it", root.get_node("Main/SimHost").get("BrokenSegments"), 1)
 			motion(cam.unproject_position(RED_BELT))
-		1125:
+		2325:
 			check("cursor over a broken segment, nobody selected who repairs: move", player.get("CursorName"), "Move")
-		1130:
+		2330:
 			blue_view = cam.get("Focus")
 			key(KEY_F2, true)
 			key(KEY_F2, false)
-		1148:
+		2348:
 			# 0.3 s into a 0.6 s flight: partway, not jumped.
 			var focus: Vector2 = cam.get("Focus")
 			check("F2 glides the camera instead of jumping", focus.distance_to(blue_view) > 0.5 and focus.distance_to(RED_HOME) > 0.5, true)
-		1180:
+		2380:
 			check("F2 lands on Red's spawn the first time", (cam.get("Focus") as Vector2).distance_to(RED_HOME) < 0.1, true)
 			box(red)
-		1185:
+		2385:
 			check("F2 swaps to Red: Red's units select, Blue's don't", [selected(red), selected(blue)], [4, 0])
 			key(KEY_F2, true)
 			key(KEY_F2, false)
-		1235:
+		2435:
 			check("F2 back returns to where Blue left off", (cam.get("Focus") as Vector2).distance_to(blue_view) < 0.1, true)
 			double_click(screen(blue[0]))
-		1240:
+		2440:
+			right_click(cam.unproject_position(Vector3(0, 0, 2))) # the squads step up until Red's are in sight
+		2620:
 			# blue[0] and blue[1] are the squads, blue[2] and blue[3] the vehicles.
 			check("double-click selects every squad on screen, not the vehicles", rings(blue), [true, true, false, false])
 			box(blue)
-		1245:
-			motion(screen(red[0]))
-		1250:
+		2625:
+			motion(screen(nearest_red())) # the fight has begun: the nearest one left, in Blue's sight
+		2630:
 			check("cursor over an enemy: attack", player.get("CursorName"), "Attack")
 			motion(cam.unproject_position(Vector3(12, 0, -5))) # open ground, clear of Blue's units
-		1255:
+		2635:
 			check("cursor over open ground: move", player.get("CursorName"), "Move")
 			key(KEY_CTRL, true)
-			motion(cam.unproject_position(Vector3(0, 0, -11))) # Blue's own road
-		1260:
+			motion(cam.unproject_position(Vector3(-8, 0, -11))) # Blue's own road, clear of Blue's units
+		2640:
 			check("Ctrl over a belt: attack it", player.get("CursorName"), "Attack")
 			key(KEY_CTRL, false)
 			key(KEY_A, true)
 			key(KEY_A, false)
-		1265:
+		2645:
 			check("A arms attack-move", player.get("CursorName"), "AttackMove")
 			click(cam.unproject_position(Vector3(3, 0, 11))) # short of Red's units
-		1270:
+		2650:
 			check("the click attack-moves and disarms (back to the plain cursor over open ground)", player.get("CursorName"), "Move")
 			check("selected units show their order paths, orange for attack-move", path_colors().any(func(c): return absf(c.r - ORANGE.r) + absf(c.g - ORANGE.g) + absf(c.b - ORANGE.b) < 0.02), true)
 			cam_before = cam.global_position
 			key(KEY_RIGHT, true)
-		1285:
+		2665:
 			click(cam.unproject_position(Vector3(-20, 0, 8))) # empty ground: deselects
-		1290:
+		2670:
 			check("unselected units show no order paths", path_colors().size(), 0)
-		1300:
+		2680:
 			key(KEY_RIGHT, false)
 			check("arrow key pans the camera", cam.global_position.x > cam_before.x + 5, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), true)
 			mouse(MOUSE_BUTTON_WHEEL_UP, Vector2(576, 324), false)
-		1360:
+		2740:
 			check("wheel zooms in", cam.global_position.y < cam_before.y - 3, true)
 			cam_before = cam.global_position
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(576, 324), true)
 			motion(Vector2(676, 324))
 			mouse(MOUSE_BUTTON_MIDDLE, Vector2(676, 324), false)
-		1365:
+		2745:
 			check("middle-mouse drag moves the map with the cursor", cam.global_position.x < cam_before.x - 1, true)
-		1600:
+		2980:
 			# Six seconds after the attack-move: Blue walked into range of Red's units and opened fire.
 			check("attack-move engages enemies on the way", red.any(func(v): return not is_instance_valid(v) or hurt(v)), true)
 			cam.set("Focus", Vector2(-10, -17)) # over Blue's HQ
-		1610:
+		2990:
 			click(cam.unproject_position(BLUE_HQ))
-		1615:
+		2995:
 			var panel = root.get_node("Main/Ui/CommandCard")
 			check("clicking your HQ selects it and shows production", [player.get("SelectedBuilding") != -1, panel.visible], [true, true])
 			key(KEY_Q, true)
 			key(KEY_Q, false)
-		1620:
+		3000:
 			check("Q queues the first unit type", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 1)
 			right_click(cam.unproject_position(RALLY))
-		1625:
+		3005:
 			var flag: Vector3 = root.get_node("Main/BuildingsView/Rally").global_position
 			check("right-click with the HQ selected sets its rally point", flag.distance_to(RALLY) < 0.3, true)
 			key(KEY_BACKSPACE, true)
 			key(KEY_BACKSPACE, false)
-		1630:
+		3010:
 			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 0)
 			click(cam.unproject_position(Vector3(-24, 0, -12))) # empty ground, clear of the bottom panels
-		1635:
+		3015:
 			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/CommandCard").visible], [-1, false])
 			click(cam.unproject_position(BLUE_HQ))
-		1640:
+		3020:
 			key(KEY_Q, true) # a builder: the HQ's first slot
 			key(KEY_Q, false)
-		2400:
+		3780:
 			# 10 s to train, then it drives to the rally point.
 			builder = new_blue_unit()
 			check("the HQ trained a builder", builder != null, true)
 			click(screen(builder))
-		2401:
+		3781:
 			cam.set("Focus", Vector2(0, 0)) # Red's broken belt in view
-		2404:
+		3784:
 			motion(cam.unproject_position(RED_BELT))
-		2409:
+		3789:
 			check("a builder over a broken segment: repair", player.get("CursorName"), "Repair")
 			cam.set("Focus", Vector2(-10, -17)) # back over Blue's HQ
-		2415:
+		3795:
 			check("selecting a builder shows its build card", root.get_node("Main/Ui/CommandCard").visible, true)
 			key(KEY_Q, true) # the first thing it builds: a barracks
 			key(KEY_Q, false)
 			motion(cam.unproject_position(SITE))
-		2420:
+		3800:
 			check("its build key arms a ghost under the cursor", ghost().visible, true)
 			check("the ghost snaps to the grid over the site", (ghost().global_position * Vector3(1, 0, 1)).distance_to(SITE) < 0.5, true)
 			check("the construction grid shows while placing", root.get_node("Main/BuildingsView/Grid").visible, true)
 			click(cam.unproject_position(SITE))
-		2425:
+		3805:
 			check("clicking places it and disarms the ghost", ghost().visible, false)
 			check("and hides the grid", root.get_node("Main/BuildingsView/Grid").visible, false)
-		3200:
+		4580:
 			# ~16 m from the rally point, at a tracked builder's pace.
 			check("the builder laid a foundation", building_count(), 3)
 			var map := root.get_node("Main/Ui/Minimap") as Control
 			var bounds: Rect2 = cam.get("Bounds")
 			var target := Vector2(20, 10)
 			click(map.global_position + (target - bounds.position) / bounds.size * map.size)
-		3205:
+		4585:
 			check("clicking the minimap moves the camera there", (cam.get("Focus") as Vector2).distance_to(Vector2(20, 10)) < 1, true)
 			key(KEY_ESCAPE, true) # nothing armed: Esc pauses
 			key(KEY_ESCAPE, false)
-		3210:
+		4590:
 			check("Esc with nothing to cancel opens the pause menu", root.get_node("Main/Ui/PauseMenu").visible, true)
 			paused_at = root.get_node("Main/SimHost").get("ShownTick")
-		3230:
+		4610:
 			check("the game holds while paused", root.get_node("Main/SimHost").get("ShownTick"), paused_at)
 			key(KEY_ESCAPE, true)
 			key(KEY_ESCAPE, false)
-		3235:
+		4615:
 			check("Esc again resumes", [root.get_node("Main/Ui/PauseMenu").visible, root.get_node("Main/SimHost").get("Paused")], [false, false])
 			cam.set("Focus", Vector2(builder.global_position.x, builder.global_position.z))
-		3245:
+		4625:
 			click(screen(builder))
-		3250:
+		4630:
 			check("selecting a unit shows the selection panel", root.get_node("Main/Ui/SelectionPanel").visible, true)
 			key(KEY_1, true, true) # Ctrl+1 makes it group 1
 			key(KEY_1, false, true)
 			key(KEY_D, true)
 			key(KEY_D, false)
-		3255:
+		4635:
 			check("D holds position", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), true)
 			key(KEY_S, true)
 			key(KEY_S, false)
-		3260:
+		4640:
 			check("S stops (and ends the hold)", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), false)
 			click(cam.unproject_position(builder.global_position + Vector3(8, 0, 8))) # empty ground: deselect
-		3265:
+		4645:
 			check("clicking away deselects", player.get("SelectedCount"), 0)
 			key(KEY_1, true)
 			key(KEY_1, false)
-		3270:
+		4650:
 			check("1 reselects control group 1", player.get("SelectedCount"), 1)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
 
-const RED_HOME := Vector2(2.75, 17.875) # the middle of Red's four unit spawns
+const RED_HOME := Vector2(2.75, 20.625) # the middle of Red's four unit spawns
 const SITE := Vector3(-20, 0, -18)       # clear ground beside Blue's HQ
 var builder: Node3D
 const BLUE_HQ := Vector3(-10, 1.5, -22)
@@ -290,6 +294,12 @@ func path_colors() -> Array:
 				if not colors.any(func(k): return k.is_equal_approx(c)):
 					colors.append(c)
 	return colors
+
+# The living Red unit nearest Blue's side (lowest z).
+func nearest_red() -> Node3D:
+	var live := red.filter(func(v): return is_instance_valid(v))
+	live.sort_custom(func(a, b): return a.global_position.z < b.global_position.z)
+	return live[0]
 
 func selected(views: Array) -> int:
 	return views.filter(func(v): return is_instance_valid(v) and v.get_node("SelectionRing").visible).size()

@@ -92,7 +92,7 @@ public partial class SelectionPanel : PanelContainer
 
     void ShowUnit(in Unit unit)
     {
-        Show(Name(unit.Type), unit.Health / unit.MaxHealth, L.T("select.unit", unit.Health.ToString("0"), unit.MaxHealth.ToString("0"), Doing(unit)));
+        Show(TypeName(unit.Type), unit.Health / unit.MaxHealth, L.T("select.unit", unit.Health.ToString("0"), unit.MaxHealth.ToString("0"), Doing(unit)));
         Tiles("");
     }
 
@@ -134,9 +134,9 @@ public partial class SelectionPanel : PanelContainer
         foreach (var tile in _tileViews)
         {
             var g = _groups[tile.Type];
-            string text = L.T("select.tile", Name(tile.Type), Mathf.Min(g.Count, 999));
+            string text = L.T("select.tile", TypeName(tile.Type), Mathf.Min(g.Count, 999));
             if (tile.Text != text) tile.Button.Text = tile.Text = text;
-            string tip = L.T("select.tile.tip", Name(tile.Type), g.Count, (100 * g.Worst).ToString("0"));
+            string tip = L.T("select.tile.tip", TypeName(tile.Type), g.Count, (100 * g.Worst).ToString("0"));
             if (tile.Tip != tip) tile.Button.TooltipText = tile.Tip = tip;
             float health = g.Health / g.Max;
             if (tile.Health != health) SetBar(tile.Bar, tile.Fill, tile.Health = health);
@@ -208,5 +208,5 @@ public partial class SelectionPanel : PanelContainer
         }
     }
 
-    static string Name(string type) => type.Length > 0 ? L.Unit(type) : L.T("select.unnamed");
+    static string TypeName(string type) => type.Length > 0 ? L.Unit(type) : L.T("select.unnamed");
 }

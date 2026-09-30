@@ -279,7 +279,7 @@ public class SimulationTests
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1));
-        int unit = sim.AddUnit(Blue, new Vector3(15, 0, 20), speed: 5, dps: 10); // 20 m from segment 1
+        int unit = sim.AddUnit(Blue, new Vector3(15, 0, 20), speed: 5, weapon: Blast(10)); // 20 m from segment 1
 
         var events = sim.Tick([new AttackSegmentCommand(Blue, unit, 0, 1)]);
         int brokenAt = -1;
@@ -304,7 +304,7 @@ public class SimulationTests
         sim.AddBeltLine(TwoSegments(), Belt(1));
         var line = sim.State.Belts[0];
         var segment = line.Segments[1];
-        int unit = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 5, dps: 10); // already in range
+        int unit = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 5, weapon: Blast(10)); // already in range
 
         sim.Tick([new AttackSegmentCommand(Blue, unit, 0, 1)]);
         Run(sim, 99); // 100 ticks of fire: half health

@@ -61,7 +61,7 @@ public enum HitKind { Direct, Splash }
 /// </summary>
 public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
     HitKind Hit = HitKind.Direct, float SplashRadius = 0, float MinRange = 0, bool Ballistic = false, float Scatter = 0,
-    string Id = "")
+    float StructureDamage = 1, string Id = "")
 {
     /// <summary>No weapon: builders and the like. It never finds anything in range to shoot.</summary>
     public static readonly WeaponType Unarmed = new(WeaponKind.Bullet, 0, 1, 0, Id: "");
@@ -185,6 +185,7 @@ public struct Unit
     public float SplashRadius;             // m; 0 for a direct hit
     public float MinRange, Scatter;        // m: won't fire closer; how far off a ballistic shell may land
     public bool Ballistic;                 // its shells fly to a point instead of homing
+    public float StructureDamage;          // times its damage against buildings and depots
     public bool StopsToFire;               // fires only while standing still
     public int ReloadTicks, ReadyAtTick, LastShotTick;
     public bool Firing;                    // engaging something this tick (on target, in range), reloading or not
@@ -360,6 +361,7 @@ public struct Projectile
     public int Id, Owner, Shooter, TargetId, Line, Segment; // Shooter: the unit that fired it, for return fire
     public Vector3 Position, PrevPosition, Target, Origin; // Origin: where it was fired from, for drawing an arc
     public float Speed, Damage, SplashRadius; // SplashRadius 0: a direct hit
+    public float StructureDamage;             // times Damage against buildings and depots
     public bool Ballistic;                    // flies to Target, a point, and never homes
 }
 

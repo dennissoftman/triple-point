@@ -27,6 +27,7 @@ public static class GameData
                     $"Weapon '{id}' needs a reload and range above 0, a shell a shellSpeed above 0, and a splashRadius above 0 exactly when its hit is splash.");
             if (w.MinRange < 0 || w.MinRange >= w.Range || w.Scatter < 0 || ((w.Ballistic || w.Scatter > 0) && w.Kind != WeaponKind.Shell))
                 throw new InvalidDataException($"Weapon '{id}' needs a minRange from 0 up to below its range, and ballistic and scatter only on a shell.");
+            if (w.StructureDamage < 0) throw new InvalidDataException($"Weapon '{id}' needs a structureDamage of at least 0.");
         }
         return weapons.ToDictionary(w => w.Key, w => w.Value with { Id = w.Key });
     }

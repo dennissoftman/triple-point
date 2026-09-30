@@ -105,20 +105,21 @@ public class EndConditionsTests
     }
 
     [Fact]
-    public void Finishing_a_post_stops_the_clock_and_posts_keep_a_player_in_the_game()
+    public void Posts_do_not_keep_a_player_in_the_game()
     {
-        var sim = NewGame(bluePackages: 5);
+        var sim = NewGame(bluePackages: 15);
         sim.AddBeltLine(TwoSegments(), Belt(1));
         int builder = sim.AddUnit(Blue, new Vector3(10, 0, 4), Builder);
 
         sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 3))]);
         Run(sim, 2 * T);
         Assert.Single(sim.State.Gatherers);
-        Assert.Equal(-1, BluePlayer(sim).GraceTicksLeft);
+        Assert.True(BluePlayer(sim).GraceTicksLeft >= 0, "a post isn't a base: the rebuild clock runs");
+        Assert.False(BluePlayer(sim).Lost); // a builder with money for a barracks can still come back
 
-        sim.Tick([new DestroyCommand(builder)]); // no builder left, but the post still stands
-        Run(sim, Grace + T);
-        Assert.False(BluePlayer(sim).Lost);
+        sim.Tick([new DestroyCommand(builder)]); // no builder left: with only a post, it can't
+        sim.Tick(NoCommands);
+        Assert.True(BluePlayer(sim).Lost);
     }
 
     [Fact]

@@ -35,7 +35,7 @@ Milestones:
 5. [built] **A basic commander AI that fights over the routes** (v1, scripted), playing Red on the main map:
    - Economy: two builders; depots on its own half, nearest home first, never where enemy fighters stand; a barracks, then a factory; more depots while money allows. It saves for a building it wants instead of training.
    - Army: one engineer once it has a depot, then whichever fighter it has fewest of (artillery counts double). Rally at a staging point in front of home.
-   - Fighting: it defends anything of its own under attack, once the enemy has been in view there a moment; from a set game time on, with 10 fighters and 1.5× the enemy's strength it pushes on the nearest enemy building; with 6 it raids the enemy's most exposed depot, and sends one unit (artillery first) to break the enemy's road just upstream of their depots, but never road that feeds its own. Units below 30% health pull back home, unless fewer healthy fighters are left than a raid needs: then everyone fights (nothing heals yet).
+   - Fighting: it defends anything of its own under attack, once the enemy has been in view there a moment; from a set game time on, with 10 fighters and 1.5× the enemy's strength it pushes on the nearest enemy building; with 6 it raids the enemy's most exposed depot, and sends its artillery (only splash breaks road) to break the enemy's road just upstream of their depots, but never road that feeds its own. Units below 30% health pull back home, unless fewer healthy fighters are left than a raid needs: then everyone fights (nothing heals yet).
    - Upkeep: repairers mend broken road feeding its depots when no enemy is near; idle fighters shoot passing trucks that won't unload at any of its depots, while no enemy fighter is close; idle units pick up spilled packages that no enemy stands near.
    - Scouting: when part of the enemy's road hasn't been seen for 45 s, its fastest fighter (never artillery) goes to look.
    - It knows only what its side sees and remembers, through one knowledge layer (`AiView`): the same fog as a player.
@@ -54,6 +54,12 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - **Slow to start.** The belts start empty, and no package reaches a post for about 75 s.
   - **The AI was too strong** for a first match, hence the levels.
   - **The belt didn't matter.** One segment broke all match; it was a fight over posts and the base.
+- **2026-09-30, Denys vs the AI (normal, after the first nerf), main map:** won at 7:55. Red went broke from 2:30 to 5:00, trained four engineers, and lived on with two depots and no HQ or builder. It felt:
+  - **Artillery too weak on buildings:** rifle squads out-killed it. Hence structure damage (Weapons).
+  - **A side with only depots isn't a side:** hence depots no longer count (Win and lose).
+  - **Attack-move didn't engage** what infantry could see but not reach; hence attack-move goes for it (Units).
+  - **Roads broke to machine guns, and looked like tiles:** only splash breaks road now, and roads have asphalt, edge lines, a dashed center line and verges, with no seams between pieces.
+  - Still to look at: why the AI's economy stalls (broke for minutes, engineers replaced as they die).
 - **What AI-vs-AI numbers add** (match reports and `AiTests`):
   - Income is flat at about 1 package/s per side from 1:30 on, however many posts: a post downstream of another only gets what that one lets past, so posts beyond the first on a belt buy a spare, not income.
   - Belt breaks are rare between AIs too, about one a match.
@@ -72,7 +78,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 - [built] **Sources are finite, and a route returns what nobody takes.** Each source holds a reserve (set per map). What a truck still carries at the end goes back into the reserve beyond the map, so supply leaves the pool only through depots and destroyed trucks: a destroyed truck is the one waste, and raiding burns supply both sides share. A gauge on the covered stretch where the route comes into play shows what's left.
 - [built] **Depots** stand beside a road with a pull point. Every truck with cargo that reaches one stops a moment and unloads a third of a full load for the depot's owner, then drives on with the rest. Three depots empty a truck, and upstream depots unload first. (The belt's posts took every other package, so a side's own two drained its belt at home and the contested middle carried nothing.)
 - [built] **Depot spacing:** no depot stands within the spacing of another on the same route, whoever owns it; foundations count. It keeps a side from emptying its own route at home: the map gives each route one safe slot (Playable map), a second on its own half, and the last third flows on into the contested middle.
-- [built] **Road pieces** have health. Units shoot a piece when ordered to (Ctrl+right-click); nothing picks a road as its target on its own. Splash hurts any open piece in its radius, whoever's route it is, so artillery fighting beside a road breaks it by accident. A damaged piece still works. A broken one stops traffic until it's repaired back to full health (Repair): trucks on it stay put, and the ones coming wait before it and queue back toward the source. A break wastes nothing, since the trucks wait; it holds the flow, and holds the trucks where they can be shot.
+- [built] **Road pieces** have health, and **only splash damages them** (2026-09-30 playtest: breaking a road with a machine gun made no sense). So only splash weapons (artillery) take the order to shell a piece (Ctrl+right-click with one selected); nothing picks a road as its target on its own. Splash hurts any open piece in its radius, whoever's route it is, so artillery fighting beside a road breaks it by accident. A damaged piece still works. A broken one stops traffic until it's repaired back to full health (Repair): trucks on it stay put, and the ones coming wait before it and queue back toward the source. A break wastes nothing, since the trucks wait; it holds the flow, and holds the trucks where they can be shot.
 - [built] **Trucks can be shot**, but only on purpose: Ctrl+right-click one (nobody's units pick a truck on their own), or a blast that catches it.
   - A destroyed truck spills its cargo on spots beside the road round it. A share breaks in the fall (spill loss, per route); the rest are pickups that any unit collects for its owner by walking over them, and they wait there however long.
   - A spilled package jumps off and can only be collected once it lands; one that breaks bursts into shards; a collected one flies into its unit with a +1. The wreck is look only, and sinks away.
@@ -96,9 +102,9 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 
 ## Units, orders and combat
 
-- [built] **Orders:** move, attack (a unit, depot, building or truck), attack-move, attack a segment, repair a segment (repairers only). Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
+- [built] **Orders:** move, attack (a unit, depot, building or truck), attack-move, attack a segment (splash weapons only), repair a segment (repairers only). Shift queues orders; a plain order replaces the queue. Orders only reach units their issuer owns.
 - [decided] Route orders still to come: guard a road piece, raid a stretch, escort a convoy. [built] Stop and hold position (Controls).
-- [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before depots and buildings; never trucks), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. Attack chases into range and fires until the target dies. [built] A unit type that **stops to fire** (artillery) only fires standing still.
+- [built] **Fire on the move.** Units fire at the weakest enemy in range whatever they're doing (fewest hit points left, nearest on ties; units before depots and buildings; never trucks), so groups focus fire without clicks. They never stop or chase for it: a move arrives on time, and attack-move is the order that stops to fight. [built] **Attack-move also goes for what it sees:** the nearest enemy its side sees within its range + 8 m (never beyond its own sight; units before depots and buildings), which it closes in on and fights, then carries on to its point (playtest: infantry walked past enemies it could see but not yet reach). Attack chases into range and fires until the target dies. [built] A unit type that **stops to fire** (artillery) only fires standing still.
 - [built] **Return fire.** An idle or attack-moving unit hit by an enemy while nothing is in range to shoot back at chases the attacker into range and fires on it, and idle or attack-moving allies close by join in.
   - **Leash:** it gives up past a leash distance from where the chase began and ignores that attacker until it comes back within the leash. Idle units walk back to their spot; attack-move carries on to its point.
   - **Exceptions:** a move order is never diverted, and no other explicit order is either. Immobile and unarmed units don't answer.
@@ -107,7 +113,8 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
   - Units that stop to fire **hold their ground**: they answer only attackers already in range and never chase, so artillery doesn't wander off after whatever shot it.
 - [built] **Weapons are data.** Each unit type names a weapon. Damage comes as discrete shots with a reload, not a steady stream.
   - **Delivery:** a bullet hits at once and draws a tracer. A shell is a projectile that homes on its target and hits on arrival. A **ballistic** shell flies an arc to where the target stood when it fired, lands off that point by up to its scatter (less closer in) and bursts there, so a moving target can get away.
-  - **Hit:** direct hits only the target. Splash hits every enemy within its radius, less toward the edge, and any open road piece and truck there.
+  - **Hit:** direct hits only the target, never road. Splash hits every enemy within its radius, less toward the edge, and any open road piece and truck there.
+  - [built] **Against structures:** each weapon has a factor on its damage to buildings, foundations and depots (`structureDamage`): artillery ×3, tank cannon ×1.5, small arms ×0.4, so sieging a base is artillery's job and infantry takes one down only slowly (playtest: rifle squads out-killed artillery on buildings). Defenses aren't structures here: they take damage as units do, so infantry still beats a heavy turret.
   - **Minimum range:** a weapon can have one; nothing closer is picked, fired at or answered.
   - **Shots at a road piece** land anywhere close around its middle, not on its near edge.
   - **Squads:** a squad's shot is every living member's damage. Under splash, a squad takes damage on the share of its footprint the blast covers, so bunched squads suffer. [built] A direct hit fells one member at most, so big single shots (tank cannon, heavy turret) waste most of their damage on infantry: that's what makes infantry the counter to them.
@@ -160,7 +167,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
   - attack an enemy
   - repair a damaged road piece
   - otherwise, move
-- [built] Ctrl+right-click a road piece or a truck attacks it.
+- [built] Ctrl+right-click a truck attacks it; a road piece, only with artillery (splash) selected, and the hint over a road says so otherwise.
 - [built] A then left-click attack-moves: left-clicking an enemy attacks it, Shift chains waypoints, and right-click or Esc cancels.
 - [built] Double-click a unit to select every unit of its type on screen.
 - [built] **Layout: corner panels.** A strip along the top (the HUD line on the left, packages in the middle, alerts on the right), the minimap bottom-left, the selection panel bottom-center, the command card bottom-right, and the idle-builder button just above the minimap.
@@ -252,7 +259,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 
 [built] A player loses when they can no longer rebuild: **no buildings, and either no builders or not enough money for the cheapest building.** A 60 s grace timer runs while there are no buildings but recovery is still possible. It's one function, `CanStillRecover(player)`, run every tick, backed by a unit-test table of edge cases. What's built, generic before factions:
 
-- **Buildings** are finished production buildings (HQ, barracks, factory) and depots. Turrets don't count: a lone turret isn't a base. Foundations don't count either: they only pause the clock.
+- **Buildings** are finished production buildings (HQ, barracks, factory). Depots and turrets don't count: a side with only those can't train anything and can't come back (playtest: the AI lived on for minutes with two depots, no HQ and no builder). Foundations don't count either: they only pause the clock.
 - **Money for the cheapest building:** the cheapest non-turret building a living builder can put up, or what's still owed on one of your own foundations, whichever is less. Paying into a foundation never makes you lose.
 - **The clock** pauses only on ticks a builder is working a foundation (an abandoned one doesn't), resumes where it was when work stops, and clears once a building is finished.
 - **Broke means out:** no buildings and not enough money loses at once, with no clock, even if income may still arrive.

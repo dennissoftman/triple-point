@@ -516,7 +516,7 @@ public sealed class Commander
         foreach (int i in _army)
         {
             var u = units[i];
-            if (Busy(u.Id)) continue;
+            if (Busy(u.Id) || u.SplashRadius <= 0) continue; // only splash breaks road
             if (u.StopsToFire) return u.Id;
             if (pick < 0) pick = u.Id;
         }

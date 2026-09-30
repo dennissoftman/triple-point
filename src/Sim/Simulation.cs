@@ -46,6 +46,7 @@ public sealed partial class Simulation
     const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
     const float SpotMargin = 0.05f;                 // m inside a free stretch's ends that SnapPost aims for, clear of rounding
     public const float PostSpacing = 30f;           // m along a line between any two posts (foundations too); two posts drain a belt
+    const float AcquireReach = 8f;                  // m beyond its range that attack-move goes for what its side sees
     const float BuildReach = 1.5f;                  // m beyond a footprint's edge, past its own radius, that a builder works from
     public const float RoadHalfWidth = 1.6f;        // m; buildings keep clear of the road
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
@@ -148,6 +149,7 @@ public sealed partial class Simulation
             MinRange = weapon.MinRange,
             Ballistic = weapon.Kind == WeaponKind.Shell && weapon.Ballistic,
             Scatter = weapon.Scatter,
+            StructureDamage = weapon.StructureDamage,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
             LastAttacker = -1,
@@ -683,9 +685,7 @@ public sealed partial class Simulation
     {
         foreach (var b in State.Buildings)
             if (b.Owner == player && b.Built && b.Type.Kind == BuildingKind.Building) return true;
-        foreach (var g in State.Gatherers)
-            if (g.Owner == player) return true;
-        return false;
+        return false; // depots and defenses don't keep a side in: with nothing that trains, it can't come back
     }
 
     // A builder, and the money for the cheapest way back: a new building its builders can put up, or what's
@@ -822,6 +822,7 @@ public sealed partial class Simulation
         if (unit.Movement == Movement.Static && order.Kind != UnitOrder.Attack) return; // defenses only aim
         if (order.Kind == UnitOrder.Build && (unit.Builds is null || (order.Structure is not null && Array.IndexOf(unit.Builds, order.Structure) < 0))) return;
         if (order.Kind == UnitOrder.Repair && unit.RepairSeconds <= 0) return; // only builders and engineers repair
+        if (order.Kind == UnitOrder.AttackSegment && unit.SplashRadius <= 0) return; // only splash breaks road
         if (!queued)
         {
             unit.Pending.Clear();
@@ -998,7 +999,7 @@ public sealed partial class Simulation
                 case UnitOrder.AttackMove:
                     // Head for the point, but stop to fight whatever comes into range, or turn on whatever shoots
                     // at it from out of range; then carry on.
-                    if (!ReturnFire(ref unit, units) && !Engage(ref unit) && Move(ref unit, unit.Current.Target))
+                    if (!ReturnFire(ref unit, units) && !Engage(ref unit) && !Pursue(ref unit) && Move(ref unit, unit.Current.Target))
                     {
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
@@ -1055,6 +1056,46 @@ public sealed partial class Simulation
         }
         // Idle, or attack-move stopping for it: free to swing the hull round if the turret can't reach.
         if (AimAt(ref unit, at, turnHull: unit.Current.Kind is UnitOrder.None or UnitOrder.AttackMove)) Fire(ref unit, target, at);
+        return true;
+    }
+
+    // Attack-move also goes for what its side sees just beyond its reach: the nearest enemy (units before
+    // depots and buildings) within its range plus AcquireReach, never beyond its own sight. It closes in,
+    // Engage fires once it's in range, and with nothing left to go for it carries on to its point. Nothing
+    // there: false. Trucks are nobody's, and never drawn.
+    bool Pursue(ref Unit unit)
+    {
+        if (unit.Damage <= 0 || unit.Speed <= 0) return false;
+        float reach = MathF.Min(unit.Range + AcquireReach, MathF.Max(unit.Sight, unit.Range));
+        float rangeSq = unit.Range * unit.Range, bestSq = reach * reach;
+        bool found = false;
+        var at = Vector3.Zero;
+        foreach (var other in State.Units)
+        {
+            if (other.Owner == unit.Owner || other.Owner == Player.None || other.Health <= 0) continue;
+            float sq = GroundDistanceSq(unit.Position, other.Position);
+            if (sq <= rangeSq || sq >= bestSq || !SeesUnit(unit.Owner, other)) continue;
+            (found, bestSq, at) = (true, sq, other.Position);
+        }
+        if (!found)
+        {
+            foreach (var post in State.Gatherers)
+            {
+                if (post.Owner == unit.Owner || post.Health <= 0) continue;
+                float sq = GroundDistanceSq(unit.Position, post.Position);
+                if (sq <= rangeSq || sq >= bestSq || !SeesArea(unit.Owner, post.Position, PostHalfSize)) continue;
+                (found, bestSq, at) = (true, sq, post.Position);
+            }
+            foreach (var building in State.Buildings)
+            {
+                if (building.Owner == unit.Owner || building.Health <= 0) continue;
+                float sq = GroundDistanceSq(unit.Position, building.Position);
+                if (sq <= rangeSq || sq >= bestSq || !SeesArea(unit.Owner, building.Position, building.Type.Size / 2)) continue;
+                (found, bestSq, at) = (true, sq, building.Position);
+            }
+        }
+        if (!found) return false;
+        Move(ref unit, at with { Y = unit.Position.Y });
         return true;
     }
 
@@ -1215,7 +1256,7 @@ public sealed partial class Simulation
         float damage = unit.Damage * unit.Members;
         if (unit.WeaponKind == WeaponKind.Bullet)
         {
-            _bullets.Add(new Bullet(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius));
+            _bullets.Add(new Bullet(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius, unit.StructureDamage));
             return true;
         }
 
@@ -1243,18 +1284,19 @@ public sealed partial class Simulation
             Speed = unit.ShellSpeed,
             Damage = damage,
             SplashRadius = unit.SplashRadius,
+            StructureDamage = unit.StructureDamage,
             Ballistic = unit.Ballistic,
         });
         return true;
     }
 
-    readonly record struct Bullet(int Owner, int Shooter, int TargetId, int Line, int Segment, Vector3 At, float Damage, float Radius);
+    readonly record struct Bullet(int Owner, int Shooter, int TargetId, int Line, int Segment, Vector3 At, float Damage, float Radius, float Structure);
     readonly List<Bullet> _bullets = [];
 
     // The bullets fired this tick hit, all at once after every unit has acted.
     void LandBullets()
     {
-        foreach (var b in _bullets) Impact(b.Owner, b.Shooter, b.TargetId, b.Line, b.Segment, b.At, b.Damage, b.Radius);
+        foreach (var b in _bullets) Impact(b.Owner, b.Shooter, b.TargetId, b.Line, b.Segment, b.At, b.Damage, b.Radius, b.Structure);
         _bullets.Clear();
     }
 
@@ -1280,7 +1322,7 @@ public sealed partial class Simulation
                 shells[i] = p;
                 continue;
             }
-            if (alive || p.SplashRadius > 0) Impact(p.Owner, p.Shooter, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius);
+            if (alive || p.SplashRadius > 0) Impact(p.Owner, p.Shooter, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius, p.StructureDamage);
             _events.Add(new SimEvent(SimEventKind.ShellHit, p.Id));
             shells[i] = shells[^1];
             shells.RemoveAt(shells.Count - 1);
@@ -1289,12 +1331,13 @@ public sealed partial class Simulation
 
     // A shot by `shooter` (a unit id) landing at `at`: a direct one damages its target; a splash one every
     // enemy of `owner` around (and a belt segment it was aimed at). Target -2: nothing in particular, its
-    // target died on the way. True if the aimed-at target was destroyed.
-    bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius)
+    // target died on the way. Only splash hurts road: a direct shot at a segment does nothing. `structure`
+    // scales the damage to buildings and depots. True if the aimed-at target was destroyed.
+    bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius, float structure)
     {
-        if (radius <= 0) return targetId != -2 && Hit(owner, shooter, targetId, line, segment, damage);
-        bool destroyed = targetId == -1 && Hit(owner, shooter, -1, line, segment, damage);
-        Splash(owner, shooter, at, damage, radius, targetId, ref destroyed);
+        if (radius <= 0) return targetId >= 0 && Hit(owner, shooter, targetId, line, segment, damage, structure);
+        bool destroyed = targetId == -1 && Hit(owner, shooter, -1, line, segment, damage, structure);
+        Splash(owner, shooter, at, damage, radius, targetId, structure, ref destroyed);
         SplashBelts(owner, at, damage, radius, targetId == -1 ? line : -1, segment);
         return destroyed;
     }
@@ -1321,7 +1364,7 @@ public sealed partial class Simulation
     // Full damage at the center, falling to SplashEdge of it at the radius. A squad takes it on the members
     // the blast covers: the overlap of the blast with its footprint, by distance across it, each member
     // losing at most its own health.
-    void Splash(int owner, int shooter, Vector3 at, float damage, float radius, int targetId, ref bool destroyed)
+    void Splash(int owner, int shooter, Vector3 at, float damage, float radius, int targetId, float structure, ref bool destroyed)
     {
         foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
         {
@@ -1346,7 +1389,7 @@ public sealed partial class Simulation
             if (post.Owner == owner || post.Health <= 0) continue;
             float d = MathF.Sqrt(GroundDistanceSq(post.Position, at));
             if (d > radius) continue;
-            post.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            post.Health -= structure * damage * (1 - (1 - SplashEdge) * d / radius);
             GiveAway(shooter, post.Owner);
             destroyed |= post.Id == targetId && post.Health <= 0;
         }
@@ -1355,7 +1398,7 @@ public sealed partial class Simulation
             if (building.Owner == owner || building.Health <= 0) continue;
             float d = MathF.Sqrt(GroundDistanceSq(building.Position, at));
             if (d > radius) continue;
-            building.Health -= damage * (1 - (1 - SplashEdge) * d / radius);
+            building.Health -= structure * damage * (1 - (1 - SplashEdge) * d / radius);
             GiveAway(shooter, building.Owner);
             destroyed |= building.Id == targetId && building.Health <= 0;
         }
@@ -1370,8 +1413,10 @@ public sealed partial class Simulation
             }
     }
 
-    // Damages a unit, post, building or truck by id, or else a belt segment, for `shooter` (a unit of `owner`'s); true if that destroyed it.
-    bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage)
+    // Damages a unit, post, building or truck by id, or else a belt segment, for `shooter` (a unit of
+    // `owner`'s); buildings and posts take `structure` times the damage (defenses are guns, and take it as
+    // units do: infantry is what beats a heavy turret). True if that destroyed it.
+    bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage, float structure)
     {
         if (targetId < 0)
         {
@@ -1397,14 +1442,14 @@ public sealed partial class Simulation
         if (g >= 0)
         {
             ref var post = ref CollectionsMarshal.AsSpan(State.Gatherers)[g];
-            post.Health -= damage;
+            post.Health -= damage * structure;
             GiveAway(shooter, post.Owner);
             return post.Health <= 0;
         }
         foreach (var building in State.Buildings)
         {
             if (building.Id != targetId) continue;
-            building.Health -= damage;
+            building.Health -= damage * structure;
             GiveAway(shooter, building.Owner);
             return building.Health <= 0;
         }

@@ -29,6 +29,10 @@ static class TestHelpers
     public static BeltConfig Belt(float spawnIntervalSeconds, float spillLoss = 0) =>
         new(Speed: 2, Spacing: 1, SpawnIntervalSeconds: spawnIntervalSeconds, SpillLoss: spillLoss);
 
+    /// <summary>A splash gun that fires every tick, `dps` in all: only splash breaks road, so road tests use it.</summary>
+    public static WeaponType Blast(float dps, float range = 8) =>
+        new(WeaponKind.Bullet, dps * Simulation.Dt, Simulation.Dt, range, Hit: HitKind.Splash, SplashRadius: 0.5f);
+
     public static void Run(Simulation sim, int ticks)
     {
         for (int i = 0; i < ticks; i++) sim.Tick(NoCommands);

@@ -18,10 +18,11 @@ Named by `weapon` in units.json.
 | `range` | m | required | How far it reaches. Above 0. |
 | `minRange` | m | 0 | It won't pick or fire at anything closer. Below `range`. |
 | `shellSpeed` | m/s | 0 | Shells only, and above 0 for them. |
-| `hit` | `direct` or `splash` | `direct` | Direct damages only the target. Splash damages every enemy unit, post and building within `splashRadius` of the impact, and every open belt segment there (anyone's), falling to half at the edge; a squad takes it on the share of its footprint the blast covers. No friendly fire on units, posts or buildings. |
+| `hit` | `direct` or `splash` | `direct` | Direct damages only the target, and never road. Splash damages every enemy unit, post and building within `splashRadius` of the impact, and every open belt segment there (anyone's), falling to half at the edge; only splash breaks road, so only splash weapons take road orders; a squad takes it on the share of its footprint the blast covers. No friendly fire on units, posts or buildings. |
 | `splashRadius` | m | 0 | Above 0 exactly when `hit` is `splash`. |
 | `ballistic` | bool | false | Shells only. It flies in an arc to where the target stood when it fired and bursts there, instead of homing on the target. |
 | `scatter` | m | 0 | Shells only. How far off the aim point a ballistic shell may land at full range, less closer in, anywhere around it. |
+| `structureDamage` | factor | 1 | Times its damage against buildings, foundations and depots (not defenses, which take damage as units do; not road or trucks): siege guns above 1, small arms below. |
 
 ## units.json
 

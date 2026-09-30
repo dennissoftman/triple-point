@@ -531,7 +531,7 @@ public class CombatTests
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(1000));
-        int gun = sim.AddUnit(Blue, new Vector3(15, 0, 6), speed: 0, dps: 1, range: 10); // beside segment 1, whose middle is (15, 0, 0)
+        int gun = sim.AddUnit(Blue, new Vector3(15, 0, 6), speed: 0, weapon: Blast(1, range: 10)); // beside segment 1, whose middle is (15, 0, 0)
         sim.Tick([new AttackSegmentCommand(Blue, gun, 0, 1)]);
 
         var hits = new List<Vector3>();
@@ -544,5 +544,70 @@ public class CombatTests
         Assert.True(hits.Count > 10);
         Assert.All(hits, h => Assert.InRange(Vector2.Distance(new(h.X, h.Z), new(15, 0)), 0, Simulation.BeltAimSpread + 1e-3f));
         Assert.True(hits.Distinct().Count() > hits.Count / 2); // not all on one point
+    }
+
+    [Fact]
+    public void Only_splash_breaks_road()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1000));
+        var segment = sim.State.Belts[0].Segments[1];
+        int rifle = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 5, dps: 50);
+        sim.Tick([new AttackSegmentCommand(Blue, rifle, 0, 1)]);
+        Assert.Equal(UnitOrder.None, UnitById(sim, rifle).Current.Kind); // a direct-fire unit doesn't take the order
+        Run(sim, 2 * T);
+        Assert.Equal(segment.MaxHealth, segment.Health);
+
+        int gun = sim.AddUnit(Blue, new Vector3(15, 0, 5), speed: 0, weapon: Blast(50));
+        sim.Tick([new AttackSegmentCommand(Blue, gun, 0, 1)]);
+        Run(sim, T);
+        Assert.True(segment.Health < segment.MaxHealth);
+    }
+
+    [Fact]
+    public void Structure_damage_scales_hits_on_buildings_and_depots_but_not_on_units_or_defenses()
+    {
+        var sim = NewSim();
+        var hq = new BuildingType(Health: 1000, Size: 4, Id: "hq");
+        var siege = new WeaponType(WeaponKind.Bullet, Damage: 10, Reload: 100, Range: 12, StructureDamage: 3);
+        sim.AddBeltLine(TwoSegments(), Belt(1000)); // for the post to stand beside
+        int building = sim.AddBuilding(Red, new Vector3(-10, 0, 0), hq);
+        int post = sim.AddGatherer(Red, new Vector3(5, 0, 3), 4, 300);
+        int tank = sim.AddUnit(Red, new Vector3(0, 0, -10), speed: 0, maxHealth: 300, dps: 0, movement: Movement.Tracked);
+        int nest = sim.AddUnit(Red, new Vector3(-7, 0, -7), speed: 0, maxHealth: 300, dps: 0, movement: Movement.Static);
+        foreach (int id in new[] { building, post, tank, nest })
+        {
+            int gun = sim.AddUnit(Blue, Vector3.Zero, speed: 0, weapon: siege);
+            sim.Tick([new AttackCommand(Blue, gun, id)]);
+            Run(sim, 2);
+        }
+        Assert.Equal(1000 - 30, sim.State.Buildings.Single(b => b.Id == building).Health, 0.01f);
+        Assert.Equal(300 - 30, sim.State.Gatherers.Single(g => g.Id == post).Health, 0.01f);
+        Assert.Equal(300 - 10, UnitById(sim, tank).Health, 0.01f);
+        Assert.Equal(300 - 10, UnitById(sim, nest).Health, 0.01f);
+    }
+
+    [Fact]
+    public void Attack_move_goes_for_an_enemy_it_sees_just_beyond_its_reach_then_carries_on()
+    {
+        var sim = NewSim();
+        int squad = sim.AddUnit(Blue, Vector3.Zero, speed: 4, maxHealth: 1000, dps: 20, range: 8);
+        int enemy = sim.AddUnit(Red, new Vector3(10, 0, 12), speed: 0, maxHealth: 60, dps: 0); // 12 m to the side of its path
+        sim.Tick([new AttackMoveCommand(Blue, squad, new Vector3(40, 0, 0))]);
+        Run(sim, T);
+        Assert.True(UnitById(sim, squad).Position.Z > 1, "it turned toward the enemy");
+        for (int t = 0; t < 20 * T && sim.State.Units.Exists(u => u.Id == enemy); t++) sim.Tick(NoCommands);
+        Assert.DoesNotContain(sim.State.Units, u => u.Id == enemy);
+        Run(sim, 15 * T);
+        var done = UnitById(sim, squad);
+        Assert.Equal(UnitOrder.None, done.Current.Kind);
+        Assert.InRange(done.Position.X, 39, 41); // and got to its point
+
+        // Past its range + 8 m it's left alone.
+        int far = sim.AddUnit(Red, new Vector3(40, 0, 20), speed: 0, maxHealth: 60, dps: 0);
+        sim.Tick([new AttackMoveCommand(Blue, squad, new Vector3(60, 0, 0))]);
+        Run(sim, T);
+        Assert.True(MathF.Abs(UnitById(sim, squad).Position.Z) < 0.5f);
+        Assert.Contains(sim.State.Units, u => u.Id == far);
     }
 }

@@ -295,6 +295,9 @@ msgstr "Broken road"
 msgid "belt.attack"
 msgstr "{0}+{1}: attack"
 
+msgid "belt.splash_only"
+msgstr "Only artillery breaks roads"
+
 # --- The hint beside the cursor over a supply truck: {0} packages on board, {1} health, {2} full health
 msgid "truck.hint"
 msgstr "Supply truck: {0} packages  {1}/{2}"

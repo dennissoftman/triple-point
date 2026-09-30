@@ -327,7 +327,7 @@ public partial class PlayerInput : Node
         if (Input.IsActionPressed("force_attack") && TruckAt(point) is int truck) return new(Act.Attack, point, truck); // trucks are nobody's: only on purpose
         if (BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
-            if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
+            if (Input.IsActionPressed("force_attack") && SelectionSplashes()) return new(Act.AttackSegment, point, Line: line, Segment: segment); // only splash breaks road
             var s = sim.State.Belts[line].Segments[segment];
             if (s.Health < s.MaxHealth && SelectionRepairs()) return new(Act.Repair, point, Line: line, Segment: segment);
         }
@@ -402,6 +402,13 @@ public partial class PlayerInput : Node
         return false;
     }
 
+    bool SelectionSplashes()
+    {
+        foreach (var u in Host.Sim.State.Units)
+            if (u.SplashRadius > 0 && _selection.Contains(u.Id)) return true;
+        return false;
+    }
+
     // While a post is being placed, the belt view marks every free spot along the belts (PostSpots),
     // recomputed only when posts or foundations come or go.
     void ShowPostSpots(bool show)
@@ -434,11 +441,11 @@ public partial class PlayerInput : Node
         else if (free && over is SVector3 point && BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             var s = sim.State.Belts[line].Segments[segment];
-            bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth && SelectionRepairs();
+            bool splash = SelectionSplashes(), force = Input.IsActionPressed("force_attack") && splash, hurt = s.Health < s.MaxHealth && SelectionRepairs();
             hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
             string act = CommandCard.KeyOf("act");
             hint = L.T("belt.hint", L.T(s.State == SegmentState.Broken ? "belt.broken" : hurt ? "belt.damaged" : "belt.intact"), s.Health.ToString("0"), s.MaxHealth.ToString("0")) + "\n"
-                 + (force ? "" : L.T("belt.attack", CommandCard.KeyOf("force_attack"), act)); // the cursor shows the rest
+                 + (!splash ? L.T("belt.splash_only") : force ? "" : L.T("belt.attack", CommandCard.KeyOf("force_attack"), act)); // the cursor shows the rest
         }
         BeltView.Hover = hover;
 

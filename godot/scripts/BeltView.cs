@@ -31,7 +31,10 @@ public partial class BeltView : Node3D
     const int CrateSpots = 6;
     const float CrateSize = 0.8f;
     const float WreckSeconds = 30f, WreckSink = 5f;
-    const float RoadTop = 0.05f, EdgeWidth = 0.22f, SeamLength = 0.25f; // the road's surface above the ground; its edge lines
+    const float RoadTop = 0.05f, EdgeWidth = 0.22f; // the road's surface above the ground; the width of debris from its edge
+    const float LineInset = 0.18f, LineWidth = 0.12f;         // m: the painted edge lines, in from the road's edge
+    const float ShoulderWidth = 0.7f, ShoulderTop = 0.015f;   // m: the gravel verge either side, just above the ground
+    const float DashLength = 1.25f, DashPeriod = 2.5f, DashWidth = 0.13f; // the dashed center line (a road piece is 5 m: whole periods)
 
     // The belt's cross-section, m: rails either side of the surface, standing above it, and a base down
     // to the ground. Joints are crossbars a little wider and taller than the belt.
@@ -117,8 +120,10 @@ void fragment() {
     [Export] public Color DamagedTint = new(1f, 0.55f, 0.25f); // multiplies a working segment's colors as health drops
     [Export] public Color BrokenTint = new(1f, 0.4f, 0.32f);   // and a broken one's, fading as repair restores health
     [Export] public float BeltWidth = 3.2f; // the road's
-    [Export] public Color RoadColor = new(0.2f, 0.2f, 0.21f);
-    [Export] public Color RoadEdgeColor = new(0.62f, 0.62f, 0.58f);
+    [Export] public Color RoadColor = new(0.17f, 0.17f, 0.18f);       // asphalt
+    [Export] public Color RoadEdgeColor = new(0.8f, 0.8f, 0.76f);     // the painted edge lines
+    [Export] public Color CenterLineColor = new(0.85f, 0.68f, 0.22f); // the dashed line down the middle
+    [Export] public Color ShoulderColor = new(0.33f, 0.31f, 0.27f);   // the gravel verge
     [Export] public Color TruckColor = new(0.45f, 0.43f, 0.33f);   // nobody's: a drab olive
     [Export] public Color CabColor = new(0.33f, 0.34f, 0.3f);
     [Export] public Color WreckColor = new(0.1f, 0.09f, 0.08f);
@@ -199,8 +204,7 @@ void fragment() {
                 material.SetShaderParameter("surface_band", BandTop / 1024f);
                 material.SetShaderParameter("scroll", 0f);
                 var curve = line.Segments[s].Curve;
-                bool last = s == line.Segments.Length - 1;
-                var whole = new MeshInstance3D { Mesh = BuildSection(curve, 0, curve.Length, Vector3.Zero, joint: true, endJoint: last, covered), MaterialOverride = material };
+                var whole = new MeshInstance3D { Mesh = BuildSection(curve, 0, curve.Length, Vector3.Zero, covered), MaterialOverride = material };
                 AddChild(whole);
                 views[s] = new SegmentView { Whole = whole, Material = material };
             }
@@ -622,7 +626,6 @@ void fragment() {
     {
         var curve = line.Segments[s].Curve;
         float mid = curve.Length / 2;
-        bool last = s == line.Segments.Length - 1;
         var wreck = new Node3D();
         AddChild(wreck);
 
@@ -630,8 +633,8 @@ void fragment() {
         var endPivot = ToGodot(curve.PositionAt(curve.Length));
         view.HalfA = new Node3D { Position = startPivot };
         view.HalfB = new Node3D { Position = endPivot };
-        view.HalfA.AddChild(new MeshInstance3D { Mesh = BuildSection(curve, 0, mid - BreakGap / 2, startPivot, joint: true, endJoint: false), MaterialOverride = view.Material });
-        view.HalfB.AddChild(new MeshInstance3D { Mesh = BuildSection(curve, mid + BreakGap / 2, curve.Length, endPivot, joint: false, endJoint: last), MaterialOverride = view.Material });
+        view.HalfA.AddChild(new MeshInstance3D { Mesh = BuildSection(curve, 0, mid - BreakGap / 2, startPivot), MaterialOverride = view.Material });
+        view.HalfB.AddChild(new MeshInstance3D { Mesh = BuildSection(curve, mid + BreakGap / 2, curve.Length, endPivot), MaterialOverride = view.Material });
         wreck.AddChild(view.HalfA);
         wreck.AddChild(view.HalfB);
 
@@ -738,10 +741,11 @@ void fragment() {
     }
 
     // A stretch of road from `from` to `to` m along the curve, its vertices relative to `origin`: the
-    // cross-section swept along it (the slab and its edge lines), capped at both ends, with a seam at its
-    // start and, if asked, at its end; or, covered, the housing over it. Colors are in the vertices; the
-    // housing takes its band of the atlas.
-    ArrayMesh BuildSection(BezierSegment curve, float from, float to, Vector3 origin, bool joint, bool endJoint, bool covered = false)
+    // cross-section swept along it (gravel verges, the asphalt with painted edge lines), capped at both
+    // ends, with the dashed center line on top; or, covered, the housing over it. Pieces join without a
+    // seam: it reads as one road, and hovering shows a piece. Colors are in the vertices; the housing takes
+    // its band of the atlas.
+    ArrayMesh BuildSection(BezierSegment curve, float from, float to, Vector3 origin, bool covered = false)
     {
         float hw = BeltWidth / 2;
         int steps = Math.Max(1, (int)MathF.Ceiling((to - from) / RibbonStep));
@@ -759,15 +763,16 @@ void fragment() {
         Vector3 At(int i, float o, float h) => centers[i] + sides[i] * o + Vector3.Up * (h == Ground ? -(centers[i].Y + origin.Y) : h);
 
         // The cross-section, left to right; each consecutive pair is swept into a strip, colored as the
-        // second point says, facing out of the road: a slab on the ground with light edge lines.
+        // second point says, facing out of the road: verges, the asphalt slab, its edge lines.
         float w = hw + HousingOverhang;
         float under = -BaseDepth;
-        float edge = EdgeWidth;
+        float line0 = hw - LineInset - LineWidth, line1 = hw - LineInset;
         (float O, float H, Color C)[] profile = covered
             ? [(-w, under, HousingColor), (-w, HousingHeight, HousingColor), (w, HousingHeight, HousingRoofColor), (w, under, HousingColor), (-w, under, HousingColor)]
             : [
-                (-hw, 0, RoadEdgeColor), (-hw, RoadTop, RoadEdgeColor), (-hw + edge, RoadTop, RoadEdgeColor), (hw - edge, RoadTop, RoadColor),
-                (hw, RoadTop, RoadEdgeColor), (hw, 0, RoadEdgeColor),
+                (-hw - ShoulderWidth, 0.004f, ShoulderColor), (-hw, ShoulderTop, ShoulderColor), (-hw, RoadTop, RoadColor),
+                (-line1, RoadTop, RoadColor), (-line0, RoadTop, RoadEdgeColor), (line0, RoadTop, RoadColor), (line1, RoadTop, RoadEdgeColor),
+                (hw, RoadTop, RoadColor), (hw, ShoulderTop, RoadColor), (hw + ShoulderWidth, 0.004f, ShoulderColor),
             ];
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
@@ -804,8 +809,17 @@ void fragment() {
         Quad(st, At(0, -hw, 0), At(0, hw, 0), At(0, hw, RoadTop), At(0, -hw, RoadTop), back, cap);
         Quad(st, At(steps, -hw, 0), At(steps, hw, 0), At(steps, hw, RoadTop), At(steps, -hw, RoadTop), ahead, cap);
 
-        if (joint) Seam(st, centers[0], sides[0]);
-        if (endJoint) Seam(st, centers[steps], sides[steps]);
+        // The center line: a dash every DashPeriod m along the curve, each a straight quad just above the
+        // asphalt (dashes are short, the roads gentle), cut off where this stretch ends.
+        float top = RoadTop + 0.004f;
+        for (float start = MathF.Floor(from / DashPeriod) * DashPeriod; start < to; start += DashPeriod)
+        {
+            float d0 = MathF.Max(start, from), d1 = MathF.Min(start + DashLength, to);
+            if (d1 - d0 < 0.05f) continue;
+            Vector3 a = ToGodot(curve.PositionAt(d0)) - origin, b = ToGodot(curve.PositionAt(d1)) - origin;
+            var side = ToGodot(curve.DirectionAt((d0 + d1) / 2)).Cross(Vector3.Up).Normalized() * (DashWidth / 2);
+            Quad(st, a - side + Vector3.Up * top, a + side + Vector3.Up * top, b + side + Vector3.Up * top, b - side + Vector3.Up * top, Vector3.Up, CenterLineColor);
+        }
         return st.Commit();
     }
 
@@ -820,15 +834,6 @@ void fragment() {
         Quad(st, P(o0, h0, f1), P(o1, h0, f1), P(o1, h1, f1), P(o0, h1, f1), forward, c, a, b, cc, d);
         Quad(st, P(o0, h0, f0), P(o0, h0, f1), P(o0, h1, f1), P(o0, h1, f0), -side, c, a, b, cc, d);
         Quad(st, P(o1, h0, f0), P(o1, h0, f1), P(o1, h1, f1), P(o1, h1, f0), side, c, a, b, cc, d);
-    }
-
-    // Where one road piece meets the next: a light line across the road, just above it.
-    void Seam(SurfaceTool st, Vector3 center, Vector3 side)
-    {
-        var forward = Vector3.Up.Cross(side).Normalized(); // along the road
-        float hw = BeltWidth / 2 - EdgeWidth, top = RoadTop + 0.004f, length = SeamLength / 2;
-        Vector3 P(float o, float f) => center + side * o + Vector3.Up * top + forward * f;
-        Quad(st, P(-hw, -length), P(hw, -length), P(hw, length), P(-hw, length), Vector3.Up, RoadEdgeColor * 0.85f);
     }
 
     // A quad a-b-c-d (in order around it) facing `outward`: wound clockwise as seen from that side, which is

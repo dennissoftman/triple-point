@@ -397,8 +397,9 @@ public partial class SimHost : Node3D
     }
 
     // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. Blue
-    // raids Red's road beside Red's depot: it breaks a piece, kills the depot on the way (fire on the
-    // move), then shoots the truck held up at the break and collects what it spills. Blue pulls back (its vehicles back up, then turn
+    // raids Red's road beside Red's depot: its artillery shells a piece (only splash breaks road) while the
+    // rest go there, killing the depot on the way (fire on the move), then shoot the truck held up at the
+    // break and collect what it spills. Blue pulls back (its vehicles back up, then turn
     // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's road; Red goes for Blue's
     // post, turrets swinging onto it on the way; then Blue attack-moves
     // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
@@ -445,9 +446,12 @@ public partial class SimHost : Node3D
                     _commands.Add(new SetRepeatCommand(barracks.Owner, barracks.Id, true));
                 }
 
-        if (tick == 2 * T) SegmentOrder(Blue, new SVector3(28, 0, 11), repair: false); // Red's belt, just upstream of its post
-        if (tick == 12 * T) MoveAll(Blue, new SVector3(27, 0, 9));                      // by the break
-        if (tick == 20 * T && HeldTruck(new SVector3(28, 0, 11)) is var (truck, at))    // the truck waiting there: shoot it, then pick up its load
+        if (tick == 2 * T)
+        {
+            MoveAll(Blue, new SVector3(27, 0, 9));                              // by the break to come...
+            SegmentOrder(Blue, new SVector3(28, 0, 11), repair: false);         // ...which only the artillery can make (splash): Red's road, just upstream of its post
+        }
+        if (tick == 32 * T && HeldTruck(new SVector3(28, 0, 11)) is var (truck, at))    // the truck waiting there: shoot it, then pick up its load
         {
             foreach (int id in _unitsOf[Blue]) _commands.Add(new AttackCommand(Blue, id, truck));
             MoveAll(Blue, at, queued: true);
@@ -469,7 +473,9 @@ public partial class SimHost : Node3D
             SegmentOrder(Red, new SVector3(0, 0, -11), repair: false, vehiclesOnly: true);
         }
         if (tick == 56 * T && _sim.State.Gatherers.FirstOrDefault(g => g.Owner == Blue) is { Id: > 0 } post)
-            foreach (int id in _unitsOf[Red]) _commands.Add(new AttackCommand(Red, id, post.Id));
+            foreach (int id in _unitsOf[Red])
+                if (_sim.State.Units.Find(u => u.Id == id) is { Current.Kind: not UnitOrder.AttackSegment }) // the artillery keeps shelling the road
+                    _commands.Add(new AttackCommand(Red, id, post.Id));
         if (tick == 80 * T) MoveAll(Blue, ToSim(new Vector3(HomeOf(Red).X, 0, HomeOf(Red).Y)), attack: true);
         if (tick == 85 * T)
         {
