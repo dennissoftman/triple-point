@@ -3,9 +3,9 @@
 # with the artillery: only splash breaks road)
 # and the repair cursor over it, the hotseat swap with its per-side camera,
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
-# order), camera pan and zoom, production (select the HQ, queue by hotkey, rally point, cancel),
+# order), camera pan and zoom, production (select the HQ, queue by hotkey, five with Shift, rally point, cancel),
 # construction (a builder's build key arms a ghost, a click lays the foundation), the minimap, the pause
-# menu, the selection panel, Hold (D) and Stop (S), and control groups (Ctrl+1, then 1).
+# menu, the selection panel, Hold (D) and Stop (S), auto-retreat (X), and control groups (Ctrl+1, then 1).
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -159,83 +159,104 @@ func _process(_delta) -> bool:
 		3005:
 			var flag: Vector3 = root.get_node("Main/BuildingsView/Rally").global_position
 			check("right-click with the HQ selected sets its rally point", flag.distance_to(RALLY) < 0.3, true)
+			key(KEY_SHIFT, true)
+		3006:
+			key(KEY_Q, true)
+			key(KEY_Q, false)
+		3008:
+			key(KEY_SHIFT, false)
+		3012:
+			check("Shift+Q queues five", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 6)
+			key(KEY_SHIFT, true)
+		3013:
 			key(KEY_BACKSPACE, true)
 			key(KEY_BACKSPACE, false)
-		3010:
+		3015:
+			key(KEY_SHIFT, false)
+		3019:
+			check("Shift+Backspace cancels five", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 1)
+			key(KEY_BACKSPACE, true)
+			key(KEY_BACKSPACE, false)
+		3024:
 			check("Backspace cancels the last queued unit", root.get_node("Main/Ui/CommandCard").get("QueueLength"), 0)
 			click(cam.unproject_position(Vector3(-24, 0, -12))) # empty ground, clear of the bottom panels
-		3015:
+		3029:
 			check("clicking away deselects the HQ and hides production", [player.get("SelectedBuilding"), root.get_node("Main/Ui/CommandCard").visible], [-1, false])
 			click(cam.unproject_position(BLUE_HQ))
-		3020:
+		3034:
 			key(KEY_Q, true) # a builder: the HQ's first slot
 			key(KEY_Q, false)
-		3780:
+		3794:
 			# 10 s to train, then it drives to the rally point.
 			builder = new_blue_unit()
 			check("the HQ trained a builder", builder != null, true)
 			click(screen(builder))
-		3781:
+		3795:
 			cam.set("Focus", Vector2(0, 0)) # Red's broken belt in view
-		3784:
+		3798:
 			motion(cam.unproject_position(RED_BELT))
-		3789:
+		3803:
 			check("a builder over a broken segment: repair", player.get("CursorName"), "Repair")
 			cam.set("Focus", Vector2(-10, -17)) # back over Blue's HQ
-		3795:
+		3809:
 			check("selecting a builder shows its build card", root.get_node("Main/Ui/CommandCard").visible, true)
 			key(KEY_Q, true) # the first thing it builds: a barracks
 			key(KEY_Q, false)
 			motion(cam.unproject_position(SITE))
-		3800:
+		3814:
 			check("its build key arms a ghost under the cursor", ghost().visible, true)
 			check("the ghost snaps to the grid over the site", (ghost().global_position * Vector3(1, 0, 1)).distance_to(SITE) < 0.5, true)
 			check("the construction grid shows while placing", root.get_node("Main/BuildingsView/Grid").visible, true)
 			click(cam.unproject_position(SITE))
-		3805:
+		3819:
 			check("clicking places it and disarms the ghost", ghost().visible, false)
 			check("and hides the grid", root.get_node("Main/BuildingsView/Grid").visible, false)
-		4580:
+		4594:
 			# ~16 m from the rally point, at a tracked builder's pace.
 			check("the builder laid a foundation", building_count(), 3)
 			var map := root.get_node("Main/Ui/Minimap") as Control
 			var bounds: Rect2 = cam.get("Bounds")
 			var target := Vector2(20, 10)
 			click(map.global_position + (target - bounds.position) / bounds.size * map.size)
-		4585:
+		4599:
 			check("clicking the minimap moves the camera there", (cam.get("Focus") as Vector2).distance_to(Vector2(20, 10)) < 1, true)
 			key(KEY_ESCAPE, true) # nothing armed: Esc pauses
 			key(KEY_ESCAPE, false)
-		4590:
+		4604:
 			check("Esc with nothing to cancel opens the pause menu", root.get_node("Main/Ui/PauseMenu").visible, true)
 			paused_at = root.get_node("Main/SimHost").get("ShownTick")
-		4610:
+		4624:
 			check("the game holds while paused", root.get_node("Main/SimHost").get("ShownTick"), paused_at)
 			key(KEY_ESCAPE, true)
 			key(KEY_ESCAPE, false)
-		4615:
+		4629:
 			check("Esc again resumes", [root.get_node("Main/Ui/PauseMenu").visible, root.get_node("Main/SimHost").get("Paused")], [false, false])
 			cam.set("Focus", Vector2(builder.global_position.x, builder.global_position.z))
-		4625:
+		4639:
 			click(screen(builder))
-		4630:
+		4644:
 			check("selecting a unit shows the selection panel", root.get_node("Main/Ui/SelectionPanel").visible, true)
 			key(KEY_1, true, true) # Ctrl+1 makes it group 1
 			key(KEY_1, false, true)
 			key(KEY_D, true)
 			key(KEY_D, false)
-		4635:
+		4649:
 			check("D holds position", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), true)
 			key(KEY_S, true)
 			key(KEY_S, false)
-		4640:
+		4654:
 			check("S stops (and ends the hold)", str(root.get_node("Main/Ui/SelectionPanel").get("Detail")).contains("holding"), false)
+			check("auto-retreat starts off", player.get("SelectionRetreats"), false)
+			key(KEY_X, true)
+			key(KEY_X, false)
+		4658:
+			check("X turns auto-retreat on", player.get("SelectionRetreats"), true)
 			click(cam.unproject_position(builder.global_position + Vector3(8, 0, 8))) # empty ground: deselect
-		4645:
+		4664:
 			check("clicking away deselects", player.get("SelectedCount"), 0)
 			key(KEY_1, true)
 			key(KEY_1, false)
-		4650:
+		4669:
 			check("1 reselects control group 1", player.get("SelectedCount"), 1)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)

@@ -10,6 +10,11 @@ public sealed partial class Simulation
 
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
+    public const int MaxQueue = 999;                // units a building's queue holds: no real limit, only a sane one
+    public const float RetreatHealth = 0.3f;        // share of full health below which an auto-retreating unit goes to mend
+    const int RetreatCheckTicks = 10;
+    const float StructureRepairShare = 0.5f;        // of a building's cost, for a repair from 0 to full
+    const float StructureRepairTime = 0.5f, MinStructureRepairSeconds = 5f; // of its build time, and at least this
     public const float BeltAimSpread = 0.7f;        // m: shots at a segment land anywhere this close to its middle
     public const float AutoRepairRadius = 12f;      // m; an idle unit that repairs goes for damaged belt this close by itself
     const int AutoRepairCheckTicks = 10;            // how often it looks (every unit on the same ticks: phases by id favour one side)
@@ -99,7 +104,7 @@ public sealed partial class Simulation
             type.Braking, type.EaseIn, type.EaseOut, type.TurretTurnRate, type.Gun);
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
         (unit.Builds, unit.RepairSeconds, unit.RepairCost, unit.StopsToFire) = (type.Builds, type.RepairSeconds, type.RepairCost, type.StopsToFire);
-        (unit.Radius, unit.Sight) = (type.Radius, type.Sight);
+        (unit.Radius, unit.Sight, unit.Cost) = (type.Radius, type.Sight, type.Cost);
         unit.TurretArc = type.TurretArc * MathF.PI / 180;
         return id;
     }
@@ -474,9 +479,10 @@ public sealed partial class Simulation
     /// <summary>Where a unit coming from `from` walks to for an order; for a plain move, the order's own target.</summary>
     public Vector3 OrderPoint(in Order order, Vector3 from) => order.Kind switch
     {
-        UnitOrder.Repair or UnitOrder.AttackSegment => SegmentPoint(order.Line, order.Segment, from),
+        UnitOrder.Repair or UnitOrder.AttackSegment when order.Line >= 0 => SegmentPoint(order.Line, order.Segment, from),
         UnitOrder.Attack => TryGetTarget(order.TargetId, out var at, out _) ? at with { Y = from.Y } : from,
         UnitOrder.Build when order.TargetId >= 0 => TryGetTarget(order.TargetId, out var site, out _) ? site with { Y = from.Y } : from,
+        UnitOrder.Repair or UnitOrder.Mend => TryGetTarget(order.TargetId, out var fix, out _) ? fix with { Y = from.Y } : from,
         _ => order.Target,
     };
 
@@ -528,6 +534,15 @@ public sealed partial class Simulation
             case AttackSegmentCommand s when Open(s.Line, s.Segment):
                 Issue(s.Player, s.UnitId, new Order(UnitOrder.AttackSegment, default, s.Line, s.Segment), s.Queued);
                 break;
+            case MendCommand m when OwnBuilding(m.Player, m.BuildingId) is { Built: true, Type.Mends: { } mends } && CanMend(m.UnitId, mends):
+                Issue(m.Player, m.UnitId, new Order(UnitOrder.Mend, default, TargetId: m.BuildingId), m.Queued);
+                break;
+            case RepairCommand r when Repairable(r.Player, r.TargetId):
+                Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, TargetId: r.TargetId), r.Queued);
+                break;
+            case SetRetreatCommand r when FindUnit(r.UnitId) is >= 0 and var ri && State.Units[ri].Owner == r.Player:
+                CollectionsMarshal.AsSpan(State.Units)[ri].AutoRetreat = r.On;
+                break;
             case RepairSegmentCommand r when Open(r.Line, r.Segment):
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
                 break;
@@ -544,9 +559,12 @@ public sealed partial class Simulation
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Build, default, TargetId: r.BuildingId), r.Queued);
                 break;
             case ProduceCommand p when OwnBuilding(p.Player, p.BuildingId) is { Built: true } building:
-                if (building.Queue.Count >= building.Type.QueueLimit) break;
                 foreach (var type in building.Type.Units)
-                    if (type.Id == p.UnitType) { building.Queue.Add(type); break; }
+                    if (type.Id == p.UnitType)
+                    {
+                        for (int n = 0; n < p.Count && building.Queue.Count < MaxQueue; n++) building.Queue.Add(type);
+                        break;
+                    }
                 break;
             case CancelProductionCommand c when OwnBuilding(c.Player, c.BuildingId) is { } building:
                 if (c.Index < 0 || c.Index >= building.Queue.Count) break;
@@ -558,13 +576,21 @@ public sealed partial class Simulation
                 }
                 building.Queue.RemoveAt(c.Index);
                 break;
-            case SetRepeatCommand r when OwnBuilding(r.Player, r.BuildingId) is { } building:
-                building.Repeat = r.Repeat;
-                break;
             case SetRallyCommand r when OwnBuilding(r.Player, r.BuildingId) is { } building:
                 building.Rally = r.Rally;
                 break;
         }
+    }
+
+    // Whether a unit is of the class a building mends.
+    bool CanMend(int unitId, TargetClass mends) => FindUnit(unitId) is >= 0 and var i && ClassOf(State.Units[i]) == mends;
+
+    // One of the player's finished buildings, posts or defenses (by id), whatever its health.
+    bool Repairable(int player, int id)
+    {
+        if (FindBuilding(id) is { } b) return b.Owner == player && b.Built;
+        if (FindGatherer(id) is >= 0 and var g) return State.Gatherers[g].Owner == player;
+        return FindUnit(id) is >= 0 and var u && State.Units[u].Owner == player && State.Units[u].Movement == Movement.Static;
     }
 
     // Commands only reach buildings their issuer owns.
@@ -594,17 +620,7 @@ public sealed partial class Simulation
             return;
         }
         var at = site?.Position ?? order.Target;
-        // Measured from the square footprint's edge, beyond the builder's own size: once laid, the
-        // foundation is solid, and a big builder can't stand closer to it (least of all at a corner).
-        if (FromFootprint(unit.Position, at, type.Size / 2, out var outward) > unit.Radius + BuildReach)
-        {
-            // Head for the footprint's edge on this side, not its middle, so it doesn't end up on top of it.
-            var edge = at + new Vector3(Math.Clamp(unit.Position.X - at.X, -type.Size / 2, type.Size / 2), 0, Math.Clamp(unit.Position.Z - at.Z, -type.Size / 2, type.Size / 2));
-            var stand = edge + outward * (unit.Radius + BuildReach / 2);
-            // Arrived counts as in reach: a vehicle parks up to VehicleParkRadius short of where it was
-            // going, which from just outside reach would leave it standing there for ever.
-            if (!Move(ref unit, stand with { Y = unit.Position.Y })) return;
-        }
+        if (!Reach(ref unit, at, type.Size / 2)) return;
         if (site is null)
         {
             // Only a building its owner can afford is started: the whole cost in hand, though it's paid as it grows.
@@ -622,6 +638,111 @@ public sealed partial class Simulation
             _events.Add(new SimEvent(SimEventKind.BuildingPlaced, id, unit.Id));
         }
         site.WorkedTick = State.Tick;
+    }
+
+    // Walks up to a square footprint (`half` its side), and true once within reach of it. Measured from the
+    // footprint's edge, beyond the unit's own size: a building is solid, and a big unit can't stand closer
+    // to it (least of all at a corner). It heads for the edge on its side, not the middle, so it doesn't
+    // end up on top of it; and arrived counts as in reach, since a vehicle parks up to VehicleParkRadius
+    // short of where it was going, which from just outside reach would leave it standing there for ever.
+    bool Reach(ref Unit unit, Vector3 at, float half)
+    {
+        if (FromFootprint(unit.Position, at, half, out var outward) <= unit.Radius + BuildReach) return true;
+        var edge = at + new Vector3(Math.Clamp(unit.Position.X - at.X, -half, half), 0, Math.Clamp(unit.Position.Z - at.Z, -half, half));
+        var stand = edge + outward * (unit.Radius + BuildReach / 2);
+        return Move(ref unit, stand with { Y = unit.Position.Y });
+    }
+
+    // Heals at the building it was sent to, paid tick by tick (MendShare of its cost for 0 to full). Done
+    // once full; over if the building is gone, or no longer its owner's.
+    void Mend(ref Unit unit)
+    {
+        if (FindBuilding(unit.Current.TargetId) is not { Built: true, Type.Mends: not null } building || building.Owner != unit.Owner || unit.Health >= unit.MaxHealth)
+        {
+            Complete(ref unit);
+            return;
+        }
+        Engage(ref unit);
+        if (!Reach(ref unit, building.Position, building.Type.Size / 2)) return;
+        float step = MathF.Min(unit.MaxHealth / (building.Type.MendSeconds * TicksPerSecond), unit.MaxHealth - unit.Health);
+        if (!PayFor(ref unit.RepairCredit, State.Players[unit.Owner], step, unit.MaxHealth, unit.Cost * building.Type.MendShare)) return; // stalls while broke
+        unit.Health = MathF.Min(unit.MaxHealth, unit.Health + step); // a squad's members come back with it
+        if (unit.Health >= unit.MaxHealth) Complete(ref unit);
+    }
+
+    // A repairer fixes one of its owner's buildings, posts or defenses: from 0 to full in half the build
+    // time of its type (at least MinStructureRepairSeconds) for half its cost, paid as it goes.
+    void RepairStructure(ref Unit unit)
+    {
+        int id = unit.Current.TargetId;
+        Building? building = FindBuilding(id);
+        int post = building is null ? FindGatherer(id) : -1, defense = building is null && post < 0 ? FindUnit(id) : -1;
+        var span = CollectionsMarshal.AsSpan(State.Units);
+        bool mine = building is { Built: true } ? building.Owner == unit.Owner
+            : post >= 0 ? State.Gatherers[post].Owner == unit.Owner
+            : defense >= 0 && span[defense].Owner == unit.Owner && span[defense].Movement == Movement.Static && span[defense].Health > 0;
+        if (!mine)
+        {
+            Complete(ref unit);
+            return;
+        }
+        var (at, half, health, max) = building is not null ? (building.Position, building.Type.Size / 2, building.Health, building.MaxHealth)
+            : post >= 0 ? (State.Gatherers[post].Position, PostHalfSize, State.Gatherers[post].Health, State.Gatherers[post].MaxHealth)
+            : (span[defense].Position, span[defense].Radius, span[defense].Health, span[defense].MaxHealth);
+        if (health >= max)
+        {
+            Complete(ref unit);
+            return;
+        }
+        Engage(ref unit);
+        if (!Reach(ref unit, at, half)) return;
+        var type = building?.Type ?? StructureType(post >= 0 ? null : span[defense].Type);
+        float seconds = MathF.Max(MinStructureRepairSeconds, (type?.BuildTime ?? 0) * StructureRepairTime);
+        float step = MathF.Min(max / (seconds * TicksPerSecond), max - health);
+        if (!PayFor(ref unit.RepairCredit, State.Players[unit.Owner], step, max, (type?.Cost ?? 0) * StructureRepairShare)) return;
+        health = MathF.Min(max, health + step);
+        if (building is not null) building.Health = health;
+        else if (post >= 0) CollectionsMarshal.AsSpan(State.Gatherers)[post].Health = health;
+        else span[defense].Health = health;
+        if (health >= max) Complete(ref unit);
+    }
+
+    // The building type a post (`defenseUnit` null) or a defense unit of that type was built as, if any.
+    BuildingType? StructureType(string? defenseUnit)
+    {
+        foreach (var type in BuildingTypes.Values)
+            if (defenseUnit is null ? type.Kind == BuildingKind.Post : type.Defense?.Id == defenseUnit) return type;
+        return null;
+    }
+
+    // Pays for `step` of health out of `credit`, a package at a time, each buying max / cost of health; false
+    // if the owner can't pay the next one. A cost of 0 is free.
+    static bool PayFor(ref float credit, Player owner, float step, float max, float cost)
+    {
+        if (cost <= 0) return true;
+        if (credit < step)
+        {
+            if (owner.Packages < 1) return false;
+            (owner.Packages, owner.Spent) = (owner.Packages - 1, owner.Spent + 1);
+            credit += max / cost;
+        }
+        credit -= step;
+        return true;
+    }
+
+    /// <summary>The nearest of its owner's finished buildings that mends a unit's class, if there is one.</summary>
+    public Building? NearestMender(in Unit unit)
+    {
+        Building? best = null;
+        float bestSq = float.MaxValue;
+        var cls = ClassOf(unit);
+        foreach (var b in State.Buildings)
+        {
+            if (b.Owner != unit.Owner || !b.Built || b.Type.Mends != cls) continue;
+            float sq = GroundDistanceSq(b.Position, unit.Position);
+            if (sq < bestSq) (best, bestSq) = (b, sq);
+        }
+        return best;
     }
 
     Building? FindBuilding(int id)
@@ -784,7 +905,7 @@ public sealed partial class Simulation
 
     // Trains the front unit of the queue: each tick pays the share of the cost due by then (in whole
     // packages, so the total comes out exact), or stalls until the owner can. A finished unit leaves by
-    // the exit for its spot around the rally point; with Repeat on, its type rejoins the back of the queue.
+    // the exit for its spot around the rally point.
     // Foundations don't produce.
     void UpdateProduction(Building building)
     {
@@ -803,7 +924,6 @@ public sealed partial class Simulation
 
         building.Queue.RemoveAt(0);
         (building.Progress, building.Paid) = (0, 0);
-        if (building.Repeat) building.Queue.Add(type);
 
         int id = AddUnit(building.Owner, building.Exit, type, building.Heading);
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
@@ -858,15 +978,10 @@ public sealed partial class Simulation
     // step. A cost of 0 is free.
     static bool PayForRepair(Player owner, BeltSegment segment, float step, int cost)
     {
-        if (cost <= 0) return true;
-        if (segment.RepairCredit < step)
-        {
-            if (owner.Packages < 1) return false;
-            (owner.Packages, owner.Spent) = (owner.Packages - 1, owner.Spent + 1);
-            segment.RepairCredit += segment.MaxHealth / cost;
-        }
-        segment.RepairCredit -= step;
-        return true;
+        float credit = segment.RepairCredit;
+        bool paid = PayFor(ref credit, owner, step, segment.MaxHealth, cost);
+        segment.RepairCredit = credit;
+        return paid;
     }
 
     // The nearest damaged open segment within AutoRepairRadius, for an idle builder.
@@ -929,6 +1044,13 @@ public sealed partial class Simulation
             unit.PrevTurret = unit.Turret;
             (unit.Firing, unit.Driving) = (false, false);
             if (unit.Health <= 0) continue; // killed earlier this tick; removed after the loop
+            // Auto-retreat: badly hurt, it drops what it's doing and goes to mend.
+            if (unit.AutoRetreat && unit.Movement != Movement.Static && unit.Current.Kind != UnitOrder.Mend && State.Tick % RetreatCheckTicks == 0
+                && unit.Health < unit.MaxHealth * RetreatHealth && NearestMender(unit) is { } mender)
+            {
+                unit.Pending.Clear();
+                Start(ref unit, new Order(UnitOrder.Mend, default, TargetId: mender.Id));
+            }
 
             switch (unit.Current.Kind)
             {
@@ -953,6 +1075,14 @@ public sealed partial class Simulation
                         _events.Add(new SimEvent(SimEventKind.UnitArrived, unit.Id));
                         Complete(ref unit);
                     }
+                    break;
+
+                case UnitOrder.Mend:
+                    Mend(ref unit);
+                    break;
+
+                case UnitOrder.Repair when unit.Current.Line < 0:
+                    RepairStructure(ref unit);
                     break;
 
                 case UnitOrder.Repair:

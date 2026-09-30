@@ -46,7 +46,7 @@ Milestones:
 6. [built] A UI layout pass: corner panels, the positional command grid, the selection panel, Stop, Hold, control groups, the idle-builder button (see Controls). [decided] **Next, after a playtest on the trucks:** neutral roadside buildings that infantry garrison (go in, come out), for ambushes on the routes. Civilian unrest stays out of the MVP.
 
 7. [decided] **The batches before the friends playtest (planned 2026-09-30, after the third match):**
-   1. Mending at home, building repair and retreat (Units): nothing heals yet, so every fight is pure attrition.
+   1. [built] Mending at home, building repair and retreat (Units): until then nothing healed, so every fight was pure attrition.
    2. Garrison buildings (below), and the AI taught to use them and to guard its depots with both turrets.
    3. Road types on the main map (Infrastructure): a dirt track and a paved road, so routes carry different stakes. Numbers to quiz at the time.
    4. A readability pass (Art): road types and damage states, unit class silhouettes, threat and selection markers, health at a glance; judged by the grayscale and squint test.
@@ -136,7 +136,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
   - [decided] The rifle squad lost its unique job (capturing) with the switches. For the MVP it's the cheap unit; it needs a real role before factions.
 - [built] **Squads:** fixed size per type, indivisible, one sim entity (one position, one order). Members are slices of one health pool and die one by one, each taking its share of damage with it.
   - Members are formation slots drawn by the view; they become sim state only if that looks wrong in play.
-  - [decided] **Mending at home (2026-09-30, Generals-style):** nothing heals on its own. Right-click your barracks with infantry, or your factory with vehicles: they go there and mend, a squad regaining its lost members as its health comes back, paid as it heals (a share of the unit's cost for a full mend) and stalling while broke. Which class a building mends is data (`mends` in buildings.json). Relay points may mend too when a faction has them.
+  - [built] **Mending at home (2026-09-30, Generals-style):** nothing heals on its own. Right-click your barracks with infantry, or your factory with vehicles: they go there and mend, a squad regaining its lost members as its health comes back, paid as it heals (a share of the unit's cost for a full mend) and stalling while broke. Which class a building mends is data (`mends` in buildings.json). Relay points may mend too when a faction has them.
 - [built] **Vehicles:** a single unit with movement per type (wheeled or tracked). They accelerate, brake and turn at limited rates.
   - Tracked vehicles pivot almost on the spot; wheeled ones need speed to steer, so they arc.
   - **Easing:** everything is eased (ease in, ease out), as physics that reacts to new orders mid-move, not as tween curves.
@@ -163,13 +163,13 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 - [built] **Production:** buildings train units. The HQ trains builders, the barracks squads and engineers, the factory cars, tanks and artillery.
   - **Cost:** each unit type has a cost and a build time. Cost is paid as it builds, tick by tick, and production stalls while its owner is broke, so production speed follows income directly.
   - **Queue:** one per building, first in first out, one unit at a time, with a short cap. Cancelling refunds what was paid.
-  - **Repeat:** one toggle per building. Each finished unit goes back to the end of the queue, so a mix keeps its ratio.
+  - [built] **Queue:** no real limit (a sane 999), and Shift queues or cancels five at a time (2026-09-30), so a long queue does what a repeat toggle did.
   - **Rally point:** finished units leave by the building's exit and spread out around its rally point.
   - **Targets:** buildings and foundations are targets like depots. Losing them can lose the game (Win and lose).
   - **Not yet:** Energy (it comes with several building types) and squad reinforcement.
 - [decided] **Veterancy** (after the commander AI, outside the MVP): units rank up from kills, C&C-style, so keeping a unit alive, and repairing it, is worth more than its replacement cost.
-- [decided] **Retreat automation (2026-09-30):** a per-unit toggle on the command card, off by default, so nothing moves without being asked. With it on, a unit below 30% health goes to mend at your nearest building that mends its class (barracks for infantry, factory for vehicles). It stays there until mended, then is idle.
-- [decided] **Automation:** production repeats, gatherers self-manage, damaged units retreat, abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
+- [built] **Retreat automation (2026-09-30):** a per-unit toggle on the command card, off by default, so nothing moves without being asked. With it on, a unit below 30% health goes to mend at your nearest building that mends its class (barracks for infantry, factory for vehicles). It stays there until mended, then is idle.
+- [decided] **Automation:** long production queues, gatherers self-manage, damaged units retreat (on the toggle), abilities are used sensibly. The player can always override. Upgrades are global or per unit type, never per squad. Most units have zero or one active ability.
 
 ## Controls
 
@@ -183,9 +183,9 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 - [built] **Layout: corner panels.** A strip along the top (the HUD line on the left, packages in the middle, alerts on the right), the minimap bottom-left, the selection panel bottom-center, the command card bottom-right, and the idle-builder button just above the minimap.
 - [built] **Nothing in the interface changes size with what it shows.** Every panel, cell and tile has a fixed size, and changing numbers get room reserved for their widest sane value: packages up to 9999, income up to +999/min, a count per tile up to 999, idle builders up to 99, a queue up to 99. Text that runs longer is clipped, never wrapped, and the full text is in the tooltip.
 - [built] **Command card** (bottom-right): a 4×3 grid, fixed by position like Generals, on physical keys so it's the same on any layout. Q W E R / A S D F / Z X C V; each cell's key is in its corner. It shows names, costs, and why placement fails; how-to text (keys, rules) lives in tooltips, as do the HUD's and the packages panel's.
-  - A building (selected alone, by clicking it): the top row is its unit types. A cell's key or left-click queues one; the queued count is a badge in the cell's corner and the one in production a bar along its bottom (red while stalled for money). Z toggles repeat, Backspace cancels the last queued unit and a right-click on a cell cancels one of that type. Right-clicking the ground sets the rally point.
+  - A building (selected alone, by clicking it): the top row is its unit types. A cell's key or left-click queues one, and with Shift five; the queued count (up to 999) is a badge in the cell's corner and the one in production a bar along its bottom (red while stalled for money). A right-click on a cell cancels one of that type and Backspace the last queued unit, each five with Shift. Right-clicking the ground sets the rally point.
   - A foundation: how far along it is, and whether a builder is on it.
-  - Units: A attack-move, S stop, D hold position, whatever is selected. Builders also get their building types in the top row. A cell's key or click arms placement: a ghost follows the cursor, snapped to the grid (shown around it, fading out), green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
+  - Units: A attack-move, S stop, D hold position, X auto-retreat (on or off), whatever is selected. Builders also get their building types in the top row. A cell's key or click arms placement: a ghost follows the cursor, snapped to the grid (shown around it, fading out), green where it fits and red where it doesn't. Left-click places it (the nearest selected builder goes), Shift places more, Z rotates it, right-click or Esc cancels. Right-clicking your foundation with a builder takes over building it.
 - [built] **Command card, builders:** five building types, Q W E R then F.
 - [built] **Minimap** (bottom-left): the whole map, with roads and their trucks, depots, buildings (foundations hollow), units, and the camera's view. Click or drag to move the camera, right-click to move the selection. Under fog it shows what your side sees, remembered buildings and depots, roads as last seen, and the fog itself.
 - [built] The game opens at 1920×1080; the interface scales with the window.
@@ -236,7 +236,7 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 - [built] **Repair** is what builders and engineers do, per unit type (`repairSeconds`, `repairCost`); other units can't. The engineer (barracks, unarmed) repairs but doesn't build, quicker and cheaper than the builder.
   - It costs money and time: a unit repairs at its own rate, paying as the piece heals, and stalls while its owner is broke.
   - **Auto-repair:** an idle repairer fixes damaged open road within a small radius on its own, while its owner has packages. An order sets priorities.
-  - [decided] **What each type repairs is a list:** builders and engineers repair road and buildings (depots and defenses too); units mend only at home (Units: Squads). Medics may later heal infantry in the field through the same code. A full repair costs a share of the target's own cost, set per repairer type.
+  - [built] **What each type repairs is a list:** builders and engineers repair road and, right-clicking one, your own damaged buildings, depots and defenses (from 0 to full in half its build time, at least 5 s, for half its cost, paid as it goes); units mend only at home (Units: Squads). Medics may later heal infantry in the field through the same code. A full repair costs a share of the target's own cost, set per repairer type.
 - [built] Buildings snap to a 2 m grid, rotated in 90° steps; navigation's cells are half that (1 m), so every building edge is a cell edge.
 - [built] **Construction prototype** (generic, before factions):
   - A builder (unarmed, trained at the HQ) walks to the site and lays the foundation on arrival, if the spot is still clear and its owner has the building's whole cost in hand. Placing it is refused up front for the same reasons, and the card says which. The foundation grows only while a builder works on it; more builders don't speed it up, but any of yours can take over an abandoned one.
@@ -334,6 +334,7 @@ Still [decided], for when their systems exist:
 
 ## Rejected (don't re-propose without a new reason)
 
+- **A repeat toggle for production** (built, removed 2026-09-30): useless once queues are long and Shift queues five; one way to keep a building busy is enough.
 - **Healing without an order** (squads refilling near base on their own) **and engineers repairing vehicles in the field** (2026-09-30): mending means bringing units home to the barracks or factory, Generals-style, so a raid that goes wrong costs the trip back.
 
 - **Two currencies:** they clutter the cargo, the one thing that must read instantly, and double the cost tuning across three factions. High-value packages give the "which to raid" choice more cheaply.

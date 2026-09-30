@@ -24,9 +24,9 @@ public partial class CommandCard : PanelContainer
     [
         "slot_1", "slot_2", "slot_3", "slot_4",
         "attack_move", "stop", "hold", "slot_5",
-        "produce_repeat", null, null, null,
+        "rotate_building", "auto_retreat", null, null,
     ];
-    const int AttackMoveCell = 4, StopCell = 5, HoldCell = 6, ZCell = 8;
+    const int AttackMoveCell = 4, StopCell = 5, HoldCell = 6, ZCell = 8, RetreatCell = 9;
     static readonly int[] SlotCells = [0, 1, 2, 3, 7]; // where slot_1..slot_5 sit: the top row, then F
 
     readonly Button[] _cells = new Button[Columns * Rows];
@@ -95,7 +95,7 @@ public partial class CommandCard : PanelContainer
             button.AddChild(key);
             var badge = new Label // how many are queued, top right
             {
-                AnchorLeft = 1, AnchorRight = 1, OffsetLeft = -24, OffsetRight = -4, OffsetTop = 1,
+                AnchorLeft = 1, AnchorRight = 1, OffsetLeft = -36, OffsetRight = -4, OffsetTop = 1, // room for ×999
                 HorizontalAlignment = HorizontalAlignment.Right,
                 MouseFilter = MouseFilterEnum.Ignore,
                 LabelSettings = new LabelSettings { FontSize = 9, FontColor = Colors.White, OutlineSize = 2, OutlineColor = Colors.Black },
@@ -145,9 +145,12 @@ public partial class CommandCard : PanelContainer
             Set(AttackMoveCell, L.T("card.attack_move"), L.T("card.attack_move.tip"), PlayerInput.ArmAttackMove, pressed: PlayerInput.AttackMoveArmed);
             Set(StopCell, L.T("card.stop"), L.T("card.stop.tip"), () => PlayerInput.Halt(hold: false));
             Set(HoldCell, L.T("card.hold"), L.T("card.hold.tip"), () => PlayerInput.Halt(hold: true));
+            bool retreats = PlayerInput.SelectionRetreats;
+            Set(RetreatCell, L.T(retreats ? "card.retreat.on" : "card.retreat.off"), L.T("card.retreat.tip", (100 * Simulation.RetreatHealth).ToString("0")),
+                PlayerInput.ToggleRetreat, pressed: retreats);
             if (PlayerInput.PlacingType is not null)
             {
-                Set(ZCell, L.T("card.rotate"), L.T("card.rotate.tip"), PlayerInput.RotatePlacement, key: "rotate_building");
+                Set(ZCell, L.T("card.rotate"), L.T("card.rotate.tip"), PlayerInput.RotatePlacement);
                 if (PlayerInput.Placing is { Problem: string p }) help = L.T("card.cant_place", p);
             }
         }
@@ -198,10 +201,8 @@ public partial class CommandCard : PanelContainer
             string id = type.Id;
             Set(i, L.T("card.cell", L.Unit(type.Id), type.Cost), L.T("card.train.tip", L.Unit(type.Id), type.Cost, type.BuildTime.ToString("0"), KeyOf(CellActions[i]!), KeyOf("cancel_production")),
                 () => PlayerInput.Produce(id), cancel: () => PlayerInput.CancelLast(id), pressed: queued > 0);
-            _extraWant[i] = (queued > 0 ? L.T("card.queued", Mathf.Min(queued, 99)) : "", making ? (float)building.Progress / type.BuildTicks : -1, making && building.Stalled);
+            _extraWant[i] = (queued > 0 ? L.T("card.queued", Mathf.Min(queued, Simulation.MaxQueue)) : "", making ? (float)building.Progress / type.BuildTicks : -1, making && building.Stalled);
         }
-        if (types.Length > 0)
-            Set(ZCell, L.T(building.Repeat ? "card.repeat.on" : "card.repeat.off"), L.T("card.repeat.tip", KeyOf("produce_repeat")), PlayerInput.ToggleRepeat, pressed: building.Repeat);
         QueueLength = building.Queue.Count;
     }
 

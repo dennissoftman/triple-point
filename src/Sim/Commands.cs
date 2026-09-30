@@ -20,6 +20,18 @@ public sealed record AttackMoveCommand(int Player, int UnitId, Vector3 Target, b
 /// <summary>Walk into weapon range of a belt segment and fire until it breaks.</summary>
 public sealed record AttackSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
+/// <summary>
+/// Go to one of its owner's buildings that mends its class (barracks infantry, factory vehicles) and heal
+/// there to full, a squad regaining lost members, paid as it heals.
+/// </summary>
+public sealed record MendCommand(int Player, int UnitId, int BuildingId, bool Queued = false) : Command(Player);
+
+/// <summary>A builder or engineer repairs one of its owner's damaged buildings, posts or defenses, paid as it goes.</summary>
+public sealed record RepairCommand(int Player, int UnitId, int TargetId, bool Queued = false) : Command(Player);
+
+/// <summary>Auto-retreat on: below RetreatHealth of its health, the unit goes to mend on its own.</summary>
+public sealed record SetRetreatCommand(int Player, int UnitId, bool On) : Command(Player);
+
 /// <summary>Walk to the segment and restore it to full health; a broken one works again once full.</summary>
 public sealed record RepairSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
@@ -33,14 +45,12 @@ public sealed record StopCommand(int Player, int UnitId) : Command(Player);
 public sealed record HoldCommand(int Player, int UnitId) : Command(Player);
 
 
-/// <summary>Adds a unit of `UnitType` (an id in units.json) to the back of a building's queue, if it produces that type and has room.</summary>
-public sealed record ProduceCommand(int Player, int BuildingId, string UnitType) : Command(Player);
+/// <summary>Adds `Count` units of `UnitType` (an id in units.json) to the back of a building's queue, if it produces that type (up to Simulation.MaxQueue in all).</summary>
+public sealed record ProduceCommand(int Player, int BuildingId, string UnitType, int Count = 1) : Command(Player);
 
 /// <summary>Removes the queue entry at `Index`; the one in production refunds what was paid for it.</summary>
 public sealed record CancelProductionCommand(int Player, int BuildingId, int Index) : Command(Player);
 
-/// <summary>Repeat on: each finished unit's type goes back to the end of the queue.</summary>
-public sealed record SetRepeatCommand(int Player, int BuildingId, bool Repeat) : Command(Player);
 
 /// <summary>Where a building's finished units go.</summary>
 public sealed record SetRallyCommand(int Player, int BuildingId, Vector3 Rally) : Command(Player);

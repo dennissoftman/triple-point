@@ -106,6 +106,7 @@ public partial class SelectionPanel : PanelContainer
             UnitOrder.AttackMove => L.T("order.attack_move"),
             UnitOrder.AttackSegment => L.T("order.attack_road"),
             UnitOrder.Repair => L.T("order.repair"),
+            UnitOrder.Mend => L.T("order.mend"),
             UnitOrder.Build => L.T("order.build"),
             _ => L.T("order.idle"),
         };

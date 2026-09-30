@@ -21,10 +21,12 @@ public sealed class Player
     public Player(int index) => Index = index;
 }
 
-public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove, Build }
+public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove, Build, Mend }
 
 /// <summary>
-/// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit, post or building).
+/// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit, post or building),
+/// and so do Repair without a segment (one of its owner's buildings, posts or defenses) and Mend (the
+/// building it mends at).
 /// Target is where the unit heads: for segment orders it's filled in when the order starts, and for
 /// Attack it follows the target. Build puts up a Structure (a building type id) at Target facing Facing,
 /// or, with a TargetId, works on that foundation; TargetId is filled in once the foundation is laid.
@@ -109,15 +111,16 @@ public enum BuildingKind { Building, Post, Defense }
 
 /// <summary>
 /// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
-/// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), how many
-/// units its queue holds, and for building it, its Cost in packages paid over BuildTime seconds of a
+/// footprint), the unit types it Produces (ids in units.json, resolved into Units when parsed), and for building it, its Cost in packages paid over BuildTime seconds of a
 /// builder's work. Kind and Unit: what it becomes when finished. Sight, m beyond its footprint's edge:
 /// how far it sees under fog of war (a post keeps its type's). Requires: a building type its owner needs a
-/// finished one of before starting this one. Id is its key in the file.
+/// finished one of before starting this one. Mends: the class of its owner's units it heals when sent
+/// there (barracks infantry, factory vehicles), from 0 to full in MendSeconds for MendShare of the unit's
+/// cost. Id is its key in the file.
 /// </summary>
-public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int QueueLimit = 5, int Cost = 0,
+public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int Cost = 0,
     float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, float Sight = 10,
-    string? Requires = null, string Id = "")
+    string? Requires = null, TargetClass? Mends = null, float MendSeconds = 20, float MendShare = 0.5f, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore] public UnitType? Defense { get; init; } // Kind Defense: the unit it becomes
@@ -129,7 +132,7 @@ public sealed record BuildingType(float Health, float Size, string[]? Produces =
 /// (BuildProgress, paying its cost as it goes), from a tenth of its health to full. One that produces
 /// trains the unit at the front of its Queue: each tick of Progress pays its share of the cost, and
 /// production stalls while its owner can't pay. A finished unit leaves by the Exit and heads for the
-/// Rally point; with Repeat on, its type goes back to the end of the queue.
+/// Rally point.
 /// </summary>
 public sealed class Building
 {
@@ -141,7 +144,6 @@ public sealed class Building
     public readonly List<UnitType> Queue = []; // the front one is in production
     public int Progress, Paid;          // ticks into the front unit, and packages paid toward it
     public bool Stalled;                // couldn't pay this tick
-    public bool Repeat;
     public Vector3 Rally;
     internal int Produced;              // spreads units out around the rally point
     public bool Built;
@@ -209,6 +211,9 @@ public struct Unit
     public Vector3 Anchor;
     public bool Returning;
     public bool Holding;                   // holding position (HoldCommand) until its next order
+    public bool AutoRetreat;               // goes to mend on its own when badly hurt (SetRetreatCommand)
+    public int Cost;                       // its type's, in packages: what mending it is a share of
+    internal float RepairCredit;           // health it has paid for and not yet put in, mending or repairing
     public Order Current;
     public Queue<Order> Pending;           // shift-queued orders, started in turn when Current completes
     public float Radius;                   // m: the room it takes, for paths and pushing (with navigation on)

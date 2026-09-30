@@ -9,7 +9,7 @@ public class ProductionTests
     static readonly WeaponType Gun = new(WeaponKind.Bullet, Damage: 1, Reload: 0.5f, Range: 8);
     static readonly UnitType Squad = new(Members: 5, Speed: 5, MemberHealth: 20, Weapon: "gun", Cost: 4, BuildTime: 1, Id: "squad") { Gun = Gun };
     static readonly UnitType Tank = new(Members: 1, Speed: 4, MemberHealth: 200, Weapon: "gun", Cost: 10, BuildTime: 2, Id: "tank") { Gun = Gun };
-    static readonly BuildingType Hq = new(Health: 500, Size: 4, Produces: ["squad", "tank"], QueueLimit: 3, Id: "hq") { Units = [Squad, Tank] };
+    static readonly BuildingType Hq = new(Health: 500, Size: 4, Produces: ["squad", "tank"], Id: "hq") { Units = [Squad, Tank] };
 
     // Blue's HQ at the origin, its exit toward +z (at 3.5 m), with `resources` to spend.
     static (Simulation sim, int hq) NewHq(int resources)
@@ -61,18 +61,14 @@ public class ProductionTests
     }
 
     [Fact]
-    public void Repeat_loops_the_whole_queue_so_a_mix_keeps_its_ratio()
+    public void A_batch_queues_several_and_the_queue_holds_up_to_the_sane_limit()
     {
-        var (sim, hq) = NewHq(1000);
+        var (sim, hq) = NewHq(0);
+        sim.Tick([new ProduceCommand(Blue, hq, "squad", Count: 5), new ProduceCommand(Blue, hq, "tank")]);
+        Assert.Equal(["squad", "squad", "squad", "squad", "squad", "tank"], BuildingById(sim, hq).Queue.Select(t => t.Id));
 
-        sim.Tick([new ProduceCommand(Blue, hq, "squad"), new ProduceCommand(Blue, hq, "tank"), new SetRepeatCommand(Blue, hq, true)]);
-        var produced = new List<string>();
-        for (int i = 0; i < 9 * T; i++)
-            foreach (var e in sim.Tick(NoCommands))
-                if (e.Kind == SimEventKind.UnitProduced) produced.Add(UnitById(sim, e.Id).Type);
-
-        Assert.Equal(["squad", "tank", "squad", "tank", "squad", "tank"], produced); // 1 s + 2 s, three times
-        Assert.Equal(["squad", "tank"], BuildingById(sim, hq).Queue.Select(t => t.Id));
+        sim.Tick([new ProduceCommand(Blue, hq, "tank", Count: 5000)]);
+        Assert.Equal(Simulation.MaxQueue, BuildingById(sim, hq).Queue.Count);
     }
 
     [Fact]
@@ -92,7 +88,7 @@ public class ProductionTests
     }
 
     [Fact]
-    public void Queue_takes_only_what_the_building_produces_up_to_its_limit_and_only_from_its_owner()
+    public void Queue_takes_only_what_the_building_produces_and_only_from_its_owner()
     {
         var (sim, hq) = NewHq(0);
 
@@ -102,7 +98,6 @@ public class ProductionTests
             new ProduceCommand(Blue, hq, "squad"),
             new ProduceCommand(Blue, hq, "squad"),
             new ProduceCommand(Blue, hq, "tank"),
-            new ProduceCommand(Blue, hq, "tank"),      // over the limit of 3
         ]);
 
         Assert.Equal(["squad", "squad", "tank"], BuildingById(sim, hq).Queue.Select(t => t.Id));
@@ -145,7 +140,6 @@ public class ProductionTests
         var types = GameData.ParseBuildingTypes("""{ "hq": { "health": 100, "size": 4, "produces": ["squad"] } }""", units);
 
         Assert.Equal("hq", types["hq"].Id);
-        Assert.Equal(5, types["hq"].QueueLimit); // the default
         Assert.Same(Squad, Assert.Single(types["hq"].Units));
         Assert.Throws<InvalidDataException>(() => GameData.ParseBuildingTypes("""{ "hq": { "health": 100, "size": 4, "produces": ["mech"] } }""", units));
         Assert.Throws<InvalidDataException>(() => GameData.ParseBuildingTypes("""{ "hq": { "health": 0, "size": 4, "produces": [] } }""", units));

@@ -399,11 +399,15 @@ public sealed class Commander
     {
         var units = CollectionsMarshal.AsSpan(_sim.State.Units);
 
-        // The badly hurt pull back home and stay there as its guard, while it has enough healthy fighters to
-        // raid without them. Nothing heals them yet, so with fewer than that, everyone fights: otherwise two
-        // worn-out armies sit at home for ever.
+        // The badly hurt go to mend (infantry at a barracks, vehicles at a factory; home if it has neither),
+        // while it has enough healthy fighters to raid without them, and rejoin the army once mended. With
+        // fewer than that, everyone fights.
         int healthy = 0;
-        foreach (int i in _army) if (units[i].Health > units[i].MaxHealth * RetreatHealth) healthy++;
+        foreach (int i in _army)
+        {
+            if (units[i].Health > units[i].MaxHealth * RetreatHealth) healthy++;
+            if (units[i].Health >= units[i].MaxHealth) _retreating.Remove(units[i].Id);
+        }
         if (!_level.Retreats || healthy < _level.RaidSize) _retreating.Clear();
         else
             foreach (int i in _army)
@@ -411,7 +415,7 @@ public sealed class Commander
                 ref var u = ref units[i];
                 if (_retreating.Contains(u.Id) || u.Health > u.MaxHealth * RetreatHealth) continue;
                 _retreating.Add(u.Id);
-                _out.Add(new MoveCommand(_me, u.Id, _home));
+                _out.Add(_sim.NearestMender(u) is { } mender ? new MendCommand(_me, u.Id, mender.Id) : new MoveCommand(_me, u.Id, _home));
             }
 
         // An enemy near its things draws the whole army, once it has been in view a moment: a player needs

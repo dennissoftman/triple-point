@@ -102,10 +102,6 @@ msgstr "+{0}/min"
 msgid "packages.tip"
 msgstr "Packages to spend. Your depots unload them from passing trucks, and your units pick up what destroyed trucks spill.\n+N/min: what you took per minute over the last {0} s"
 
-# --- Command card
-msgid "card.repeat.tip"
-msgstr "{0}: each finished unit goes back to the end of the queue, so a mix keeps its ratio"
-
 # A foundation: {0} building, {1} percent done, {2} its state
 msgid "card.site"
 msgstr "{0} {1}%, {2}"
@@ -141,17 +137,21 @@ msgstr "Hold"
 msgid "card.hold.tip"
 msgstr "Hold this spot: shoot what comes in range, never chase, never give way. On a road, trucks can't pass."
 
+msgid "card.retreat.on"
+msgstr "Retreat\non"
+
+msgid "card.retreat.off"
+msgstr "Retreat\noff"
+
+# {0} the share of full health, percent
+msgid "card.retreat.tip"
+msgstr "Auto-retreat: below {0}% health they go to mend on their own, infantry at your barracks, vehicles at your factory. Right-click either with hurt units to send them yourself."
+
 msgid "card.rotate"
 msgstr "Rotate"
 
 msgid "card.rotate.tip"
 msgstr "Turn the building being placed a quarter turn."
-
-msgid "card.repeat.on"
-msgstr "Repeat\non"
-
-msgid "card.repeat.off"
-msgstr "Repeat\noff"
 
 # The queued count in a cell's corner: {0} how many
 msgid "card.queued"
@@ -162,7 +162,7 @@ msgstr "stalled"
 
 # {0} unit, {1} cost, {2} build time s, {3} its key, {4} the cancel-last key
 msgid "card.train.tip"
-msgstr "{0}: {1} packages, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nRMB the ground: set the rally point"
+msgstr "{0}: {1} packages, {2} s, paid as it trains\n{3} or click: train one   RMB: cancel one   {4}: cancel the last\nShift: five at a time, either way   RMB the ground: set the rally point"
 
 # {0} cost, {1} how much is missing
 # A build cell's tooltip, first line, while what it needs is missing: {0} that building
@@ -238,6 +238,9 @@ msgstr "attacking the road"
 
 msgid "order.repair"
 msgstr "repairing"
+
+msgid "order.mend"
+msgstr "mending"
 
 msgid "order.build"
 msgstr "building"

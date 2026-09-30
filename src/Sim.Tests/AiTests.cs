@@ -137,21 +137,29 @@ public class AiTests(ITestOutputHelper output)
     [Fact]
     public void Match_stats_add_up()
     {
-        var sim = MainMap.Load(3);
-        var stats = new MatchStats(sim);
+        // A match with a road break in it, to check who's credited: only artillery breaks road, and not every
+        // match has one.
+        Simulation sim = null!;
+        MatchStats stats = null!;
         int produced = 0, broken = 0, brokenByPlayers = 0;
-        Play(sim, [new Commander(sim, Blue), new Commander(sim, Red)], 30 * 60, (_, events) =>
+        foreach (uint seed in new uint[] { 3, 1, 2, 4, 5, 6 })
         {
-            stats.Observe(sim, events);
-            foreach (var e in events)
+            (sim, produced, broken, brokenByPlayers) = (MainMap.Load(seed), 0, 0, 0);
+            stats = new MatchStats(sim);
+            Play(sim, [new Commander(sim, Blue), new Commander(sim, Red)], 30 * 60, (_, events) =>
             {
-                if (e.Kind == SimEventKind.UnitProduced) produced++;
-                if (e.Kind != SimEventKind.SegmentBroken) continue;
-                broken++;
-                if (sim.State.Belts[e.Id].Segments[e.Index].BrokenBy >= 0) brokenByPlayers++;
-            }
-        });
-        stats.Finish(sim.State);
+                stats.Observe(sim, events);
+                foreach (var e in events)
+                {
+                    if (e.Kind == SimEventKind.UnitProduced) produced++;
+                    if (e.Kind != SimEventKind.SegmentBroken) continue;
+                    broken++;
+                    if (sim.State.Belts[e.Id].Segments[e.Index].BrokenBy >= 0) brokenByPlayers++;
+                }
+            });
+            stats.Finish(sim.State);
+            if (broken > 0) break;
+        }
 
         Assert.Equal(produced, stats.Sides.Sum(s => s.Trained.Values.Sum()));
         Assert.Equal(brokenByPlayers, stats.Sides.Sum(s => s.Breaks));

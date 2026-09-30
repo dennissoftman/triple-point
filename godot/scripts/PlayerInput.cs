@@ -40,7 +40,7 @@ public partial class PlayerInput : Node
     public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4", "slot_5"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume }
+    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume, Fix, Mend }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
     /// <summary>
@@ -112,6 +112,7 @@ public partial class PlayerInput : Node
         if (BuildKey(e)) return;
         if (e.IsActionPressed("stop") && _selection.Count > 0) { Halt(hold: false); return; }
         if (e.IsActionPressed("hold") && _selection.Count > 0) { Halt(hold: true); return; }
+        if (e.IsActionPressed("auto_retreat") && _selection.Count > 0) { ToggleRetreat(); return; }
         if (e.IsActionPressed("idle_builder")) { SelectIdleBuilder(); return; }
         if (GroupKey(e)) return;
         if (e is not InputEventMouse mouse) return;
@@ -162,32 +163,37 @@ public partial class PlayerInput : Node
     public Building? Building => SelectedBuilding < 0 ? null : Host.Sim.State.Buildings.Find(b => b.Id == SelectedBuilding);
 
     /// <summary>Queues a unit of this type at the selected building.</summary>
+    public const int Batch = 5; // units a Shift-click (queue_order) queues or cancels at once
+
+    /// <summary>Queues one unit of this type at the selected building, or a Batch with queue_order (Shift) held.</summary>
     public void Produce(string unitType)
     {
-        if (Building is Building b) Host.Issue(new ProduceCommand(LocalPlayer, b.Id, unitType));
+        if (Building is Building b) Host.Issue(new ProduceCommand(LocalPlayer, b.Id, unitType, Input.IsActionPressed("queue_order") ? Batch : 1));
     }
 
-    /// <summary>Takes the last queued unit of this type (any type, if null) off the selected building's queue.</summary>
+    /// <summary>
+    /// Takes the last queued unit of this type (any type, if null) off the selected building's queue, or the
+    /// last Batch of them with queue_order (Shift) held. Highest index first, so the others stay put.
+    /// </summary>
     public void CancelLast(string? unitType)
     {
         if (Building is not Building b) return;
-        int index = b.Queue.FindLastIndex(t => unitType is null || t.Id == unitType);
-        if (index >= 0) Host.Issue(new CancelProductionCommand(LocalPlayer, b.Id, index));
+        int left = Input.IsActionPressed("queue_order") ? Batch : 1;
+        for (int i = b.Queue.Count - 1; i >= 0 && left > 0; i--)
+            if (unitType is null || b.Queue[i].Id == unitType)
+            {
+                Host.Issue(new CancelProductionCommand(LocalPlayer, b.Id, i));
+                left--;
+            }
     }
 
-    public void ToggleRepeat()
-    {
-        if (Building is Building b) Host.Issue(new SetRepeatCommand(LocalPlayer, b.Id, !b.Repeat));
-    }
-
-    // The production keys, while a building is selected: one per unit type it produces, repeat, and
-    // cancel the last queued.
+    // The production keys, while a building is selected: one per unit type it produces, and cancel the
+    // last queued (with Shift, five at a time).
     bool ProductionKey(InputEvent e, Building building)
     {
         var types = building.Type.Units;
         for (int i = 0; i < SlotActions.Length && i < types.Length; i++)
             if (e.IsActionPressed(SlotActions[i])) { Produce(types[i].Id); return true; }
-        if (e.IsActionPressed("produce_repeat")) { ToggleRepeat(); return true; }
         if (e.IsActionPressed("cancel_production")) { CancelLast(null); return true; }
         return false;
     }
@@ -323,6 +329,8 @@ public partial class PlayerInput : Node
         var sim = Host.Sim;
         if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
             return new(Act.Resume, point, site);
+        if (FixTarget(screen, point) is int fix) return new(Act.Fix, point, fix);
+        if (MendAt(point) is int mender) return new(Act.Mend, point, mender);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
         if (Input.IsActionPressed("force_attack") && TruckAt(point) is int truck) return new(Act.Attack, point, truck); // trucks are nobody's: only on purpose
         if (BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
@@ -362,6 +370,13 @@ public partial class PlayerInput : Node
                 Act.Repair => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
                     ? new RepairSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued)
                     : new MoveCommand(LocalPlayer, id, spread, queued),
+                Act.Fix => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
+                    ? new RepairCommand(LocalPlayer, id, intent.Target, queued)
+                    : new MoveCommand(LocalPlayer, id, spread, queued),
+                // The hurt of the class it mends go in; the rest of the selection goes along.
+                Act.Mend => Mends(intent.Target, Host.Sim.State.Units.Find(u => u.Id == id), hurtOnly: true)
+                    ? new MendCommand(LocalPlayer, id, intent.Target, queued)
+                    : new MoveCommand(LocalPlayer, id, spread, queued),
                 _ => null,
             };
             if (command is not null) Host.Issue(command);
@@ -379,12 +394,12 @@ public partial class PlayerInput : Node
         {
             if (_attackMoveArmed)
                 kind = AttackMoveIntent(screen, point).Kind == Act.Attack ? CursorKind.Attack : CursorKind.AttackMove;
-            else if (UnitAt(screen, mine: true) is null)
+            else if (UnitAt(screen, mine: true) is null || FixTarget(screen, point) is not null) // over your own unit a click selects it, unless it's a defense to repair
                 kind = RightClickIntent(screen, point).Kind switch
                 {
                     Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
-                    Act.Repair or Act.Resume => CursorKind.Repair,
+                    Act.Repair or Act.Resume or Act.Fix or Act.Mend => CursorKind.Repair,
                     _ => CursorKind.Default,
                 };
         }
@@ -393,6 +408,38 @@ public partial class PlayerInput : Node
         CursorName = kind.ToString();
         Cursors.Apply(kind);
     }
+
+    // With repairers selected: one of your own damaged buildings, posts or defenses under the cursor.
+    int? FixTarget(Vector2 screen, SVector3 point)
+    {
+        if (!SelectionRepairs()) return null;
+        var state = Host.Sim.State;
+        if (BuildingAt(point, mine: true) is int b && state.Buildings.Find(x => x.Id == b) is { Built: true } building && building.Health < building.MaxHealth)
+            return b;
+        foreach (var post in state.Gatherers)
+        {
+            float dx = post.Position.X - point.X, dz = post.Position.Z - point.Z;
+            if (post.Owner == LocalPlayer && post.Health < post.MaxHealth && dx * dx + dz * dz <= PostPickRadius * PostPickRadius) return post.Id;
+        }
+        if (UnitAt(screen, mine: true) is int u && state.Units.Find(x => x.Id == u) is { Movement: Movement.Static } gun && gun.Health < gun.MaxHealth)
+            return u;
+        return null;
+    }
+
+    // One of your finished buildings that mends (barracks, factory) under the cursor, if a hurt unit of the
+    // class it mends is selected.
+    int? MendAt(SVector3 point)
+    {
+        if (BuildingAt(point, mine: true) is not int b) return null;
+        foreach (var u in Host.Sim.State.Units)
+            if (_selection.Contains(u.Id) && Mends(b, u, hurtOnly: true)) return b;
+        return null;
+    }
+
+    // Whether a building mends this unit's class (and, `hurtOnly`, whether the unit needs it).
+    bool Mends(int buildingId, in Unit unit, bool hurtOnly) =>
+        Host.Sim.State.Buildings.Find(x => x.Id == buildingId) is { Built: true, Type.Mends: { } mends } && Simulation.ClassOf(unit) == mends
+        && unit.Movement != Movement.Static && (!hurtOnly || unit.Health < unit.MaxHealth);
 
     // Whether any selected unit repairs belt (builders and engineers).
     bool SelectionRepairs()
@@ -616,6 +663,29 @@ public partial class PlayerInput : Node
         foreach (int id in _selection)
             Host.Issue(hold ? new HoldCommand(LocalPlayer, id) : new StopCommand(LocalPlayer, id));
         _attackMoveArmed = false;
+    }
+
+    /// <summary>Whether every selected unit that can move retreats on its own when badly hurt.</summary>
+    public bool SelectionRetreats
+    {
+        get
+        {
+            bool any = false;
+            foreach (var u in Host.Sim.State.Units)
+            {
+                if (u.Movement == Movement.Static || !_selection.Contains(u.Id)) continue;
+                if (!u.AutoRetreat) return false;
+                any = true;
+            }
+            return any;
+        }
+    }
+
+    /// <summary>Auto-retreat on for the selection, or off if it's on for all of it.</summary>
+    public void ToggleRetreat()
+    {
+        bool on = !SelectionRetreats;
+        foreach (int id in _selection) Host.Issue(new SetRetreatCommand(LocalPlayer, id, on));
     }
 
     /// <summary>Turns the building being placed a quarter turn.</summary>

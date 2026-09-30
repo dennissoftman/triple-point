@@ -61,8 +61,10 @@ public static class GameData
         var parsed = new Dictionary<string, BuildingType>();
         foreach (var (id, t) in types)
         {
-            if (t.Health <= 0 || t.Size <= 0 || t.QueueLimit <= 0 || t.Cost < 0 || t.BuildTime < 0)
-                throw new InvalidDataException($"Building type '{id}' needs a health, size and queueLimit above 0, and a cost and buildTime of at least 0.");
+            if (t.Health <= 0 || t.Size <= 0 || t.Cost < 0 || t.BuildTime < 0)
+                throw new InvalidDataException($"Building type '{id}' needs a health and size above 0, and a cost and buildTime of at least 0.");
+            if (t.Mends is TargetClass.Any || t.MendSeconds <= 0 || t.MendShare < 0)
+                throw new InvalidDataException($"Building type '{id}' mends infantry or vehicles (not any), in a mendSeconds above 0 for a mendShare of at least 0.");
             var produces = (t.Produces ?? []).Select(u => units.TryGetValue(u, out var type) ? type
                 : throw new InvalidDataException($"Building type '{id}' produces unknown unit type '{u}'.")).ToArray();
             UnitType? defense = null;

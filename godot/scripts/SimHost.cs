@@ -403,7 +403,7 @@ public partial class SimHost : Node3D
     // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's road; Red goes for Blue's
     // post, turrets swinging onto it on the way; then Blue attack-moves
     // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
-    // beside the HQ, and the barracks trains squads on repeat, as income allows; they gather at its rally
+    // beside the HQ, and the barracks trains squads in batches of 20, as income allows; they gather at its rally
     // point. To show the ending, scripted kills finish Red: its buildings and posts at 85 s, and its
     // builders at 95 s. It's out once it can't rebuild: at 85 s if it can't afford a building then,
     // otherwise when its builders go.
@@ -438,13 +438,10 @@ public partial class SimHost : Node3D
             foreach (var unit in _sim.State.Units)
                 if (unit.Builds is not null && _sim.State.Buildings.Find(b => b.Owner == unit.Owner) is { } hq)
                     _commands.Add(new BuildCommand(unit.Owner, unit.Id, "barracks", hq.Position + new SVector3(-8, 0, 0), hq.Heading));
-        if (tick % T == 0) // a barracks just finished: train squads there
+        if (tick % T == 0) // a finished barracks with nothing queued: a batch of squads there
             foreach (var barracks in _sim.State.Buildings)
-                if (barracks is { Built: true, Type.Id: "barracks", Repeat: false } && !(barracks.Owner == Red && tick >= 40 * T))
-                {
-                    _commands.Add(new ProduceCommand(barracks.Owner, barracks.Id, "rifle_squad"));
-                    _commands.Add(new SetRepeatCommand(barracks.Owner, barracks.Id, true));
-                }
+                if (barracks is { Built: true, Type.Id: "barracks", Queue.Count: 0 } && !(barracks.Owner == Red && tick >= 40 * T))
+                    _commands.Add(new ProduceCommand(barracks.Owner, barracks.Id, "rifle_squad", Count: 20));
 
         if (tick == 2 * T)
         {
@@ -467,7 +464,6 @@ public partial class SimHost : Node3D
             foreach (var barracks in _sim.State.Buildings) // Red stops training to afford the repair
                 if (barracks is { Owner: Red, Type.Id: "barracks" })
                 {
-                    _commands.Add(new SetRepeatCommand(Red, barracks.Id, false));
                     for (int i = barracks.Queue.Count - 1; i >= 0; i--) _commands.Add(new CancelProductionCommand(Red, barracks.Id, i));
                 }
             SegmentOrder(Red, new SVector3(0, 0, -11), repair: false, vehiclesOnly: true);

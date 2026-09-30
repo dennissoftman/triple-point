@@ -55,6 +55,24 @@ public class LocaleTests
         Assert.True(list.Count == 0, $"{what}: {string.Join(", ", list)}");
     }
 
+    // Godot won't load a .po with a line it can't parse, and then shows no text at all: every line is a
+    // comment, blank, or a msgid/msgstr whose string closes on the same line (a line break is written \n).
+    [Fact]
+    public void Every_translation_file_is_well_formed()
+    {
+        var entry = new Regex(@"^(msgid|msgstr) ""([^""\\]|\\.)*""$");
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(Repo(), "godot", "locale"), "*.po"))
+        {
+            int n = 0;
+            foreach (var line in File.ReadLines(file))
+            {
+                n++;
+                if (line.Length == 0 || line.StartsWith('#') || line.StartsWith("\"")) continue;
+                Assert.True(entry.IsMatch(line), $"{Path.GetFileName(file)}:{n}: {line}");
+            }
+        }
+    }
+
     [Fact]
     public void Every_key_the_scripts_use_is_in_english()
     {

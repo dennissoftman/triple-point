@@ -62,10 +62,12 @@ Named by `builds` in units.json, and by `BuildingType` on a map's building spawn
 | `health` | number | required | Full health. Above 0. |
 | `size` | m | required | The side of its square footprint, snapped to the 2 m grid. |
 | `produces` | unit ids | none | What it trains, in the order the command card shows them. |
-| `queueLimit` | integer | 5 | How many units its queue holds. |
 | `cost` | packages | 0 | Paid bit by bit over `buildTime` while a builder works on the foundation; starting one needs the whole cost in hand, and it stalls if the money runs out after that. |
 | `buildTime` | s | 0 | How long a builder takes to put it up. |
 | `kind` | `building`, `post` or `defense` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. |
 | `unit` | unit id | none | A defense: the unit it becomes. |
 | `sight` | m | 10 | How far beyond its footprint's edge it sees under fog of war (a finished post keeps it; a finished defense sees as its unit does). |
+| `mends` | `infantry` or `vehicle` | none | Its owner's units of that class it heals when sent to it (right-click it): barracks infantry, factory vehicles. A squad regains its lost members as it heals. |
+| `mendSeconds` | s | 20 | How long a mend from 0 to full health takes. |
+| `mendShare` | factor | 0.5 | Share of the unit's cost a mend from 0 to full costs, paid as it heals; it stalls while broke. |
 | `requires` | building id | none | A finished building of this type its owner needs before starting one (a foundation already laid carries on if it's lost). |

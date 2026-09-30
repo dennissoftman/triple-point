@@ -322,7 +322,7 @@ public partial class UnitsView : Node3D
         {
             UnitOrder.AttackMove => AttackMoveColor,
             UnitOrder.Attack or UnitOrder.AttackSegment => AttackColor,
-            UnitOrder.Repair => RepairColor,
+            UnitOrder.Repair or UnitOrder.Mend => RepairColor,
             _ => MoveColor,
         };
         _legs.Add((start with { Y = PathHeight }, end with { Y = PathHeight }, color));
