@@ -113,12 +113,12 @@ public class ConstructionTests
         sim.AddBeltLine(TwoSegments(), Belt(1)); // along x, from 0 to 20
 
         Assert.True(sim.SnapToBelt(new Vector3(10.3f, 0, 3), 6, out var at, out float heading));
-        Assert.Equal(new Vector3(10, 0, 2.5f), at);   // a whole meter along, 2.5 m off the middle
+        Assert.Equal(new Vector3(10, 0, 3), at);      // a whole meter along, 3 m off the middle
         Assert.Equal(MathF.PI, MathF.Abs(heading), 0.001f); // facing -z, toward the belt
         Assert.True(sim.CanPlace(Post, at));
 
         Assert.True(sim.SnapToBelt(new Vector3(4.6f, 0, -1), 6, out at, out heading));
-        Assert.Equal(new Vector3(5, 0, -2.5f), at);   // the other side
+        Assert.Equal(new Vector3(5, 0, -3), at);      // the other side
         Assert.Equal(0f, heading, 0.001f);
 
         Assert.False(sim.SnapToBelt(new Vector3(10, 0, 9), 6, out _, out _)); // no belt that close
@@ -146,9 +146,9 @@ public class ConstructionTests
         sim.AddBeltLine(TwoSegments(), Belt(1)); // along x, from 0 to 20
 
         Assert.False(sim.CanPlace(Barracks, new Vector3(10, 0, 2)));  // its footprint would cover the belt
-        Assert.True(sim.CanPlace(Barracks, new Vector3(10, 0, 4)));
+        Assert.True(sim.CanPlace(Barracks, new Vector3(10, 0, 5)));
         Assert.False(sim.CanPlace(Post, new Vector3(10, 0, 1)));      // on the belt
-        Assert.True(sim.CanPlace(Post, new Vector3(10, 0, 2)));
+        Assert.True(sim.CanPlace(Post, new Vector3(10, 0, 3)));
         Assert.False(sim.CanPlace(Post, new Vector3(10, 0, 5)));      // out of reach of it
     }
 
@@ -158,18 +158,18 @@ public class ConstructionTests
         var sim = NewConstructionSim();
         sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1));
         sim.AddBeltLine([Straight(new(0, 0, 10), new(100, 0, 10))], Belt(1)); // another line, 10 m over
-        sim.AddGatherer(Red, new Vector3(20, 0, 2), maxDistance: 3);           // anyone's post counts
+        sim.AddGatherer(Red, new Vector3(20, 0, 3), maxDistance: 4);           // anyone's post counts
 
         float s = Simulation.PostSpacing;
-        Assert.False(sim.CanPlace(Post, new Vector3(20 + s - 1, 0, 2)));
-        Assert.False(sim.CanPlace(Post, new Vector3(20, 0, -2)));      // the other side of the belt is no escape
-        Assert.True(sim.CanPlace(Post, new Vector3(20 + s + 1, 0, 2)));
-        Assert.True(sim.CanPlace(Post, new Vector3(20, 0, 8)));        // beside the other line: its own spacing
+        Assert.False(sim.CanPlace(Post, new Vector3(20 + s - 1, 0, 3)));
+        Assert.False(sim.CanPlace(Post, new Vector3(20, 0, -3)));      // the other side of the belt is no escape
+        Assert.True(sim.CanPlace(Post, new Vector3(20 + s + 1, 0, 3)));
+        Assert.True(sim.CanPlace(Post, new Vector3(20, 0, 7)));        // beside the other line: its own spacing
 
         // A foundation holds its spot too, before it's a post.
-        sim.AddBuilding(Blue, new Vector3(90, 0, 2), Post, built: false);
-        Assert.False(sim.CanPlace(Post, new Vector3(90 - s + 1, 0, 2)));
-        Assert.True(sim.CanPlace(Post, new Vector3(90 - s - 1, 0, 2))); // and clear of Red's at 20
+        sim.AddBuilding(Blue, new Vector3(90, 0, 3), Post, built: false);
+        Assert.False(sim.CanPlace(Post, new Vector3(90 - s + 1, 0, 3)));
+        Assert.True(sim.CanPlace(Post, new Vector3(90 - s - 1, 0, 3))); // and clear of Red's at 20
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class ConstructionTests
         // 0-100 m, the first and last 10 m covered; a post at 40.
         sim.AddBeltLine([Straight(Vector3.Zero, new(10, 0, 0)), Straight(new(10, 0, 0), new(90, 0, 0)), Straight(new(90, 0, 0), new(100, 0, 0))],
             Belt(1), coveredStart: 10, coveredEnd: 10);
-        sim.AddGatherer(Red, new Vector3(40, 0, 2), maxDistance: 3);
+        sim.AddGatherer(Red, new Vector3(40, 0, 3), maxDistance: 4);
 
         var spots = new List<(int Line, float From, float To)>();
         sim.PostSpots(spots);
@@ -187,11 +187,11 @@ public class ConstructionTests
         Assert.Equal((0, 70f, 90f), (free.Line, free.From, free.To), new SpotComparer());
 
         // Aiming at 55 (too close to the post at 40) lands at the nearest free spot along the belt, 70.
-        Assert.True(sim.SnapPost(new Vector3(55, 0, 2), 6, out var at, out _));
+        Assert.True(sim.SnapPost(new Vector3(55, 0, 3), 6, out var at, out _));
         Assert.Equal(70f, at.X, 0.1f);
         Assert.True(sim.CanPlace(Post, at));
         // Where it's free already, it stays under the cursor.
-        Assert.True(sim.SnapPost(new Vector3(80, 0, -2), 6, out at, out _));
+        Assert.True(sim.SnapPost(new Vector3(80, 0, -3), 6, out at, out _));
         Assert.Equal((80f, -Simulation.PostOffset), (at.X, at.Z));
     }
 
@@ -209,8 +209,8 @@ public class ConstructionTests
         sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1));
         int builder = sim.AddUnit(Blue, new Vector3(10, 0, 12), Builder);
 
-        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 2))]);
-        sim.AddGatherer(Red, new Vector3(25, 0, 2), maxDistance: 3); // 15 m along: too close
+        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 3))]);
+        sim.AddGatherer(Red, new Vector3(25, 0, 3), maxDistance: 4); // 15 m along: too close
         Assert.True(TicksUntil(sim, new SimEvent(SimEventKind.BuildBlocked, builder, Simulation.BlockedByTheSite), 5 * T) > 0);
         Assert.Empty(sim.State.Buildings);
     }
@@ -222,12 +222,12 @@ public class ConstructionTests
         sim.AddBeltLine(TwoSegments(), Belt(1));
         int builder = sim.AddUnit(Blue, new Vector3(10, 0, 4), Builder);
 
-        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 2))]);
+        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 3))]);
         Run(sim, 2 * T);
 
         Assert.Empty(sim.State.Buildings);
         var post = Assert.Single(sim.State.Gatherers);
-        Assert.Equal((Blue, new Vector3(10, 0, 2)), (post.Owner, post.Position));
+        Assert.Equal((Blue, new Vector3(10, 0, 3)), (post.Owner, post.Position));
         Assert.Equal(10f, post.Distance, 0.01f); // pulls from the belt beside it
         Assert.Equal(300f, post.MaxHealth);
     }

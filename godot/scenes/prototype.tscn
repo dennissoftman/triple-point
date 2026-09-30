@@ -65,14 +65,14 @@ albedo_color = Color(1, 0.85, 0.4, 1)
 
 [sub_resource type="Curve3D" id="Curve3D_blue_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -50, 2.6, -11, 0, 0, 0, 0, 0, 0, -26, 2.6, -11, 0, 0, 0, 0, 0, 0, 32, 2.6, -11, 0, 0, 0, 0, 0, 0, 50, 2.6, -11),
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -50, 0, -11, 0, 0, 0, 0, 0, 0, -26, 0, -11, 0, 0, 0, 0, 0, 0, 32, 0, -11, 0, 0, 0, 0, 0, 0, 50, 0, -11),
 "tilts": PackedFloat32Array(0, 0, 0, 0)
 }
 point_count = 4
 
 [sub_resource type="Curve3D" id="Curve3D_red_belt"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 50, 2.6, 11, 0, 0, 0, 0, 0, 0, 32, 2.6, 11, 0, 0, 0, 0, 0, 0, -26, 2.6, 11, 0, 0, 0, 0, 0, 0, -50, 2.6, 11),
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 50, 0, 11, 0, 0, 0, 0, 0, 0, 32, 0, 11, 0, 0, 0, 0, 0, 0, -26, 0, 11, 0, 0, 0, 0, 0, 0, -50, 0, 11),
 "tilts": PackedFloat32Array(0, 0, 0, 0)
 }
 point_count = 4
@@ -238,7 +238,6 @@ Host = NodePath("../../SimHost")
 [node name="SimHost" type="Node3D" parent="." node_paths=PackedStringArray("Belts", "Gatherers", "Units", "Buildings", "BeltView", "UnitsView", "BuildingsView", "PlayerInput", "Hud")]
 script = ExtResource("1_simhost")
 SourceSupply = 150
-BeltSpeed = 2.0
 StartingPackages = 40
 Belts = NodePath("../Belts")
 Gatherers = NodePath("../Gatherers")

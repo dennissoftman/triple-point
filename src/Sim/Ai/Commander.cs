@@ -4,20 +4,18 @@ using System.Runtime.InteropServices;
 namespace Sim.Ai;
 
 /// <summary>How hard the commander plays. Normal is the full script; the others change only its numbers.</summary>
-public enum AiLevel { Easy, Normal, Hard }
+public enum AiLevel { Easy, Normal }
 
 /// <summary>
 /// A level's numbers: how often it thinks (ticks; its reaction time), how long a building it trains at
 /// stands idle between units (s), and how many posts it takes at most. Easy is slow and leaves money
-/// unspent; Hard reacts at once and doesn't pay for posts a belt can't feed (a post downstream of
-/// another only gets what that one lets past).
+/// unspent. (A hard level that only thought faster didn't beat normal; one waits for the behaviour tree.)
 /// </summary>
 public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts)
 {
     public static AiSettings For(AiLevel level) => level switch
     {
-        AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 8, MaxPosts: int.MaxValue),
-        AiLevel.Hard => new(ThinkTicks: 5, TrainPause: 0, MaxPosts: 2),
+        AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 15, MaxPosts: int.MaxValue),
         _ => new(ThinkTicks: 10, TrainPause: 0, MaxPosts: int.MaxValue),
     };
 }
@@ -33,6 +31,8 @@ public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int M
 ///   enemy's belt just upstream of their posts where that doesn't cut its own.
 /// - The push: clearly stronger, it attack-moves on the enemy's base.
 /// - Damaged units pull back home; repairers mend broken belt that feeds its posts.
+/// - Idle fighters shoot passing trucks that won't unload at any of its depots (their cargo spills for it
+///   to pick up, or at least the enemy's depots don't get it), while no enemy fighter is close.
 /// - Spilled packages where no enemy stands get picked up by whoever is idle nearest.
 /// - Under fog of war it knows only what its side sees and remembers (AiView), and sends its fastest
 ///   fighter to look along the enemy's half of the belt wherever it hasn't looked for a while.
@@ -97,6 +97,7 @@ public sealed class Commander
         Produce();
         Fight();
         Mend();
+        Ambush();
         Collect();
         Scout();
         return _out;
@@ -576,6 +577,44 @@ public sealed class Commander
             if (d < best) (best, pick) = (d, u.Id);
         }
         return pick;
+    }
+
+    // ---- Trucks ----
+
+    // Idle fighters shoot a truck in range that carries cargo none of its depots will get: one with no
+    // depot of its own ahead of it on its line. What it spills, Collect fetches. Not with an enemy
+    // fighter close: a fight comes first.
+    void Ambush()
+    {
+        var state = _sim.State;
+        var units = state.Units;
+        foreach (int i in _army)
+        {
+            var u = units[i];
+            if (Busy(u.Id) || u.Current.Kind != UnitOrder.None || u.Pending.Count > 0 || EnemyFighterNear(u.Position, 15)) continue;
+            int pick = -1;
+            float best = u.Range * u.Range;
+            for (int l = 0; l < state.Belts.Count; l++)
+            {
+                var line = state.Belts[l];
+                foreach (var t in line.Packages)
+                {
+                    if (t.Cargo <= 0 || line.Segments[t.Segment].Covered || !_view.SeesTruck(t)) continue;
+                    float d = Vector3.DistanceSquared(Flat(t.Position), Flat(u.Position));
+                    if (d >= best || PaysMe(l, t)) continue;
+                    (best, pick) = (d, t.Id);
+                }
+            }
+            if (pick >= 0) _out.Add(new AttackCommand(_me, u.Id, pick));
+        }
+    }
+
+    // A depot of its own ahead of this truck on its line, one that hasn't unloaded it yet.
+    bool PaysMe(int line, in Package truck)
+    {
+        foreach (var g in _sim.State.Gatherers)
+            if (g.Owner == _me && g.Line == line && g.Distance >= truck.Distance - 1 && g.Id != truck.LastDepot) return true;
+        return false;
     }
 
     // ---- Picking up ----

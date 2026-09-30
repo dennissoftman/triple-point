@@ -9,7 +9,7 @@
 # Prints PASS/FAIL per check and exits with the number of failures.
 extends SceneTree
 
-const RED_BELT := Vector3(9, 2.6, 11) # on Red's belt, on the prototype map
+const RED_BELT := Vector3(9, 0, 11) # on Red's road, on the prototype map
 
 var frame := 0
 var failures := 0
@@ -105,7 +105,7 @@ func _process(_delta) -> bool:
 		1255:
 			check("cursor over open ground: move", player.get("CursorName"), "Move")
 			key(KEY_CTRL, true)
-			motion(cam.unproject_position(Vector3(0, 2.6, -11))) # Blue's own belt
+			motion(cam.unproject_position(Vector3(0, 0, -11))) # Blue's own road
 		1260:
 			check("Ctrl over a belt: attack it", player.get("CursorName"), "Attack")
 			key(KEY_CTRL, false)

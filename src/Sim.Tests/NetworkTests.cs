@@ -3,37 +3,46 @@ using static Sim.Tests.TestHelpers;
 
 namespace Sim.Tests;
 
-/// <summary>Gatherer posts: how packages leave the belt.</summary>
+/// <summary>Depots (gatherer posts in the code): how packages come off the trucks.</summary>
 public class NetworkTests
 {
     [Fact]
-    public void Gatherer_takes_one_package_per_work_cycle_and_lets_the_rest_pass()
+    public void A_depot_takes_a_third_of_each_passing_truck_stopping_it_a_moment()
     {
         var sim = NewSim();
-        sim.AddBeltLine([Straight(Vector3.Zero, new(20, 0, 0))], Belt(0.5f)); // 2 packages/s
+        sim.AddBeltLine([Straight(Vector3.Zero, new(40, 0, 0))], Belt(1000) with { Load = 9 }); // one truck, 2 m/s
         sim.AddGatherer(Blue, new Vector3(10, 0, 2), maxDistance: 3);
+        var line = sim.State.Belts[0];
 
-        Run(sim, 60 * T);
-
-        // One per 2 s over the ~55 s after the first package reaches 10 m.
-        Assert.InRange(sim.State.Players[Blue].Gathered, 26, 29);
-        Assert.Equal(sim.State.Players[Blue].Gathered, sim.State.Players[Blue].Packages);
-        Assert.True(sim.State.Belts[0].Lost > sim.State.Players[Blue].Gathered); // most of 2/s passes a 0.5/s post
+        Run(sim, 5 * T + 2); // it reaches 10 m after 5 s
+        var truck = line.Packages.Single();
+        Assert.Equal(6, truck.Cargo);
+        Assert.Equal(3, sim.State.Players[Blue].Gathered);
+        Assert.Equal(3, sim.State.Players[Blue].Packages);
+        float at = truck.Distance;
+        Run(sim, (int)(Simulation.UnloadSeconds * T) - 10);
+        Assert.Equal(at, line.Packages.Single().Distance); // still unloading
+        Run(sim, 2 * T);
+        Assert.True(line.Packages.Single().Distance > at + 1); // on its way
+        Assert.Equal(3, sim.State.Players[Blue].Gathered);    // once per depot
     }
 
     [Fact]
-    public void Upstream_gatherer_starves_a_downstream_one_when_flow_matches_its_rate()
+    public void Three_depots_empty_a_truck_and_what_two_leave_goes_on()
     {
-        var sim = NewSim();
-        sim.AddBeltLine([Straight(Vector3.Zero, new(20, 0, 0))], Belt(Simulation.GatherSeconds)); // 1 per work cycle
-        sim.AddGatherer(Blue, new Vector3(5, 0, 2), maxDistance: 3);
-        sim.AddGatherer(Blue, new Vector3(15, 0, 2), maxDistance: 3);
-
-        Run(sim, 60 * T);
-
-        Assert.True(sim.State.Gatherers[0].Gathered > 20);
-        Assert.Equal(0, sim.State.Gatherers[1].Gathered);
-        Assert.Equal(0, sim.State.Belts[0].Lost);
+        int Lost(int depots)
+        {
+            var sim = NewSim();
+            sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1000) with { Load = 9 }); // one truck
+            foreach (float x in new[] { 10f, 45f, 80f }.Take(depots)) sim.AddGatherer(Blue, new Vector3(x, 0, 2), maxDistance: 3);
+            Run(sim, 70 * T);
+            Assert.Empty(sim.State.Belts[0].Packages); // it got to the end
+            Assert.All(sim.State.Gatherers, g => Assert.Equal(3, g.Gathered)); // a third each
+            return sim.State.Belts[0].Lost;
+        }
+        Assert.Equal(0, Lost(3));
+        Assert.Equal(3, Lost(2)); // two depots let a third through
+        Assert.Equal(9, Lost(0));
     }
 
     [Fact]
@@ -51,6 +60,10 @@ public class NetworkTests
         Run(sim, 2 * T);
         Assert.All(segments, s => Assert.Equal(s.MaxHealth, s.Health));
         Assert.Equal(UnitOrder.None, UnitById(sim, blue).Current.Kind); // the order was never taken
+
+        // Trucks there can't be shot at either.
+        var events = sim.Tick([new AttackCommand(Blue, blue, sim.State.Belts[0].Packages[0].Id)]);
+        Assert.Equal(UnitOrder.None, UnitById(sim, blue).Current.Kind);
 
         // Posts snap past the covered part, to the open belt.
         Assert.True(sim.SnapToBelt(new Vector3(6, 0, 2), 6, out var at, out _));

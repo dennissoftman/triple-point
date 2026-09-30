@@ -49,7 +49,7 @@ msgid "building.factory"
 msgstr "Factory"
 
 msgid "building.gatherer_post"
-msgstr "Gatherer post"
+msgstr "Depot"
 
 msgid "building.turret"
 msgstr "Turret"
@@ -81,9 +81,9 @@ msgstr "{0} has no buildings: {1} s to rebuild"
 msgid "hud.rebuild.paused"
 msgstr " (paused while building)"
 
-# A segment feeding one of your posts was broken; the minimap pings where
+# A road piece upstream of one of your depots was broken; the minimap pings where
 msgid "alert.belt_cut"
-msgstr "Your belt is cut!"
+msgstr "Your supply road is cut!"
 
 # --- Packages panel
 msgid "packages.label"
@@ -94,7 +94,7 @@ msgstr "+{0}/min"
 
 # {0} the income window, s
 msgid "packages.tip"
-msgstr "Packages to spend. Your posts take them off the belt, and your units pick up spilled ones.\n+N/min: what you took per minute over the last {0} s"
+msgstr "Packages to spend. Your depots unload them from passing trucks, and your units pick up what destroyed trucks spill.\n+N/min: what you took per minute over the last {0} s"
 
 # --- Command card
 msgid "card.repeat"
@@ -142,7 +142,7 @@ msgid "card.build.tip"
 msgstr "{0}: {1} packages, {2} s. {3}\nStarting one needs the whole cost in hand; it's paid as it grows\n{4} or click: place it   Shift: place more   {5}: rotate   RMB/Esc: cancel\nRMB your unfinished foundation: build it"
 
 msgid "card.describe.post"
-msgstr "Stands beside a belt."
+msgstr "Stands beside a road and unloads a third of each passing truck."
 
 msgid "card.describe.defense"
 msgstr "A defense."
@@ -157,11 +157,11 @@ msgstr "Can't place: {0}."
 
 # --- Why a building can't go there
 msgid "place.beside_belt"
-msgstr "must go beside a belt"
+msgstr "must go beside a road"
 
 # {0} the post spacing, m
 msgid "place.post_spacing"
-msgstr "another post is closer than {0} m along this belt"
+msgstr "another depot is closer than {0} m along this road"
 
 msgid "place.blocked"
 msgstr "something's in the way"
@@ -170,24 +170,32 @@ msgstr "something's in the way"
 msgid "place.money"
 msgstr "not enough packages (needs {0})"
 
-# --- The hint beside the cursor over a belt: {0} what it is, {1} health, {2} full health
+# --- The hint beside the cursor over a road piece: {0} what it is, {1} health, {2} full health
 msgid "belt.hint"
 msgstr "{0}  {1}/{2}"
 
 msgid "belt.intact"
-msgstr "Belt"
+msgstr "Road"
 
 msgid "belt.damaged"
-msgstr "Damaged belt"
+msgstr "Damaged road"
 
 msgid "belt.broken"
-msgstr "Broken belt"
+msgstr "Broken road"
 
 # {0} the force-attack key, {1} the right-click key
 msgid "belt.attack"
 msgstr "{0}+{1}: attack"
 
-# --- A belt's source gauge
+# --- The hint beside the cursor over a supply truck: {0} packages on board, {1} health, {2} full health
+msgid "truck.hint"
+msgstr "Supply truck: {0} packages  {1}/{2}"
+
+# {0} the force-attack key, {1} the right-click key
+msgid "truck.attack"
+msgstr "{0}+{1}: shoot it (its load spills)"
+
+# --- A supply route's source gauge
 msgid "gauge.supply"
 msgstr "Supply {0}"
 

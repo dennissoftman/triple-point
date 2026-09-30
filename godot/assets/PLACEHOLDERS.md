@@ -9,8 +9,9 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 | `godot/scripts/UnitsView.cs` | Vehicle wrecks: the unit's own meshes in a burnt material, a boom flash, smoke balls, sinking away | Built-in meshes and flat colors, in code | No | Real wreck models and explosion VFX |
 | `godot/scripts/BuildingsView.cs` | Buildings (a colored block with a door), selection outline, rally flag | Built-in meshes and flat colors, in code | No | Real building models |
 | `godot/scripts/CommandCard.cs` | Command card: default Godot buttons and text | Godot's default theme, in code | No | Real UI |
-| `godot/scripts/BeltView.cs` | Belts: extruded rails, base and joint bars, a box housing for covered stretches, wrecked halves and debris boxes, green post-spot strips | Procedural meshes in code, vertex colors | No | Real belt models, a scrolling surface shader |
-| `godot/scripts/BeltView.cs` | Source gauge (a bar and a Label3D), spill hop and tumble, shard burst, collection flight and +1 label | Built-in meshes, default font, in code | No | Real UI and VFX |
+| `godot/scripts/BeltView.cs` | Roads: a flat strip with edge lines and seams, a box housing for covered stretches, torn slabs, a crater disc and debris boxes when broken, green depot-spot strips | Procedural meshes in code, vertex colors | No | Real road and terrain art |
+| `godot/scripts/BeltView.cs` | Supply trucks (boxes: cab, bed, wheels, windscreen), crates on the bed, charred box wrecks; depots (a shed box and a loading-bay slab) | Procedural meshes and built-in boxes in code, vertex colors | No | Real truck and depot models, wreck VFX |
+| `godot/scripts/BeltView.cs` | Source gauge (a bar and a Label3D), spill hop off a truck and tumble, shard burst, collection flight and +1 label | Built-in meshes, default font, in code | No | Real UI and VFX |
 | `godot/assets/belt.png`, `godot/assets/supplies.png` | Source sheets: belt parts, crate faces | ChatGPT (OpenAI image generation) | Yes | Real textures |
 | `godot/assets/textures/belt_atlas.png`, `package_crates.png` | Atlases cut from the source sheets | `tools/make_textures.py` | Yes (from the sheets above) | Real textures |
 | `godot/scripts/Minimap.cs` | Minimap: flat colored lines, dots, squares and rock shapes | Canvas drawing in code | No | Real minimap art |

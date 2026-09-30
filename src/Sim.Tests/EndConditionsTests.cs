@@ -111,7 +111,7 @@ public class EndConditionsTests
         sim.AddBeltLine(TwoSegments(), Belt(1));
         int builder = sim.AddUnit(Blue, new Vector3(10, 0, 4), Builder);
 
-        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 2))]);
+        sim.Tick([new BuildCommand(Blue, builder, "post", new Vector3(10, 0, 3))]);
         Run(sim, 2 * T);
         Assert.Single(sim.State.Gatherers);
         Assert.Equal(-1, BluePlayer(sim).GraceTicksLeft);

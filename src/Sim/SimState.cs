@@ -238,34 +238,47 @@ public sealed class BeltSegment
         (Curve, Start, MaxHealth, Health, Covered) = (curve, start, maxHealth, maxHealth, covered);
 }
 
-/// <summary>Tuning for one belt line.</summary>
+/// <summary>
+/// Tuning for one supply route (in the code still a belt line): its trucks and its road. A truck carries
+/// up to `Load` packages; with the defaults it carries one, like a package on a belt.
+/// </summary>
 public readonly record struct BeltConfig(
-    float Speed,                 // m/s
-    float Spacing,               // m; minimum distance between packages along the line
-    float SpawnIntervalSeconds,
-    float MaxSegmentLength = float.PositiveInfinity, // authored curves are cut into breakable segments this long at most
+    float Speed,                 // m/s, of the trucks
+    float Spacing,               // m; minimum distance between trucks along the line
+    float SpawnIntervalSeconds,  // a truck leaves the source this often
+    float MaxSegmentLength = float.PositiveInfinity, // authored curves are cut into breakable road pieces this long at most
     float SegmentHealth = 100,
-    float SpillLoss = 0,         // 0..1: chance a spilled package is destroyed instead of becoming a pickup
-    int Supply = 0);             // packages the source holds at the start; 0: unlimited
+    float SpillLoss = 0,         // 0..1: chance each package a destroyed truck spills is destroyed instead of becoming a pickup
+    int Supply = 0,              // packages the source holds at the start; 0: unlimited
+    int Load = 1,                // packages a truck leaves the source with
+    float TruckHealth = 100,
+    bool StartFull = false);     // trucks already on the whole route at the start, as if it had been running
 
 /// <summary>
-/// A chain of segments. It spawns packages at its start from its source's reserve, and packages reaching
-/// its end go back into the reserve (off the map), so only posts and spills drain it; an unlimited
-/// source (Supply 0) just loses them at the end. The belt moves everything on it at once; packages only queue
-/// when something ahead of them is held. A broken segment carries nothing: packages on it, and any
-/// that reach it, spill. Belts are neutral: anyone can use, break or repair them.
+/// A supply route (in the code still a belt line): a road of breakable pieces (segments) that trucks
+/// drive along. Trucks leave its start loaded from its source's reserve, and what they still carry at its
+/// end goes back into the reserve (off the map), so only depots and spills drain it; an unlimited source
+/// (Supply 0) just loses it at the end. Trucks drive at the route's speed and queue behind whatever holds
+/// the one ahead. A broken piece carries nothing: trucks wait before it (or where they were on it) until
+/// it's repaired. Routes and trucks are neutral: anyone can use, break, shoot or repair them.
 /// </summary>
 public sealed class BeltLine
 {
     public readonly BeltSegment[] Segments;
     public readonly float Length;
-    public readonly float Speed, Spacing, SpillLoss;
-    public readonly int SpawnIntervalTicks;
+    public readonly float Speed, Spacing, SpillLoss, TruckHealth;
+    public readonly int SpawnIntervalTicks, Load;
+    public readonly bool StartFull;
     public readonly int Supply;  // the source's reserve at the start; 0: unlimited
     public int Reserve;          // packages left at the source, counting those that came back round
 
-    public readonly List<Package> Packages = []; // ordered: index 0 is furthest along
-    public int Spawned, Lost, Returned, Spilled, Destroyed, BlockedSpawns; // Destroyed counts spills that broke
+    public readonly List<Package> Packages = []; // the trucks, ordered: index 0 is furthest along
+    // Counted in packages (Spawned and BlockedSpawns in trucks): Spilled from destroyed trucks, Destroyed
+    // of those in the fall, Lost at the end (unlimited sources) or Returned to the reserve.
+    public int Spawned, Lost, Returned, Spilled, Destroyed, BlockedSpawns, TrucksDestroyed;
+    /// <summary>A depot takes this many packages from each truck that passes it: a third of a full load, so three empty one.</summary>
+    public int DepotShare => (Load + DepotsToEmpty - 1) / DepotsToEmpty;
+    public const int DepotsToEmpty = 3;
     internal int TicksUntilSpawn = 1;
 
     /// <summary>
@@ -287,6 +300,7 @@ public sealed class BeltLine
             Length += curves[i].Length;
         }
         (Speed, Spacing, SpillLoss) = (config.Speed, config.Spacing, config.SpillLoss);
+        (Load, TruckHealth, StartFull) = (Math.Max(1, config.Load), config.TruckHealth, config.StartFull);
         SpawnIntervalTicks = Math.Max(1, (int)MathF.Round(config.SpawnIntervalSeconds * ticksPerSecond));
         Supply = Reserve = Math.Max(0, config.Supply);
     }
@@ -318,8 +332,9 @@ public sealed class BeltLine
 }
 
 /// <summary>
-/// A post beside the belt with a pull point on it. When idle it grabs a package passing the pull point
-/// for its owner, then works for a while; packages passing meanwhile go on downstream.
+/// A depot (in the code still a gatherer post) beside the road, with a pull point on it. Every truck
+/// that passes the pull point with cargo stops and unloads its share (BeltLine.DepotShare) for the
+/// depot's owner, then drives on with the rest.
 /// </summary>
 public struct Gatherer
 {
@@ -328,10 +343,9 @@ public struct Gatherer
     public int Line;
     public float Distance;   // pull point along the line
     public float Health, MaxHealth;
-    public int ReadyAtTick;  // idle from this tick on
     public float Sight;      // m, under fog of war
     public int LastGrabTick; // for effects
-    public int Gathered;
+    public int Gathered;     // packages, in all
 }
 
 /// <summary>
@@ -346,12 +360,22 @@ public struct Projectile
     public bool Ballistic;                    // flies to Target, a point, and never homes
 }
 
+/// <summary>
+/// A truck on a supply route (in the code, a package on a belt line): it drives along the line carrying
+/// packages, stops a moment at each depot it passes to unload a share, waits behind a broken road piece
+/// or a unit in its way, and can be shot: destroyed, it spills what it carries. Nobody owns it.
+/// </summary>
 public struct Package
 {
     public int Id;
     public int Segment;
-    public float Distance; // meters along the whole line
+    public float Distance, PrevDistance; // meters along the whole line; PrevDistance is last tick's
     public Vector3 Position, PrevPosition, Direction;
+    public int Cargo;                    // packages on board
+    public float Health, MaxHealth;
+    public int StoppedUntilTick;         // unloading at a depot until then
+    public int LastDepot;                // the last depot that unloaded it (-1: none yet); depots come in order along the line
+    public bool Blocked;                 // held up this tick by a break, a unit or the truck ahead; for views
 }
 
 /// <summary>A spilled package on the ground. Whoever's unit walks over it collects it.</summary>
@@ -359,8 +383,8 @@ public struct Pickup
 {
     public int Id;
     public Vector3 Position;   // where it landed
-    public Vector3 From;       // the belt point it fell off
-    public int Line, Segment, Slot; // the break whose pile it's in, and its spot there
+    public Vector3 From;       // the truck it fell off
+    public int Line, Segment, Slot; // the road piece it lies beside, and its spot in the truck's spill
     public int SpilledAtTick, LandsAtTick; // collectable once landed, and it waits there until someone collects it
     public bool Smashed;       // broke in the fall: nobody gets it, and it's gone when it lands
 }

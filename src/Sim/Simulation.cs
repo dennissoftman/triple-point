@@ -13,17 +13,20 @@ public sealed partial class Simulation
     public const float BeltAimSpread = 0.7f;        // m: shots at a segment land anywhere this close to its middle
     public const float AutoRepairRadius = 12f;      // m; an idle unit that repairs goes for damaged belt this close by itself
     const int AutoRepairCheckTicks = 10;            // how often it looks (every unit on the same ticks: phases by id favour one side)
-    public const float GatherSeconds = 2f;          // a gatherer post's work per package
+    public const float UnloadSeconds = 2f;          // a truck stops this long at each depot it unloads at
     public const float GathererHealth = 300f;
     public const float PostSight = 12f;             // m; a post authored on the map (built ones take their type's)
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
-    const float GrabReach = 0.5f;                   // m either side of a post's pull point
-    // A break's pile: spots beside the start of the broken segment, 2 sides x 2 rows x 3 along, far
-    // enough apart that packages never overlap. When they're all taken, packages wait at the break.
-    public const int SpillPile = 12;
-    static readonly float[] SpillRows = [1.5f, 2.3f]; // m to the side of the belt center; clear of its edge
-    const float SpillStep = 0.8f;                     // m between spots along the belt
+    const float GrabReach = 0.5f;                   // m either side of a depot's pull point
+    // A destroyed truck's spill: spots either side of the road, 2 rows each side, 4 to a step along it,
+    // centered on the truck, far enough apart that packages never overlap.
+    static readonly float[] SpillRows = [1.5f, 2.3f]; // m to the side of the road's middle; clear of its edge
+    const float SpillStep = 0.8f;                     // m between spots along the road
+    public const float TruckRadius = 2f;            // m; for sight, splash and aiming at a truck
+    const float BlockAhead = 4f;                    // m ahead of a truck's middle: a unit there is in its way
+    const float BlockRadius = 1.5f;                 // m around that point, beyond the unit's own radius
+    const float StepAsideSpeed = 5f;                // m/s an idle unit in a truck's way steps off the road
     const float SpacingSlack = 0.001f;                        // m
     const float MuzzleReach = 1.5f, MuzzleHeight = 1.2f; // m; where shells start, ahead of a vehicle along its turret
     const float HitHeight = 0.5f;                   // m; where shells aim, above the target's feet
@@ -39,12 +42,12 @@ public sealed partial class Simulation
     const float RallySpread = 2.5f;                 // m; produced units stand around the rally point, not on it
     public const float GridCell = 2f;               // m; buildings snap to this grid (SnapToGrid)
     public const float PostReach = 4f;              // m; a post must stand this close to a belt, and pulls from it
-    public const float PostOffset = 2.5f;           // m from the belt's middle that a placed post snaps to (SnapToBelt)
+    public const float PostOffset = 3f;             // m from the road's middle that a placed depot snaps to (SnapToBelt)
     const float PostStep = 1f;                      // m along the belt between the spots a post can snap to
     const float SpotMargin = 0.05f;                 // m inside a free stretch's ends that SnapPost aims for, clear of rounding
     public const float PostSpacing = 30f;           // m along a line between any two posts (foundations too); two posts drain a belt
     const float BuildReach = 1.5f;                  // m beyond a footprint's edge, past its own radius, that a builder works from
-    const float BeltHalfWidth = 0.6f;               // m; buildings keep clear of the belt
+    public const float RoadHalfWidth = 1.6f;        // m; buildings keep clear of the road
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
     const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
     public const float GraceSeconds = 60f;          // to rebuild, once a player has no buildings left
@@ -171,7 +174,40 @@ public sealed partial class Simulation
     public void AddBeltLine(BezierSegment[] curves, BeltConfig config, float coveredStart = 0, float coveredEnd = 0)
     {
         var segments = curves.SelectMany(c => c.Split(config.MaxSegmentLength)).ToArray();
-        State.Belts.Add(new BeltLine(segments, config, TicksPerSecond, coveredStart, coveredEnd));
+        var line = new BeltLine(segments, config, TicksPerSecond, coveredStart, coveredEnd);
+        State.Belts.Add(line);
+        if (!line.StartFull) return;
+        // As if it had been running: a truck every spawn interval's drive along the whole route, full.
+        float gap = MathF.Max(line.Spacing, line.Speed * line.SpawnIntervalTicks * Dt);
+        for (float d = MathF.Floor((line.Length - 1e-3f) / gap) * gap; d > 0; d -= gap)
+            if (!AddTruck(line, d)) break;
+    }
+
+    // A truck leaving the source (or placed along the line at the start), loaded from the reserve; false if it's dry.
+    bool AddTruck(BeltLine line, float distance)
+    {
+        int cargo = line.Finite ? Math.Min(line.Load, line.Reserve) : line.Load;
+        if (cargo <= 0) return false;
+        int segment = line.SegmentAt(distance);
+        var curve = line.Segments[segment].Curve;
+        var at = curve.PositionAt(distance - line.Segments[segment].Start);
+        line.Packages.Add(new Package
+        {
+            Id = _nextId++,
+            Segment = segment,
+            Distance = distance,
+            PrevDistance = distance,
+            Position = at,
+            PrevPosition = at,
+            Direction = curve.DirectionAt(distance - line.Segments[segment].Start),
+            Cargo = cargo,
+            Health = line.TruckHealth,
+            MaxHealth = line.TruckHealth,
+            LastDepot = -1,
+        });
+        line.Spawned++;
+        if (line.Finite) line.Reserve -= cargo;
+        return true;
     }
 
     /// <summary>
@@ -359,8 +395,8 @@ public sealed partial class Simulation
             if (u.Movement == Movement.Static && Overlap(at, half, u.Position, GridCell / 2)) return false;
         float corner = half * MathF.Sqrt(2); // the footprint's corners, whichever way it faces
         if (type.Kind == BuildingKind.Post)
-            return !FindSegment(at, half + BeltHalfWidth, out _, out _) && PullPoint(at, PostReach, out _, out _) && !TooCloseToPost(at);
-        return !FindSegment(at, corner + BeltHalfWidth, out _, out _);
+            return !FindSegment(at, half + RoadHalfWidth, out _, out _) && PullPoint(at, PostReach, out _, out _) && !TooCloseToPost(at);
+        return !FindSegment(at, corner + RoadHalfWidth, out _, out _);
     }
 
     static bool Overlap(Vector3 a, float aHalf, Vector3 b, float bHalf) =>
@@ -387,7 +423,7 @@ public sealed partial class Simulation
         return line >= 0;
     }
 
-    /// <summary>A living unit, gatherer post or building by id: where it is and who owns it.</summary>
+    /// <summary>A living unit, gatherer post, building or truck (on open road; owned by nobody) by id: where it is and who owns it.</summary>
     public bool TryGetTarget(int id, out Vector3 position, out int owner)
     {
         foreach (var unit in State.Units)
@@ -396,7 +432,22 @@ public sealed partial class Simulation
             if (post.Id == id && post.Health > 0) { (position, owner) = (post.Position, post.Owner); return true; }
         foreach (var building in State.Buildings)
             if (building.Id == id && building.Health > 0) { (position, owner) = (building.Position, building.Owner); return true; }
+        if (FindTruck(id, out var truck)) { (position, owner) = (truck.Position, Player.None); return true; }
         (position, owner) = (default, Player.None);
+        return false;
+    }
+
+    /// <summary>A living truck by id on open road (one on a covered stretch can't be reached).</summary>
+    public bool FindTruck(int id, out Package truck)
+    {
+        foreach (var line in State.Belts)
+            foreach (var t in line.Packages)
+                if (t.Id == id)
+                {
+                    truck = t;
+                    return t.Health > 0 && !line.Segments[t.Segment].Covered;
+                }
+        truck = default;
         return false;
     }
 
@@ -703,6 +754,9 @@ public sealed partial class Simulation
             if (post.Id == id) post.Health = 0;
         foreach (var building in State.Buildings)
             if (building.Id == id) building.Health = 0;
+        foreach (var line in State.Belts)
+            foreach (ref var truck in CollectionsMarshal.AsSpan(line.Packages))
+                if (truck.Id == id) truck.Health = 0;
     }
 
     // What's due in all, in whole packages, after `progress + 1` of `ticks` ticks of work on something
@@ -1268,9 +1322,18 @@ public sealed partial class Simulation
             GiveAway(shooter, building.Owner);
             destroyed |= building.Id == targetId && building.Health <= 0;
         }
+        foreach (var line in State.Belts) // trucks are nobody's: every blast hurts them
+            foreach (ref var truck in CollectionsMarshal.AsSpan(line.Packages))
+            {
+                if (truck.Health <= 0 || line.Segments[truck.Segment].Covered) continue;
+                float d = MathF.Sqrt(GroundDistanceSq(truck.Position, at));
+                if (d > radius + TruckRadius) continue;
+                truck.Health -= damage * (1 - (1 - SplashEdge) * MathF.Min(1, MathF.Max(0, d - TruckRadius) / radius));
+                destroyed |= truck.Id == targetId && truck.Health <= 0;
+            }
     }
 
-    // Damages a unit, post or building by id, or else a belt segment, for `shooter` (a unit of `owner`'s); true if that destroyed it.
+    // Damages a unit, post, building or truck by id, or else a belt segment, for `shooter` (a unit of `owner`'s); true if that destroyed it.
     bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage)
     {
         if (targetId < 0)
@@ -1308,6 +1371,13 @@ public sealed partial class Simulation
             GiveAway(shooter, building.Owner);
             return building.Health <= 0;
         }
+        foreach (var route in State.Belts)
+            foreach (ref var truck in CollectionsMarshal.AsSpan(route.Packages))
+            {
+                if (truck.Id != targetId) continue;
+                truck.Health -= damage;
+                return truck.Health <= 0;
+            }
         return false;
     }
 
@@ -1521,6 +1591,20 @@ public sealed partial class Simulation
             State.Buildings.RemoveAt(i);
             _navDirty = true;
         }
+        for (int l = 0; l < State.Belts.Count; l++)
+        {
+            var line = State.Belts[l];
+            int kept = 0;
+            for (int i = 0; i < line.Packages.Count; i++)
+            {
+                var truck = line.Packages[i];
+                if (truck.Health > 0) { line.Packages[kept++] = truck; continue; }
+                line.TrucksDestroyed++;
+                _events.Add(new SimEvent(SimEventKind.TruckDestroyed, truck.Id, l));
+                SpillCargo(line, l, truck);
+            }
+            line.Packages.RemoveRange(kept, line.Packages.Count - kept); // compacting keeps the front-to-back order
+        }
     }
 
     void Break(int lineIndex, int segmentIndex, int by)
@@ -1531,132 +1615,136 @@ public sealed partial class Simulation
         (segment.State, segment.Health, segment.BrokenBy) = (SegmentState.Broken, 0, by);
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
         TellCutOff(lineIndex, segmentIndex);
-
-        // Everything on the segment falls off onto the pile, while there's room; the rest stays put.
-        var packages = line.Packages;
-        int kept = 0;
-        for (int i = 0; i < packages.Count; i++)
-        {
-            var p = packages[i];
-            if (p.Segment == segmentIndex && Spill(line, lineIndex, segmentIndex, p.Position, p.Id)) continue;
-            packages[kept++] = p;
-        }
-        packages.RemoveRange(kept, packages.Count - kept);
+        // Trucks on it stay where they are, and the ones coming wait before it (MovePackages).
     }
 
+    // Trucks drive on at the line's speed, each no closer than the spacing to the one ahead. One stops
+    // while it unloads at a depot, before a broken road piece (or where it was, if it broke under it), and
+    // for a unit in its way. What a truck still carries at the end goes back to the source's reserve.
     void MovePackages(BeltLine line, int lineIndex)
     {
         var segments = line.Segments;
-        var packages = CollectionsMarshal.AsSpan(line.Packages);
-        float limit = float.MaxValue; // how far the package ahead lets this one go
+        var trucks = CollectionsMarshal.AsSpan(line.Packages);
+        float limit = float.MaxValue; // how far the truck ahead lets this one go
+        float step = line.Speed * Dt;
         int kept = 0;
 
-        for (int i = 0; i < packages.Length; i++)
+        for (int i = 0; i < trucks.Length; i++)
         {
-            var p = packages[i];
-            p.PrevPosition = p.Position;
+            var p = trucks[i];
+            (p.PrevPosition, p.PrevDistance) = (p.Position, p.Distance);
             var (wasAt, wasOn) = (p.Distance, p.Segment);
-            p.Distance = MathF.Max(p.Distance, MathF.Min(p.Distance + line.Speed * Dt, limit));
+            bool unloading = State.Tick < p.StoppedUntilTick;
+            float want = unloading || InTheWay(line, p) ? p.Distance : p.Distance + step;
+            p.Distance = MathF.Max(p.Distance, MathF.Min(want, limit));
             while (p.Segment < segments.Length && p.Distance >= segments[p.Segment].End) p.Segment++;
 
             if (p.Segment == segments.Length)
             {
-                if (line.Finite) (line.Reserve, line.Returned) = (line.Reserve + 1, line.Returned + 1); // back round to the source
+                if (line.Finite) (line.Reserve, line.Returned) = (line.Reserve + p.Cargo, line.Returned + p.Cargo); // back round to the source
                 else
                 {
-                    line.Lost++;
+                    line.Lost += p.Cargo;
                     _events.Add(new SimEvent(SimEventKind.PackageLost, p.Id));
                 }
                 continue;
             }
 
             var segment = segments[p.Segment];
-            if (segment.State == SegmentState.Broken)
-            {
-                // At a break: it falls off onto the pile, or, with the pile full, waits at the lip (or where
-                // it was, on the broken segment itself), and everything behind it queues.
-                if (Spill(line, lineIndex, p.Segment, p.Position, p.Id)) continue;
-                p.Distance = wasOn == p.Segment ? wasAt : segment.Start;
-            }
+            if (segment.State == SegmentState.Broken) p.Distance = wasOn == p.Segment ? wasAt : segment.Start; // at the lip, or stuck on it
 
             float along = p.Distance - segment.Start;
             p.Position = segment.Curve.PositionAt(along);
             p.Direction = segment.Curve.DirectionAt(along);
+            p.Blocked = !unloading && p.Distance < wasAt + step - 1e-4f;
             limit = p.Distance - line.Spacing;
-            packages[kept++] = p; // compacting in place keeps the front-to-back order
+            trucks[kept++] = p; // compacting in place keeps the front-to-back order
         }
 
-        line.Packages.RemoveRange(kept, packages.Length - kept);
+        line.Packages.RemoveRange(kept, trucks.Length - kept);
     }
 
-    // Room for a package at the start of a line. The slack keeps float rounding from blocking a spawn
+    // A unit just ahead of a truck on open road holds it up. An idle one steps off the road, to the right
+    // of the way the truck drives (or its own side), and stays there; anyone else busy there is in the way
+    // until they move on.
+    bool InTheWay(BeltLine line, in Package truck)
+    {
+        if (line.Segments[truck.Segment].Covered) return false;
+        float d = MathF.Min(truck.Distance + BlockAhead, line.Length);
+        var ahead = line.PositionAt(d);
+        var forward = line.DirectionAt(d) with { Y = 0 };
+        var right = forward.LengthSquared() > 1e-8f ? Vector3.Normalize(new Vector3(forward.Z, 0, -forward.X)) : Vector3.UnitX;
+        bool blocked = false;
+        foreach (ref var u in CollectionsMarshal.AsSpan(State.Units))
+        {
+            float reach = BlockRadius + u.Radius;
+            if (u.Health <= 0 || GroundDistanceSq(u.Position, ahead) > reach * reach) continue;
+            blocked = true;
+            bool idle = u.Current.Kind == UnitOrder.None && u.Pending.Count == 0 && !u.Firing && u.RespondTo < 0 && u.Movement != Movement.Static;
+            if (!idle) continue;
+            float side = Vector3.Dot((u.Position - ahead) with { Y = 0 }, right);
+            var away = side < -1e-3f ? -right : right;
+            u.Position += away * (StepAsideSpeed * Dt);
+            u.Anchor = u.Position; // its spot is off the road now
+        }
+        return blocked;
+    }
+
+    // Room for a truck at the start of a line. The slack keeps float rounding from blocking a spawn
     // interval that exactly matches the spacing.
     static bool EntryClear(BeltLine line) =>
         line.Packages.Count == 0 || line.Packages[^1].Distance >= line.Spacing - SpacingSlack;
 
-    // An idle post grabs the package nearest its pull point, if one is within reach, then works.
+    // A truck with cargo reaching a depot's pull point stops there a moment and unloads the depot's share
+    // (a third of a full load) for its owner, once per depot.
     void UpdateGatherers()
     {
         foreach (ref var g in CollectionsMarshal.AsSpan(State.Gatherers))
         {
-            if (State.Tick < g.ReadyAtTick) continue;
-
-            var packages = State.Belts[g.Line].Packages;
-            int best = -1;
-            float bestDistance = GrabReach;
-            for (int i = 0; i < packages.Count; i++)
+            var line = State.Belts[g.Line];
+            foreach (ref var t in CollectionsMarshal.AsSpan(line.Packages))
             {
-                float d = MathF.Abs(packages[i].Distance - g.Distance);
-                if (d <= bestDistance) (best, bestDistance) = (i, d);
+                if (t.Cargo <= 0 || t.Health <= 0 || t.LastDepot == g.Id) continue;
+                if (t.PrevDistance > g.Distance + GrabReach || t.Distance < g.Distance - GrabReach) continue;
+                int take = Math.Min(line.DepotShare, t.Cargo);
+                (t.Cargo, t.LastDepot, t.StoppedUntilTick) = (t.Cargo - take, g.Id, State.Tick + (int)(UnloadSeconds * TicksPerSecond));
+                g.LastGrabTick = State.Tick;
+                g.Gathered += take;
+                var owner = State.Players[g.Owner];
+                (owner.Gathered, owner.Packages) = (owner.Gathered + take, owner.Packages + take);
+                _events.Add(new SimEvent(SimEventKind.PackageGathered, t.Id, g.Id));
             }
-            if (best < 0) continue;
-
-            int packageId = packages[best].Id;
-            packages.RemoveAt(best); // keeps the front-to-back order
-            (g.ReadyAtTick, g.LastGrabTick) = (State.Tick + (int)(GatherSeconds * TicksPerSecond), State.Tick);
-            g.Gathered++;
-            var owner = State.Players[g.Owner];
-            (owner.Gathered, owner.Packages) = (owner.Gathered + 1, owner.Packages + 1);
-            _events.Add(new SimEvent(SimEventKind.PackageGathered, packageId, g.Id));
         }
     }
 
-    // Drops a package from `at` onto a free spot of the pile beside a broken segment; false if it's full.
-    // The pickup keeps the package's id.
-    bool Spill(BeltLine line, int lineIndex, int segmentIndex, Vector3 at, int packageId)
+    // A destroyed truck's cargo falls round it, on spots either side of the road that don't overlap; a
+    // share breaks in the fall (the line's spill loss), the rest are pickups for whoever gets there.
+    void SpillCargo(BeltLine line, int lineIndex, in Package truck)
     {
-        int taken = 0; // a bit per spot
-        foreach (var p in State.Pickups)
-            if (p.Line == lineIndex && p.Segment == segmentIndex) taken |= 1 << p.Slot;
-        int free = SpillPile - System.Numerics.BitOperations.PopCount((uint)taken);
-        if (free == 0) return false;
-        int slot = -1;
-        for (int n = (int)(_random.NextUInt() % (uint)free); n >= 0; n--)
-            do slot++; while ((taken & (1 << slot)) != 0);
-
-        line.Spilled++;
-        // Some break in the fall, so holding a break never captures the whole stream.
-        bool smashed = _random.Range(0, 1) < line.SpillLoss;
-        if (smashed) line.Destroyed++;
-
-        var curve = line.Segments[segmentIndex].Curve;
-        float along = MathF.Min(SpillStep * (slot / 4), curve.Length);
-        var (start, direction) = (curve.PositionAt(along), curve.DirectionAt(along));
-        var side = Vector3.Normalize(Vector3.Cross(direction, Vector3.UnitY));
-        var position = start + side * (SpillRows[slot / 2 % 2] * (slot % 2 == 0 ? 1 : -1));
-        State.Pickups.Add(new Pickup
+        var forward = truck.Direction with { Y = 0 };
+        forward = forward.LengthSquared() > 1e-8f ? Vector3.Normalize(forward) : Vector3.UnitZ;
+        var side = new Vector3(forward.Z, 0, -forward.X);
+        int rows = (truck.Cargo + 3) / 4;
+        for (int k = 0; k < truck.Cargo; k++)
         {
-            Id = packageId,
-            Line = lineIndex,
-            Segment = segmentIndex,
-            Slot = slot,
-            Position = position with { Y = 0 },
-            From = at,
-            SpilledAtTick = State.Tick,
-            LandsAtTick = State.Tick + (int)(SpillFallSeconds * TicksPerSecond),
-            Smashed = smashed,
-        });
-        return true;
+            line.Spilled++;
+            bool smashed = _random.Range(0, 1) < line.SpillLoss;
+            if (smashed) line.Destroyed++;
+            float along = SpillStep * (k / 4 - (rows - 1) / 2f);
+            var position = truck.Position + forward * along + side * (SpillRows[k / 2 % 2] * (k % 2 == 0 ? 1 : -1));
+            State.Pickups.Add(new Pickup
+            {
+                Id = _nextId++,
+                Line = lineIndex,
+                Segment = truck.Segment,
+                Slot = k,
+                Position = position with { Y = 0 },
+                From = truck.Position,
+                SpilledAtTick = State.Tick,
+                LandsAtTick = State.Tick + (int)(SpillFallSeconds * TicksPerSecond),
+                Smashed = smashed,
+            });
+        }
     }
 
     void SpawnPackage(BeltLine line)
@@ -1665,24 +1753,13 @@ public sealed partial class Simulation
         line.TicksUntilSpawn = line.SpawnIntervalTicks;
         if (line.Finite && line.Reserve == 0) return; // dry
 
-        // A queue reaching back to the source blocks it; that package never exists.
+        // A queue reaching back to the source blocks it; that truck never leaves.
         if (!EntryClear(line))
         {
             line.BlockedSpawns++;
             return;
         }
-
-        var first = line.Segments[0].Curve;
-        var start = first.PositionAt(0);
-        line.Packages.Add(new Package
-        {
-            Id = _nextId++,
-            Position = start,
-            PrevPosition = start,
-            Direction = first.DirectionAt(0),
-        });
-        line.Spawned++;
-        if (line.Finite) line.Reserve--;
+        AddTruck(line, 0);
     }
 
     // Whoever's unit is on a landed pickup gets it; the rest wait, however long, and smashed ones go when they land.

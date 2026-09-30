@@ -263,10 +263,11 @@ public sealed partial class Simulation
         if (player >= 0 && player < _visions.Count)
             foreach (var g in _visions[player].Ghosts)
                 if (g.Id == id) { at = g.Position; return true; }
+        if (FindTruck(id, out var truck)) { at = truck.Position; return SeesArea(player, truck.Position, TruckRadius); } // seen now, never remembered
         return TryGetTarget(id, out at, out int owner) && owner == player;
     }
 
-    // Whether `player` sees a unit, post or building by id right now (what it may shoot at).
+    // Whether `player` sees a unit, post, building or truck by id right now (what it may shoot at).
     bool SeesTarget(int player, int id)
     {
         if (!Fogged) return true;
@@ -276,7 +277,7 @@ public sealed partial class Simulation
             if (g.Id == id) return g.Owner == player || SeesArea(player, g.Position, PostHalfSize);
         foreach (var b in State.Buildings)
             if (b.Id == id) return b.Owner == player || SeesArea(player, b.Position, b.Type.Size / 2);
-        return false;
+        return FindTruck(id, out var truck) && SeesArea(player, truck.Position, TruckRadius);
     }
 
     // A unit that hits something of `victim`'s is seen by `victim` for a while: its shot gives it away.

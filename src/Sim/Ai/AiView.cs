@@ -19,6 +19,9 @@ public sealed class AiView(Simulation sim, int player)
     /// <summary>Whether the player sees this point now.</summary>
     public bool Sees(Vector3 at) => sim.Sees(Player, at);
 
+    /// <summary>Whether the player sees a truck now: trucks are nobody's, so only while in sight.</summary>
+    public bool SeesTruck(in Package truck) => sim.SeesArea(Player, truck.Position, Simulation.TruckRadius);
+
     /// <summary>Whether the player sees this unit now (its own always).</summary>
     public bool SeesUnit(in Unit unit) => sim.SeesUnit(Player, unit);
 

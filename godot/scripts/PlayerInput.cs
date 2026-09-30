@@ -274,9 +274,7 @@ public partial class PlayerInput : Node
 
     // ---- What a click would do ----
 
-    // What a right-click here orders the selection to do: attack an enemy, force-attack a segment,
-    // repair a damaged one, otherwise move. With a building selected, it sets the rally point.
-    // The point under the cursor at the belts' height (they stand on legs), for picking a segment.
+    // The point under the cursor at the roads' height, for picking a segment.
     SVector3? BeltPoint(Vector2 screen)
     {
         var belts = Host.Sim.State.Belts;
@@ -284,6 +282,23 @@ public partial class PlayerInput : Node
         return Camera.PointAt(screen, height) is Vector3 p ? ToSim(p) : null;
     }
 
+    // A supply truck the local player sees on open road, near a ground point: the nearest.
+    int? TruckAt(SVector3 point)
+    {
+        int? best = null;
+        float bestSq = (Simulation.TruckRadius + PickTolerance) * (Simulation.TruckRadius + PickTolerance);
+        foreach (var line in Host.Sim.State.Belts)
+            foreach (var t in line.Packages)
+            {
+                if (line.Segments[t.Segment].Covered || !Sight.SeesAt(t.Position)) continue;
+                float dx = t.Position.X - point.X, dz = t.Position.Z - point.Z;
+                if (dx * dx + dz * dz < bestSq) (bestSq, best) = (dx * dx + dz * dz, t.Id);
+            }
+        return best;
+    }
+
+    // What a right-click here orders the selection to do: attack an enemy, force-attack a supply truck
+    // or a road piece, repair a damaged one, otherwise move. With a building selected, it sets the rally point.
     Intent RightClickIntent(Vector2 screen, SVector3 point)
     {
         if (SelectedBuilding >= 0) return new(Act.Rally, point);
@@ -292,6 +307,7 @@ public partial class PlayerInput : Node
         if (Buildable.Count > 0 && BuildingAt(point, mine: true) is int site && sim.State.Buildings.Find(b => b.Id == site) is { Built: false })
             return new(Act.Resume, point, site);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
+        if (Input.IsActionPressed("force_attack") && TruckAt(point) is int truck) return new(Act.Attack, point, truck); // trucks are nobody's: only on purpose
         if (BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             if (Input.IsActionPressed("force_attack")) return new(Act.AttackSegment, point, Line: line, Segment: segment);
@@ -391,8 +407,14 @@ public partial class PlayerInput : Node
         var hover = (-1, -1, BeltView.HoverKind.None);
         string hint = "";
         var sim = Host.Sim;
-        if (over is SVector3 point && _selection.Count > 0 && _placingType is null && !_attackMoveArmed && EnemyAt(screen, point) is null
-            && BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
+        bool free = over is SVector3 at && _selection.Count > 0 && _placingType is null && !_attackMoveArmed && EnemyAt(screen, at) is null;
+        if (free && TruckAt(over!.Value) is int truckId && Host.Sim.FindTruck(truckId, out var truck))
+        {
+            bool force = Input.IsActionPressed("force_attack");
+            hint = L.T("truck.hint", truck.Cargo, truck.Health.ToString("0"), truck.MaxHealth.ToString("0")) + "\n"
+                 + (force ? "" : L.T("truck.attack", CommandCard.KeyOf("force_attack"), CommandCard.KeyOf("act")));
+        }
+        else if (free && over is SVector3 point && BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             var s = sim.State.Belts[line].Segments[segment];
             bool force = Input.IsActionPressed("force_attack"), hurt = s.Health < s.MaxHealth && SelectionRepairs();

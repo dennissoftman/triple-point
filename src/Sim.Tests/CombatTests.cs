@@ -111,14 +111,17 @@ public class CombatTests
     public void Posts_pay_their_owner_and_pickups_pay_whoever_collects_them()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
+        sim.AddBeltLine(TwoSegments(), Belt(2) with { Load = 3 });
         sim.AddGatherer(Blue, new Vector3(3, 0, 2), maxDistance: 3);
-        // Red stands on both sides of a break further down and scoops the spill.
-        sim.AddUnit(Red, new Vector3(10, 0, 1.9f), dps: 0);
-        sim.AddUnit(Red, new Vector3(10, 0, -1.9f), dps: 0);
-
+        // Red holds a break further down, wrecks the truck waiting there and scoops what it still carried.
         sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Run(sim, 30 * T);
+        Run(sim, 10 * T);
+        var held = sim.State.Belts[0].Packages[0];
+        Assert.Equal(2, held.Cargo); // Blue's depot took its third
+        sim.AddUnit(Red, held.Position + new Vector3(0, 0, 1.9f), dps: 0);
+        sim.AddUnit(Red, held.Position + new Vector3(0, 0, -1.9f), dps: 0);
+        sim.Tick([new DestroyCommand(held.Id)]);
+        Run(sim, 2 * T);
 
         var (blue, red) = (sim.State.Players[Blue], sim.State.Players[Red]);
         Assert.True(blue.Gathered > 0);

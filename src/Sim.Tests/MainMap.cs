@@ -37,8 +37,10 @@ static class MainMap
         int starting = (int)Setting("StartingPackages", 20);
         for (int p = 0; p < 2; p++) sim.State.Players[sim.AddPlayer()].Packages = starting;
 
-        var belt = new BeltConfig(Setting("BeltSpeed", 1), Setting("PackageSpacing", 1), Setting("SpawnInterval", 2),
-            Setting("SegmentLength", 5), Setting("SegmentHealth", 100), Setting("SpillLoss", 0.3f), (int)Setting("SourceSupply", 0));
+        // SimHost's defaults, where the scene doesn't set them.
+        var belt = new BeltConfig(Setting("BeltSpeed", 5), Setting("PackageSpacing", 10), Setting("SpawnInterval", 12),
+            Setting("SegmentLength", 5), Setting("SegmentHealth", 100), Setting("SpillLoss", 0.3f), (int)Setting("SourceSupply", 0),
+            (int)Setting("TruckLoad", 12), Setting("TruckHealth", 100), Prop(host, "StartFull") is not string full || full == "true");
         foreach (Match path in Regex.Matches(scene, @"\[node name=""[^""]+"" type=""Path3D"" parent=""Belts""\]\n((?:[^\[\n][^\n]*\n)*)"))
         {
             string body = path.Groups[1].Value;

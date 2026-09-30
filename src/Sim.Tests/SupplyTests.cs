@@ -3,12 +3,12 @@ using static Sim.Tests.TestHelpers;
 
 namespace Sim.Tests;
 
-/// <summary>Finite sources: a reserve that spawns, takes back what reaches the end, and drains only through posts and spills.</summary>
+/// <summary>Finite sources: a reserve that loads trucks, takes back what reaches the end, and drains only through depots and destroyed trucks.</summary>
 public class SupplyTests
 {
     static BeltConfig Finite(int supply, float spillLoss = 0) => Belt(0.5f, spillLoss) with { Supply = supply };
 
-    static int OnBelt(Simulation sim) => sim.State.Belts[0].Packages.Count;
+    static int OnBelt(Simulation sim) => sim.State.Belts[0].Packages.Sum(t => t.Cargo);
 
     [Fact]
     public void What_nobody_takes_comes_back_round_so_the_reserve_never_runs_dry()
@@ -42,26 +42,26 @@ public class SupplyTests
     }
 
     [Fact]
-    public void A_break_wastes_what_falls_off_and_repair_stops_the_bleeding()
+    public void A_break_holds_trucks_up_but_wastes_nothing_while_a_destroyed_truck_loses_what_breaks()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Finite(supply: 40, spillLoss: 1)); // every spill breaks in the fall
+        sim.AddBeltLine(TwoSegments(), Finite(supply: 40, spillLoss: 1) with { Load = 4, SpawnIntervalSeconds = 2 }); // every spill breaks
         var line = sim.State.Belts[0];
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Run(sim, 10 * T);
-        int left = line.Reserve + OnBelt(sim);
-        Assert.Equal(40 - line.Destroyed, left);
-        Assert.True(line.Destroyed > 0);
+        Run(sim, 20 * T);
+        Assert.Equal(40, line.Reserve + OnBelt(sim)); // all still there, waiting
+
+        sim.Tick([new DestroyCommand(line.Packages[0].Id)]);
+        Assert.Equal(4, line.Destroyed);
+        Assert.Equal(36, line.Reserve + OnBelt(sim));
 
         sim.State.Players[Blue].Packages = 100;
-        int builder = sim.AddUnit(Blue, new Vector3(15, 0, 2), speed: 5, repairSeconds: 1);
+        int builder = sim.AddUnit(Blue, new Vector3(15, 0, 3), speed: 5, repairSeconds: 1);
         sim.Tick([new RepairSegmentCommand(Blue, builder, 0, 1)]);
-        Run(sim, 5 * T);
-        int destroyed = line.Destroyed;
-        Run(sim, 20 * T);
-        Assert.Equal(destroyed, line.Destroyed); // mended: nothing more lost
-        Assert.Equal(40 - destroyed, line.Reserve + OnBelt(sim));
+        Run(sim, 30 * T);
+        Assert.True(line.Returned > 0); // flowing again
+        Assert.Equal(36, line.Reserve + OnBelt(sim));
     }
 
     [Fact]

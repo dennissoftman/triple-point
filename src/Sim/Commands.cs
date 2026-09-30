@@ -54,7 +54,7 @@ public sealed record DestroyCommand(int TargetId) : Command(Sim.Player.None);
 
 public enum SimEventKind
 {
-    UnitArrived, UnitDied, PackageLost, PackageGathered, PickupCollected, GathererDestroyed,
+    UnitArrived, UnitDied, PackageLost, PackageGathered, PickupCollected, GathererDestroyed, TruckDestroyed,
     SegmentBroken, SegmentRepaired, ShellHit,
     UnitProduced, BuildingDestroyed, BuildingPlaced, BuildingCompleted, BuildBlocked,
     GraceStarted, GraceEnded, PlayerLost, GameOver,
@@ -62,10 +62,11 @@ public enum SimEventKind
 
 /// <summary>
 /// Something that happened during a tick, for effects, sound and UI.
-/// Id: a unit, package, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked);
+/// Id: a unit, truck, gatherer or building id (the new unit for UnitProduced, the builder for BuildBlocked;
+/// the truck for PackageLost and PackageGathered: what it still carried at the end, or what it unloaded);
 /// the player for GraceStarted, GraceEnded and PlayerLost; the winner (Player.None: a draw) for GameOver; the line index for
 /// segment events; the projectile id for ShellHit (it's gone by then; views know where they last drew it).
-/// Index: the segment for segment events, the gatherer id for PackageGathered, the collecting unit for PickupCollected (Id: the pickup), the building for UnitProduced, the builder
+/// Index: the segment for segment events, the line for TruckDestroyed, the gatherer id for PackageGathered, the collecting unit for PickupCollected (Id: the pickup), the building for UnitProduced, the builder
 /// for BuildingPlaced, why for BuildBlocked (Simulation.BlockedByTheSite or BlockedByMoney), and for
 /// BuildingCompleted what the building became: itself, or the gatherer post or defense unit that replaced it.
 /// </summary>

@@ -6,36 +6,43 @@ using Sim;
 using static SimConvert;
 
 /// <summary>
-/// Draws the belts, packages, spilled pickups, and gatherer posts. A belt reads as a machine made of
-/// pieces: a surface between rails, on a shallow base, raised on legs at every joint between segments
-/// (units drive under it), with a clamp over the rails there, so each segment is visibly a thing that
-/// can be shot apart. Damage tints a segment and shows its health bar; a broken one sags into two
-/// halves hanging at the break with debris fallen below, settling back as repair brings its health back. The segment under the cursor, with units
-/// selected, lights up in the color of what a right-click would do (PlayerInput sets Hover). Covered
-/// stretches are a closed housing over the belt, dark where the open belt comes out. While a post is
-/// being placed, green strips beside the belts mark where one can go (ShowPostSpots). A spilled package
-/// jumps off the belt tumbling and lands; one that breaks in the fall bursts into shards. A finite source
-/// shows what it has left as a gauge on the housing where its belt comes into play. Under fog of war,
-/// packages, spills and enemy posts show only where the local player sees, and segments as it last saw
-/// them (Sight); a remembered enemy post stays until it looks again.
+/// Draws the supply routes (belt lines in the code): roads, the trucks on them, spilled pickups, and
+/// depots (gatherer posts). A road is a flat strip on the ground with light edges and a seam where each
+/// piece meets the next, so every piece is visibly a thing that can be shot apart. Damage tints a piece
+/// and shows its health bar; a broken one is torn slabs round a crater, flattening back as repair brings
+/// its health back. The piece under the cursor, with units selected, lights up in the color of what a
+/// right-click would do (PlayerInput sets Hover). Covered stretches are a closed housing over the road,
+/// dark where the open road comes out; trucks inside it aren't drawn. A truck is a cab and a bed with
+/// crates on it, as many as its load left; hurt, it shows a health bar, and destroyed it leaves a burnt
+/// wreck that sinks away. While a depot is being placed, green strips beside the roads mark where one
+/// can go (ShowPostSpots). A spilled package jumps off the truck tumbling and lands; one that breaks in the
+/// fall bursts into shards. A finite source shows what it has left as a gauge on the housing where its
+/// road comes into play. Under fog of war, trucks, spills and enemy depots show only where the local player
+/// sees, and road pieces as it last saw them (Sight); a remembered enemy depot stays until it looks again.
 /// </summary>
 public partial class BeltView : Node3D
 {
     const float RibbonStep = 0.25f; // meters between belt cross-sections
     const float FlashTicks = 6;     // a gatherer glows this long after a grab
-    static readonly Vector3 PostSize = new(1.6f, 1.2f, 1.6f);
+    static readonly Vector3 PostSize = new(2f, 1.6f, 2f); // a depot's shed
+    // A truck, m: its body from the ground up, the cab at the front; crates stand on the bed in rows of
+    // two, three rows deep. A wreck stays this long, sinking over its last seconds.
+    const float TruckLength = 6f, TruckWidth = 2.3f, CabLength = 1.8f, CabHeight = 2.4f, BedHeight = 1.1f, ChassisHeight = 0.7f;
+    const int CrateSpots = 6;
+    const float CrateSize = 0.8f;
+    const float WreckSeconds = 30f, WreckSink = 5f;
+    const float RoadTop = 0.05f, EdgeWidth = 0.22f, SeamLength = 0.25f; // the road's surface above the ground; its edge lines
 
     // The belt's cross-section, m: rails either side of the surface, standing above it, and a base down
     // to the ground. Joints are crossbars a little wider and taller than the belt.
     const float RailWidth = 0.14f, RailHeight = 0.16f;
     const float JointLength = 0.3f, JointOverhang = 0.15f, JointRise = 0.06f;
-    const float BreakGap = 0.5f;     // m between a broken segment's halves
-    const float BuckleDegrees = 24f; // how far a broken segment's halves sag at the break, at 0 health
-    const float TwistDegrees = 10f;  // and roll sideways, opposite ways, so it reads as wreckage
+    const float BreakGap = 2.4f;     // m between a broken piece's halves: the crater
+    const float BuckleDegrees = 7f;  // how far a broken piece's slabs tilt up at the crater, at 0 health
+    const float TwistDegrees = 5f;   // and roll sideways, opposite ways, so it reads as wreckage
     const float HealthBarHeight = 1.4f;
-    const float HousingHeight = 0.8f, HousingOverhang = 0.12f; // m above the surface, and beyond the rails
-    const float BaseDepth = 0.3f;                              // m: the base under the surface; the legs carry it
-    const float LegWidth = 0.18f, BeamHeight = 0.12f;          // the legs at each joint, and the beam across under the belt
+    const float HousingHeight = 2.8f, HousingOverhang = 0.3f; // m above the road, and beyond its edges: a truck fits under
+    const float BaseDepth = 0.3f;                              // m: how far a housing reaches below the road
     const float SpotWidth = 0.5f, SpotHeight = 0.04f, SpotStep = 0.5f; // the free-spot strips beside the belt
     const float FallHop = 0.9f, FallTurns = 1.25f; // a spilled package's jump off the belt, on average (its time is the sim's)
     const float CollectSeconds = 0.35f, PopSeconds = 1.1f, PopRise = 2.2f; // a collected pickup flies to its unit; the +1 floats up
@@ -109,7 +116,12 @@ void fragment() {
     [Export] public Color SupplyColor = new(0.95f, 0.65f, 0.2f); // the source gauge; the packages' color
     [Export] public Color DamagedTint = new(1f, 0.55f, 0.25f); // multiplies a working segment's colors as health drops
     [Export] public Color BrokenTint = new(1f, 0.4f, 0.32f);   // and a broken one's, fading as repair restores health
-    [Export] public float BeltWidth = 1.2f;
+    [Export] public float BeltWidth = 3.2f; // the road's
+    [Export] public Color RoadColor = new(0.2f, 0.2f, 0.21f);
+    [Export] public Color RoadEdgeColor = new(0.62f, 0.62f, 0.58f);
+    [Export] public Color TruckColor = new(0.45f, 0.43f, 0.33f);   // nobody's: a drab olive
+    [Export] public Color CabColor = new(0.33f, 0.34f, 0.3f);
+    [Export] public Color WreckColor = new(0.1f, 0.09f, 0.08f);
     [Export] public float PackageSize = 0.6f;
     [Export] public StandardMaterial3D GathererMaterial = null!;
 
@@ -151,10 +163,15 @@ void fragment() {
     readonly Dictionary<int, PostView> _posts = []; // by gatherer id; destroyed posts go away
     readonly HashSet<int> _seen = [];
     readonly List<int> _gone = [];
-    InstanceBatch _packages = null!, _pickups = null!, _shardBatch = null!, _collectBatch = null!;
+    InstanceBatch _packages = null!, _cargo = null!, _pickups = null!, _shardBatch = null!, _collectBatch = null!;
+    readonly Dictionary<int, HealthBar> _truckBars = []; // trucks that are hurt, by id
+    readonly Dictionary<int, Transform3D> _truckAt = []; // where each truck was last drawn, for its wreck
+    readonly List<(Node3D Node, float Born)> _wrecks = [];
+    StandardMaterial3D _wreckMaterial = null!;
     static bool _timeParameterAdded;
     bool _textured; // the belt atlas loaded: parts take their look from it, not their vertex colors
     StandardMaterial3D _debrisMaterial = null!, _railDebrisMaterial = null!;
+    StandardMaterial3D? _craterMaterial;
     MeshInstance3D _spots = null!;
 
     public void Build(SimState state)
@@ -167,30 +184,28 @@ void fragment() {
             _timeParameterAdded = true;
         }
         var shader = new Shader { Code = SegmentShader };
-        var legs = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, AlbedoTexture = atlas, Roughness = 0.8f };
         _debrisMaterial = new StandardMaterial3D { AlbedoColor = DebrisColor, Roughness = 0.9f };
-        _railDebrisMaterial = new StandardMaterial3D { AlbedoColor = RailColor * BrokenTint, Roughness = 0.6f };
+        _railDebrisMaterial = new StandardMaterial3D { AlbedoColor = RoadEdgeColor * BrokenTint, Roughness = 0.9f };
         foreach (var line in state.Belts)
         {
             var views = new SegmentView[line.Segments.Length];
             for (int s = 0; s < line.Segments.Length; s++)
             {
+                bool covered = line.Segments[s].Covered;
                 var material = new ShaderMaterial { Shader = shader };
                 material.SetShaderParameter("atlas", atlas!);
-                material.SetShaderParameter("textured", _textured);
-                material.SetShaderParameter("roughness", BeltMaterial.Roughness);
+                material.SetShaderParameter("textured", _textured && covered); // the road is flat colors; only its housing is textured
+                material.SetShaderParameter("roughness", 0.9f);
                 material.SetShaderParameter("surface_band", BandTop / 1024f);
-                material.SetShaderParameter("scroll", line.Speed / TopRepeat);
+                material.SetShaderParameter("scroll", 0f);
                 var curve = line.Segments[s].Curve;
                 bool last = s == line.Segments.Length - 1;
-                bool covered = line.Segments[s].Covered;
                 var whole = new MeshInstance3D { Mesh = BuildSection(curve, 0, curve.Length, Vector3.Zero, joint: true, endJoint: last, covered), MaterialOverride = material };
                 AddChild(whole);
                 views[s] = new SegmentView { Whole = whole, Material = material };
             }
             _segments.Add(views);
             _gauges.Add(line.Finite ? BuildGauge(line) : null);
-            AddChild(new MeshInstance3D { Mesh = BuildLegs(line), MaterialOverride = legs });
         }
 
         var crates = PackageMaterial;
@@ -201,7 +216,10 @@ void fragment() {
             crates = crateMaterial;
         }
         var box = new BoxMesh { Size = Vector3.One * PackageSize, Material = crates };
-        _packages = new InstanceBatch(this, box, customData: true);
+        var body = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.75f };
+        _packages = new InstanceBatch(this, BuildTruck(body));
+        _cargo = new InstanceBatch(this, new BoxMesh { Size = Vector3.One * CrateSize, Material = crates }, customData: true);
+        _wreckMaterial = new StandardMaterial3D { AlbedoColor = WreckColor, Roughness = 1f };
         _pickups = new InstanceBatch(this, box, customData: true);
         _shardBatch = new InstanceBatch(this, new BoxMesh { Size = Vector3.One * ShardSize, Material = crates }, customData: true);
         _collectBatch = new InstanceBatch(this, box, customData: true);
@@ -239,7 +257,7 @@ void fragment() {
                     {
                         float d = from + (to - from) * k / steps;
                         var side = ToGodot(line.DirectionAt(d)).Cross(Vector3.Up).Normalized();
-                        return (ToGodot(line.PositionAt(d)) with { Y = SpotHeight }) + side * (sign * (Simulation.PostOffset + o));
+                        return (ToGodot(line.PositionAt(d)) with { Y = RoadTop + SpotHeight }) + side * (sign * (Simulation.PostOffset + o));
                     }
                     Quad(st, Edge(i, -SpotWidth / 2), Edge(i, SpotWidth / 2), Edge(i + 1, SpotWidth / 2), Edge(i + 1, -SpotWidth / 2), Vector3.Up, Colors.White);
                 }
@@ -253,19 +271,41 @@ void fragment() {
     {
         _state = state;
         RenderingServer.GlobalShaderParameterSet(TimeParameter, (state.Tick - 1 + alpha) / Simulation.TicksPerSecond);
-        var lift = new Vector3(0, PackageSize / 2, 0); // sit on the surface, not in it
+        var lift = new Vector3(0, PackageSize / 2, 0); // sit on the ground, not in it
 
         int total = 0;
         foreach (var line in state.Belts) total += line.Packages.Count;
         _packages.Begin(total);
+        _cargo.Begin(total * CrateSpots);
+        _seen.Clear();
         for (int l = 0; l < state.Belts.Count; l++)
         {
             var line = state.Belts[l];
             SyncSegments(l, line, _segments[l]);
             foreach (var p in line.Packages)
-                if (Sight.SeesAt(p.Position)) _packages.Add(ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) + lift, ToGodot(p.Direction), custom: Crate(p.Id));
+            {
+                if (line.Segments[p.Segment].Covered || !Sight.SeesAt(p.Position)) continue; // in the tunnel, or out of sight
+                var at = ToGodot(p.PrevPosition).Lerp(ToGodot(p.Position), alpha) with { Y = 0 };
+                var forward = ToGodot(p.Direction) with { Y = 0 };
+                var basis = Basis.LookingAt(forward.LengthSquared() > 1e-6f ? forward : Vector3.Forward, Vector3.Up);
+                var truck = new Transform3D(basis, at);
+                _packages.Add(truck);
+                _truckAt[p.Id] = truck;
+                _seen.Add(p.Id);
+                // Crates on the bed: as many of the spots as its load left fills, front row first.
+                int crates = (int)MathF.Ceiling(CrateSpots * (float)p.Cargo / line.Load);
+                for (int k = 0; k < crates; k++)
+                {
+                    var spot = new Vector3((k % 2 - 0.5f) * (CrateSize + 0.1f), BedHeight + CrateSize / 2, -TruckLength / 2 + CabLength + 0.6f + k / 2 * (CrateSize + 0.15f));
+                    _cargo.Add(new Transform3D(basis, at + basis * new Vector3(spot.X, spot.Y, -spot.Z)), Crate(p.Id * 8 + k));
+                }
+                SyncTruckBar(p, at);
+            }
         }
         _packages.End();
+        _cargo.End();
+        ForgetTrucks();
+        SyncWrecks((state.Tick - 1 + alpha) / Simulation.TicksPerSecond);
 
         SyncPosts(state);
         SyncGauges(state);
@@ -294,7 +334,8 @@ void fragment() {
             float tilt = Random01(p.Id, 4) * MathF.Tau;
             var axis = new Vector3(MathF.Cos(tilt), 0.2f + 0.6f * Random01(p.Id, 5), MathF.Sin(tilt)).Normalized();
             // Up first, then out, so it clears the rail before it swings wide of the belt.
-            var at = ToGodot(p.From).Lerp(ToGodot(p.Position), t * t) + lift + Vector3.Up * (hop * 4 * t * (1 - t));
+            var from = ToGodot(p.From) with { Y = BedHeight }; // off the truck's bed
+            var at = from.Lerp(ToGodot(p.Position), t * t) + lift + Vector3.Up * (hop * 4 * t * (1 - t));
             _pickups.Add(new Transform3D(new Basis(axis, (1 - t) * turns * MathF.Tau) * rest, at), crate);
         }
         _pickups.End();
@@ -313,9 +354,14 @@ void fragment() {
         return (h & 0xFFFFFF) / (float)0x1000000;
     }
 
-    /// <summary>Effects for belt events: a collected pickup flies into its unit, with a +1 over it.</summary>
+    /// <summary>Effects for route events: a destroyed truck leaves a wreck; a collected pickup flies into its unit, with a +1 over it.</summary>
     public void OnEvent(SimEvent e, SimState state)
     {
+        if (e.Kind == SimEventKind.TruckDestroyed)
+        {
+            if (_truckAt.Remove(e.Id, out var where) && Sight.SeesAt(ToSim(where.Origin))) AddWreck(where);
+            return;
+        }
         if (e.Kind != SimEventKind.PickupCollected || !_pickupAt.Remove(e.Id, out var at) || !Sight.SeesAt(ToSim(at))) return;
         _collecting.Add((at, e.Index, Random01(e.Id, 0) * MathF.Tau, _seconds, Crate(e.Id)));
         var label = _spareLabels.Count > 0 ? _spareLabels.Pop() : NewPopLabel();
@@ -403,7 +449,85 @@ void fragment() {
         _shardBatch.End();
     }
 
-    // Over the housing just before the open belt starts (or over the source, for a belt with no covered start).
+    // A truck's body, facing -Z (Godot's forward), on the ground: chassis, cab at the front, the bed behind
+    // it, and dark wheels. One mesh for every truck, colored in its vertices.
+    ArrayMesh BuildTruck(Material material)
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        float hw = TruckWidth / 2, front = -TruckLength / 2, back = TruckLength / 2;
+        var wheel = new Color(0.08f, 0.08f, 0.08f);
+        Vector2 uv = PlainUv;
+        void Box(float x0, float x1, float y0, float y1, float z0, float z1, Color c) =>
+            Block(st, Vector3.Zero, Vector3.Right, Vector3.Back, x0, x1, y0, y1, z0, z1, c, uv, uv, uv, uv);
+        Box(-hw + 0.15f, hw - 0.15f, 0.35f, ChassisHeight, front + 0.2f, back - 0.1f, wheel);          // chassis
+        Box(-hw, hw, ChassisHeight, CabHeight, front, front + CabLength, CabColor);                    // cab
+        Box(-hw, hw, ChassisHeight, BedHeight, front + CabLength + 0.1f, back, TruckColor);            // bed
+        Box(-hw, -hw + 0.1f, BedHeight, BedHeight + 0.4f, front + CabLength + 0.1f, back, TruckColor); // its low sides
+        Box(hw - 0.1f, hw, BedHeight, BedHeight + 0.4f, front + CabLength + 0.1f, back, TruckColor);
+        Box(-hw + 0.2f, hw - 0.2f, CabHeight - 0.9f, CabHeight - 0.35f, front - 0.01f, front + 0.02f, new Color(0.15f, 0.2f, 0.25f)); // windscreen
+        foreach (float z in new[] { front + 0.9f, back - 1.6f, back - 0.6f })
+            foreach (float x in new[] { -hw, hw - 0.35f })
+                Box(x, x + 0.35f, 0, 0.8f, z - 0.4f, z + 0.4f, wheel);
+        st.SetMaterial(material);
+        return st.Commit();
+    }
+
+    // A hurt truck's health bar, over its cab; made when it's first hurt, dropped when it's gone.
+    void SyncTruckBar(in Package truck, Vector3 at)
+    {
+        float health = truck.MaxHealth > 0 ? truck.Health / truck.MaxHealth : 1;
+        if (health >= 1 && !_truckBars.ContainsKey(truck.Id)) return;
+        if (!_truckBars.TryGetValue(truck.Id, out var bar)) AddChild(_truckBars[truck.Id] = bar = new HealthBar());
+        bar.Position = at + new Vector3(0, CabHeight + 0.8f, 0);
+        bar.Set(health, HealthBar.HealthColor(health));
+        bar.Visible = true;
+    }
+
+    // Trucks not drawn this frame (gone, out of sight, in a tunnel) lose their bar; the gone ones their place.
+    void ForgetTrucks()
+    {
+        _gone.Clear();
+        foreach (var id in _truckBars.Keys) if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (int id in _gone)
+        {
+            _truckBars[id].QueueFree();
+            _truckBars.Remove(id);
+        }
+        if (_truckAt.Count <= _seen.Count + 16) return; // prune now and then, not every frame
+        _gone.Clear();
+        foreach (var id in _truckAt.Keys) if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (int id in _gone) _truckAt.Remove(id);
+    }
+
+    // A burnt-out truck where one was destroyed: its shape, charred, tipped a little, sinking away at the end.
+    void AddWreck(Transform3D at)
+    {
+        var node = new Node3D { Transform = at };
+        node.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(TruckWidth, BedHeight, TruckLength - 0.4f) }, MaterialOverride = _wreckMaterial, Position = new Vector3(0, BedHeight / 2, 0), RotationDegrees = new Vector3(0, 0, 6) });
+        node.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(TruckWidth - 0.2f, CabHeight - BedHeight, CabLength) }, MaterialOverride = _wreckMaterial, Position = new Vector3(0, (CabHeight + BedHeight) / 2 - 0.2f, -TruckLength / 2 + CabLength / 2) });
+        AddChild(node);
+        _wrecks.Add((node, _seconds));
+    }
+
+    void SyncWrecks(float seconds)
+    {
+        for (int i = _wrecks.Count - 1; i >= 0; i--)
+        {
+            var (node, born) = _wrecks[i];
+            float age = seconds - born;
+            if (age > WreckSeconds || age < 0) // gone, or the game restarted
+            {
+                node.QueueFree();
+                _wrecks.RemoveAt(i);
+                continue;
+            }
+            float sink = MathF.Max(0, age - (WreckSeconds - WreckSink)) / WreckSink;
+            node.Position = node.Position with { Y = -sink * CabHeight };
+        }
+    }
+
+    // Over the housing just before the open road starts (or over the source, for a route with no covered start).
     (HealthBar, Label3D, int) BuildGauge(BeltLine line)
     {
         int open = Array.FindIndex(line.Segments, s => !s.Covered);
@@ -511,17 +635,18 @@ void fragment() {
         wreck.AddChild(view.HalfA);
         wreck.AddChild(view.HalfB);
 
-        // A few torn plates and bent rail pieces fallen under the break, the same for the same segment every time.
+        // A crater in the gap, and chunks of road thrown round it, the same for the same piece every time.
         var center = ToGodot(curve.PositionAt(mid)) with { Y = 0 };
+        wreck.AddChild(new MeshInstance3D { Mesh = new CylinderMesh { TopRadius = BreakGap * 0.75f, BottomRadius = BreakGap * 0.5f, Height = 0.06f }, MaterialOverride = _craterMaterial ??= new StandardMaterial3D { AlbedoColor = new Color(0.07f, 0.06f, 0.05f), Roughness = 1f }, Position = center + new Vector3(0, 0.03f, 0) });
         var forward = ToGodot(curve.DirectionAt(mid)) with { Y = 0 };
         forward = forward.Normalized();
         var side = forward.Cross(Vector3.Up);
         var random = new RandomNumberGenerator { Seed = (ulong)(line.Segments.Length * 7919 + s * 104729 + (int)(curve.Length * 1000)) };
         for (int k = 0; k < 6; k++)
         {
-            bool rail = k % 3 == 0;
-            var size = rail ? new Vector3(RailWidth, RailWidth, random.RandfRange(0.5f, 0.9f)) : new Vector3(random.RandfRange(0.25f, 0.5f), 0.08f, random.RandfRange(0.2f, 0.45f));
-            var at = center + side * random.RandfRange(-1.4f, 1.4f) + forward * random.RandfRange(-0.9f, 0.9f) + new Vector3(0, size.Y / 2, 0);
+            bool rail = k % 3 == 0; // an edge piece
+            var size = rail ? new Vector3(EdgeWidth, 0.12f, random.RandfRange(0.5f, 0.9f)) : new Vector3(random.RandfRange(0.35f, 0.7f), 0.12f, random.RandfRange(0.3f, 0.6f));
+            var at = center + side * random.RandfRange(-2.4f, 2.4f) + forward * random.RandfRange(-1.6f, 1.6f) + new Vector3(0, size.Y / 2, 0);
             var basis = new Basis(Vector3.Up, random.RandfRange(0, MathF.Tau)) * new Basis(Vector3.Right, random.RandfRange(-0.3f, 0.3f));
             wreck.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = size }, MaterialOverride = rail ? _railDebrisMaterial : _debrisMaterial, Transform = new Transform3D(basis, at) });
         }
@@ -582,13 +707,13 @@ void fragment() {
         return remembered;
     }
 
-    // A box in the owner's colors, with an arm reaching to its pull point on the belt.
+    // A depot: a shed in the owner's colors, and a loading bay from it to the road's edge at its pull point.
     PostView BuildPost(SimState state, in Gatherer gatherer)
     {
         var material = (StandardMaterial3D)GathererMaterial.Duplicate();
         material.AlbedoColor = GathererMaterial.AlbedoColor.Lerp(PlayerPalette.Color(gatherer.Owner), 0.55f);
 
-        var root = new Node3D { Position = ToGodot(gatherer.Position) };
+        var root = new Node3D { Position = ToGodot(gatherer.Position) with { Y = 0 } };
         AddChild(root);
         root.AddChild(new MeshInstance3D
         {
@@ -597,35 +722,28 @@ void fragment() {
             Position = new Vector3(0, PostSize.Y / 2, 0),
         });
 
-        var pull = ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance)) - root.Position;
-        var from = new Vector3(0, pull.Y + 0.1f, 0);
-        var reach = pull - from;
-        root.AddChild(new MeshInstance3D // a mast from the post up to the belt's height
-        {
-            Mesh = new BoxMesh { Size = new Vector3(0.25f, from.Y - PostSize.Y + 0.06f, 0.25f) },
-            MaterialOverride = material,
-            Position = new Vector3(0, (from.Y + PostSize.Y) / 2, 0),
-        });
+        var pull = (ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance)) with { Y = 0 }) - root.Position;
+        var toRoad = pull.Normalized() * MathF.Max(0.1f, pull.Length() - BeltWidth / 2); // stop at the road's edge
+        var bay = toRoad - pull.Normalized() * (PostSize.X / 2);
         root.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(0.2f, 0.12f, reach.Length()) },
+            Mesh = new BoxMesh { Size = new Vector3(PostSize.X * 0.8f, 0.3f, MathF.Max(0.1f, bay.Length())) },
             MaterialOverride = material,
-            Transform = new Transform3D(Basis.LookingAt(reach, Vector3.Up), from + reach / 2),
+            Transform = new Transform3D(Basis.LookingAt(pull, Vector3.Up), pull.Normalized() * (PostSize.X / 2) + bay / 2 + new Vector3(0, 0.15f, 0)),
         });
 
-        var health = new HealthBar { Position = new Vector3(0, from.Y + 0.6f, 0), Visible = false };
+        var health = new HealthBar { Position = new Vector3(0, PostSize.Y + 0.8f, 0), Visible = false };
         root.AddChild(health);
         return new PostView(root, material, health);
     }
 
-    // A stretch of belt from `from` to `to` m along the curve, its vertices relative to `origin`: the
-    // cross-section swept along it (base walls, rails, the surface between), capped at both ends, with a
-    // joint crossbar at its start and, if asked, at its end. Colors are in the vertices, and UVs into the
-    // belt atlas: the surface its top band, running along the belt; rails and base the rail band; the
-    // housing its band; joints the crossbar band.
+    // A stretch of road from `from` to `to` m along the curve, its vertices relative to `origin`: the
+    // cross-section swept along it (the slab and its edge lines), capped at both ends, with a seam at its
+    // start and, if asked, at its end; or, covered, the housing over it. Colors are in the vertices; the
+    // housing takes its band of the atlas.
     ArrayMesh BuildSection(BezierSegment curve, float from, float to, Vector3 origin, bool joint, bool endJoint, bool covered = false)
     {
-        float hw = BeltWidth / 2, r = RailWidth, rh = RailHeight;
+        float hw = BeltWidth / 2;
         int steps = Math.Max(1, (int)MathF.Ceiling((to - from) / RibbonStep));
         var centers = new Vector3[steps + 1];
         var sides = new Vector3[steps + 1];
@@ -641,14 +759,15 @@ void fragment() {
         Vector3 At(int i, float o, float h) => centers[i] + sides[i] * o + Vector3.Up * (h == Ground ? -(centers[i].Y + origin.Y) : h);
 
         // The cross-section, left to right; each consecutive pair is swept into a strip, colored as the
-        // second point says, facing out of the belt.
-        float w = hw + r + HousingOverhang;
+        // second point says, facing out of the road: a slab on the ground with light edge lines.
+        float w = hw + HousingOverhang;
         float under = -BaseDepth;
+        float edge = EdgeWidth;
         (float O, float H, Color C)[] profile = covered
             ? [(-w, under, HousingColor), (-w, HousingHeight, HousingColor), (w, HousingHeight, HousingRoofColor), (w, under, HousingColor), (-w, under, HousingColor)]
             : [
-                (-hw - r, under, BaseColor), (-hw - r, rh, BaseColor), (-hw, rh, RailColor), (-hw, 0, RailColor),
-                (hw, 0, BeltMaterial.AlbedoColor), (hw, rh, RailColor), (hw + r, rh, RailColor), (hw + r, under, BaseColor), (-hw - r, under, BaseColor),
+                (-hw, 0, RoadEdgeColor), (-hw, RoadTop, RoadEdgeColor), (-hw + edge, RoadTop, RoadEdgeColor), (hw - edge, RoadTop, RoadColor),
+                (hw, RoadTop, RoadEdgeColor), (hw, 0, RoadEdgeColor),
             ];
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
@@ -656,9 +775,9 @@ void fragment() {
         {
             var (o0, h0, _) = profile[e];
             var (o1, h1, color) = profile[e + 1];
-            bool surface = !covered && h0 == 0 && h1 == 0;
+            bool surface = false; // nothing on a road scrolls
             var (band, repeat) = covered ? (BandHousing, HousingRepeat) : surface ? (BandTop, TopRepeat) : (BandRail, RailRepeat);
-            if (_textured) color = covered || surface ? Colors.White : new Color(0.9f, 0.9f, 0.92f);
+            if (_textured && covered) color = Colors.White; // the housing takes its look from the atlas; the road keeps its colors
             float v0 = band.X / 1024f, v1 = band.Y / 1024f;
             if ((o0 + o1) / 2 > 0.01f) (v0, v1) = (v1, v0); // the right side mirrors the left
             // Out of the belt: across the edge, to its left as it runs left to right (up, for the surface).
@@ -681,35 +800,12 @@ void fragment() {
             Quad(st, At(steps, -w, under), At(steps, w, under), At(steps, w, HousingHeight), At(steps, -w, HousingHeight), ahead, mouth);
             return st.Commit();
         }
-        Cap(st, (o, h) => At(0, o, h), back, hw, r, rh, under);
-        Cap(st, (o, h) => At(steps, o, h), ahead, hw, r, rh, under);
+        var cap = new Color(0.14f, 0.14f, 0.14f); // the slab's cut ends
+        Quad(st, At(0, -hw, 0), At(0, hw, 0), At(0, hw, RoadTop), At(0, -hw, RoadTop), back, cap);
+        Quad(st, At(steps, -hw, 0), At(steps, hw, 0), At(steps, hw, RoadTop), At(steps, -hw, RoadTop), ahead, cap);
 
-        if (joint) Joint(st, centers[0], sides[0], under);
-        if (endJoint) Joint(st, centers[steps], sides[steps], under);
-        return st.Commit();
-    }
-
-    // Legs at every joint of a line (and its two ends), two per joint with a beam across under the belt:
-    // one static mesh per line, so a broken segment's halves sag between legs that stay put.
-    ArrayMesh BuildLegs(BeltLine line)
-    {
-        var st = new SurfaceTool();
-        st.Begin(Mesh.PrimitiveType.Triangles);
-        float hw = BeltWidth / 2, outer = hw + RailWidth, half = LegWidth / 2;
-        var color = _textured ? new Color(0.8f, 0.8f, 0.82f) : BaseColor;
-        Vector2 a = new(0, BandRail.X / 1024f), b = new(1, BandRail.X / 1024f), c = new(1, BandRail.Y / 1024f), d = new(0, BandRail.Y / 1024f);
-        for (int s = 0; s <= line.Segments.Length; s++)
-        {
-            float along = s < line.Segments.Length ? line.Segments[s].Start : line.Length;
-            var center = ToGodot(line.PositionAt(along));
-            var side = ToGodot(line.DirectionAt(along)).Cross(Vector3.Up).Normalized();
-            var forward = Vector3.Up.Cross(side).Normalized();
-            float underside = center.Y - BaseDepth;
-            var foot = center with { Y = 0 };
-            foreach (float o in new[] { -outer + half, outer - half })
-                Block(st, foot, side, forward, o - half, o + half, 0, underside, -half, half, color, a, b, c, d);
-            Block(st, foot, side, forward, -outer, outer, underside - BeamHeight, underside, -half, half, color, a, b, c, d);
-        }
+        if (joint) Seam(st, centers[0], sides[0]);
+        if (endJoint) Seam(st, centers[steps], sides[steps]);
         return st.Commit();
     }
 
@@ -726,37 +822,13 @@ void fragment() {
         Quad(st, P(o1, h0, f0), P(o1, h0, f1), P(o1, h1, f1), P(o1, h1, f0), side, c, a, b, cc, d);
     }
 
-    // The end of a stretch: its cross-section filled in (the base and each rail), dark, facing `outward`.
-    static void Cap(SurfaceTool st, Func<float, float, Vector3> at, Vector3 outward, float hw, float r, float rh, float ground)
+    // Where one road piece meets the next: a light line across the road, just above it.
+    void Seam(SurfaceTool st, Vector3 center, Vector3 side)
     {
-        var color = new Color(0.16f, 0.16f, 0.17f);
-        float edge = hw + r;
-        Quad(st, at(-edge, ground), at(edge, ground), at(edge, 0), at(-edge, 0), outward, color); // under the surface
-        Quad(st, at(-edge, 0), at(-hw, 0), at(-hw, rh), at(-edge, rh), outward, color);          // the left rail
-        Quad(st, at(hw, 0), at(edge, 0), at(edge, rh), at(hw, rh), outward, color);              // the right rail
-    }
-
-    // A joint: a clamp over each rail, from the base's underside to just above it, and a flush seam across
-    // the surface between them, so packages pass over it.
-    void Joint(SurfaceTool st, Vector3 center, Vector3 side, float ground)
-    {
-        var forward = Vector3.Up.Cross(side).Normalized(); // along the belt
-        float hw = BeltWidth / 2, outer = hw + RailWidth + JointOverhang, top = RailHeight + JointRise, length = JointLength / 2;
-        Vector3 P(float o, float h, float f) => center + side * o + Vector3.Up * h + forward * f;
-        var c = _textured ? Colors.White : JointColor;
-        // The crossbar band runs across each clamp; each face shows it end to end.
-        Vector2 a = new(0, BandCrossbar.X / 1024f), b = new(1, BandCrossbar.X / 1024f), cc = new(1, BandCrossbar.Y / 1024f), d = new(0, BandCrossbar.Y / 1024f);
-        foreach (var (o0, o1) in new[] { (-outer, -hw + 0.02f), (hw - 0.02f, outer) })
-        {
-            Quad(st, P(o0, top, -length), P(o1, top, -length), P(o1, top, length), P(o0, top, length), Vector3.Up, c, a, b, cc, d);
-            Quad(st, P(o0, ground, -length), P(o1, ground, -length), P(o1, top, -length), P(o0, top, -length), -forward, c, a, b, cc, d);
-            Quad(st, P(o0, ground, length), P(o1, ground, length), P(o1, top, length), P(o0, top, length), forward, c, a, b, cc, d);
-            Quad(st, P(o0, ground, -length), P(o0, ground, length), P(o0, top, length), P(o0, top, -length), -side, c, a, b, cc, d);
-            Quad(st, P(o1, ground, -length), P(o1, ground, length), P(o1, top, length), P(o1, top, -length), side, c, a, b, cc, d);
-        }
-        const float Seam = 0.004f; // m above the surface
-        Quad(st, P(-hw, Seam, -length * 0.5f), P(hw, Seam, -length * 0.5f), P(hw, Seam, length * 0.5f), P(-hw, Seam, length * 0.5f),
-            Vector3.Up, _textured ? new Color(0.55f, 0.55f, 0.58f) : JointColor, a, b, cc, d);
+        var forward = Vector3.Up.Cross(side).Normalized(); // along the road
+        float hw = BeltWidth / 2 - EdgeWidth, top = RoadTop + 0.004f, length = SeamLength / 2;
+        Vector3 P(float o, float f) => center + side * o + Vector3.Up * top + forward * f;
+        Quad(st, P(-hw, -length), P(hw, -length), P(hw, length), P(-hw, length), Vector3.Up, RoadEdgeColor * 0.85f);
     }
 
     // A quad a-b-c-d (in order around it) facing `outward`: wound clockwise as seen from that side, which is

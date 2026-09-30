@@ -101,7 +101,7 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Packages_cross_segments_and_are_lost_at_the_end()
+    public void Trucks_cross_segments_and_what_they_carry_is_lost_at_the_end()
     {
         var sim = NewSim();
         // Two 1.5 m segments, 2 m/s, one package per second.
@@ -123,7 +123,7 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Dense_spawns_are_blocked_to_keep_package_spacing()
+    public void Dense_spawns_are_blocked_to_keep_truck_spacing()
     {
         var sim = NewSim();
         // A spawn every 0.5 m of travel, but packages need 1 m.
@@ -138,90 +138,104 @@ public class SimulationTests
     }
 
     [Fact]
-    public void Breaking_a_segment_spills_the_packages_on_it()
+    public void A_broken_road_stops_trucks_before_it_and_the_ones_behind_queue()
     {
         var sim = NewSim();
         sim.AddBeltLine(TwoSegments(), Belt(0.5f));
         var line = sim.State.Belts[0];
-        Run(sim, 150); // the first packages are ~5 m into segment 1
-        int onSegment = line.Packages.Count(p => p.Segment == 1);
-        Assert.True(onSegment > 0);
-
-        sim.Tick([new BreakSegmentCommand(0, 1)]);
-
-        Assert.DoesNotContain(line.Packages, p => p.Segment == 1);
-        Assert.True(line.Spilled >= onSegment);
-        Assert.Equal(line.Spilled, sim.State.Pickups.Count);
-    }
-
-    [Fact]
-    public void Packages_reaching_a_break_spill_onto_a_pile_beside_it_and_a_full_pile_stops_the_belt()
-    {
-        var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
-        var line = sim.State.Belts[0];
+        Run(sim, 150); // the first trucks are ~5 m into segment 1
+        var onIt = line.Packages.Where(p => p.Segment == 1).Select(p => (p.Id, p.Distance)).ToList();
+        Assert.NotEmpty(onIt);
 
         sim.Tick([new BreakSegmentCommand(0, 1)]);
         Run(sim, 400);
 
         Assert.Equal(0, line.Lost);
-        Assert.Equal(Simulation.SpillPile, line.Spilled); // then nothing more falls...
-        Assert.True(line.BlockedSpawns > 0);               // ...the queue backs up to the source, which holds the rest
-        Assert.Equal(line.Spawned, line.Spilled + line.Packages.Count);
-        Assert.All(line.Packages, p => Assert.True(p.Distance <= 10));
-        // Beside the break at (10, 0, 0), off the belt, on the ground, each on its own spot.
-        Assert.All(sim.State.Pickups, p =>
+        Assert.Equal(0, line.Spilled);
+        foreach (var (id, at) in onIt) Assert.Equal(at, line.Packages.Single(p => p.Id == id).Distance, 0.2f); // stuck where it broke
+        var waiting = line.Packages.Where(p => p.Segment == 0).ToList();
+        Assert.NotEmpty(waiting);
+        Assert.All(waiting, p => Assert.True(p.Distance <= 10));
+        Assert.Contains(waiting, p => p.Blocked);
+        Assert.True(line.BlockedSpawns > 0); // the queue backs up to the source
+        for (int i = 1; i < line.Packages.Count; i++)
+            Assert.True(line.Packages[i - 1].Distance - line.Packages[i].Distance >= 1 - 2e-3f);
+    }
+
+    [Fact]
+    public void A_destroyed_truck_spills_its_cargo_round_it_on_spots_that_do_not_overlap()
+    {
+        var sim = NewSim();
+        sim.AddBeltLine(TwoSegments(), Belt(1000) with { Load = 10 });
+        Run(sim, 120); // ~12 m along
+        var truck = sim.State.Belts[0].Packages.Single();
+        var events = sim.Tick([new DestroyCommand(truck.Id)]);
+
+        Assert.Contains(new SimEvent(SimEventKind.TruckDestroyed, truck.Id, 0), events);
+        Assert.Empty(sim.State.Belts[0].Packages);
+        var pickups = sim.State.Pickups;
+        Assert.Equal(10, pickups.Count);
+        Assert.Equal(10, sim.State.Belts[0].Spilled);
+        Assert.All(pickups, p =>
         {
-            Assert.InRange(MathF.Abs(p.Position.Z), 1.49f, 2.31f);
-            Assert.InRange(p.Position.X, 9.99f, 11.61f);
+            Assert.InRange(MathF.Abs(p.Position.Z), 1.49f, 2.31f); // beside the road, off it, on the ground
+            Assert.InRange(p.Position.X, truck.Position.X - 2, truck.Position.X + 2);
             Assert.Equal(0f, p.Position.Y);
         });
-        var pickups = sim.State.Pickups;
         for (int i = 0; i < pickups.Count; i++)
             for (int j = i + 1; j < pickups.Count; j++)
                 Assert.True(Vector3.Distance(pickups[i].Position, pickups[j].Position) >= 0.79f);
     }
 
     [Fact]
-    public void Collecting_from_a_full_pile_lets_the_next_package_fall()
+    public void Trucks_held_at_a_break_can_be_shot_and_their_cargo_picked_up()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
+        sim.AddBeltLine(TwoSegments(), Belt(5) with { Load = 6 });
         var line = sim.State.Belts[0];
         sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Run(sim, 400);
-        Assert.Equal(Simulation.SpillPile, line.Spilled);
+        Run(sim, 10 * T);
+        var held = line.Packages[0];
+        Assert.True(held.Blocked);
 
-        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 0); // on one side of the pile
-        Run(sim, 3 * T);
-        Assert.True(sim.State.Players[Blue].Collected > Simulation.SpillPile / 2); // its half, and more that fell there since
-        Assert.True(line.Spilled > Simulation.SpillPile); // the belt moves again
+        int gun = sim.AddUnit(Blue, new Vector3(8, 0, 4), speed: 5, dps: 100);
+        sim.Tick([new AttackCommand(Blue, gun, held.Id)]);
+        Run(sim, 2 * T);
+        Assert.DoesNotContain(line.Packages, p => p.Id == held.Id);
+        Assert.Equal(6, sim.State.Pickups.Count);
+        foreach (var p in sim.State.Pickups.ToList())
+        {
+            sim.Tick([new MoveCommand(Blue, gun, p.Position)]);
+            Run(sim, 2 * T);
+        }
+        Assert.Equal(6, sim.State.Players[Blue].Collected);
     }
 
     [Fact]
     public void Units_collect_pickups_they_stand_near()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(0.5f));
-        // One on each side of the break, in reach of every spot of the pile there.
-        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 5);
-        sim.AddUnit(Blue, new Vector3(10.8f, 0, -1.9f), speed: 5);
+        sim.AddBeltLine(TwoSegments(), Belt(1000) with { Load = 8 });
+        Run(sim, 120); // ~12 m along
+        var truck = sim.State.Belts[0].Packages.Single();
+        // One on each side of the road, in reach of every spot of the spill there.
+        sim.AddUnit(Blue, truck.Position + new Vector3(0, 0, 1.9f), speed: 5);
+        sim.AddUnit(Blue, truck.Position + new Vector3(0, 0, -1.9f), speed: 5);
 
-        sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Run(sim, 400);
+        sim.Tick([new DestroyCommand(truck.Id)]);
+        Run(sim, 2 * T);
 
-        Assert.True(sim.State.Players[Blue].Collected > 0);
-        Assert.Equal(sim.State.Belts[0].Spilled, sim.State.Players[Blue].Collected + sim.State.Pickups.Count);
-        Assert.All(sim.State.Pickups, p => Assert.True(p.LandsAtTick > sim.State.Tick)); // only the ones still falling
+        Assert.Equal(8, sim.State.Players[Blue].Collected);
+        Assert.Empty(sim.State.Pickups);
     }
 
     [Fact]
     public void Uncollected_pickups_wait_to_be_picked_up()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single package
-        Run(sim, 120); // ~12 m along, on segment 1
-        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single truck with one package
+        Run(sim, 120);
+        sim.Tick([new DestroyCommand(sim.State.Belts[0].Packages[0].Id)]);
         var pickup = Assert.Single(sim.State.Pickups);
 
         Run(sim, 10 * 60 * T); // ten minutes
@@ -318,15 +332,11 @@ public class SimulationTests
     public void Spill_loss_destroys_about_that_share_of_spilled_packages()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(0.5f, spillLoss: 0.3f));
+        sim.AddBeltLine(TwoSegments(), Belt(1000, spillLoss: 0.3f) with { Load = 200 });
+        Run(sim, 120);
+        sim.Tick([new DestroyCommand(sim.State.Belts[0].Packages[0].Id)]);
         var line = sim.State.Belts[0];
-        sim.AddUnit(Blue, new Vector3(10.8f, 0, 1.9f), speed: 0); // collectors keep the pile clear
-        sim.AddUnit(Blue, new Vector3(10.8f, 0, -1.9f), speed: 0);
-
-        sim.Tick([new BreakSegmentCommand(0, 1)]);
-        Run(sim, 2000); // ~100 spills
-
-        Assert.True(line.Spilled > 80);
+        Assert.Equal(200, line.Spilled);
         Assert.InRange(line.Destroyed / (float)line.Spilled, 0.2f, 0.4f);
     }
 
@@ -334,9 +344,9 @@ public class SimulationTests
     public void A_spilled_package_is_in_the_air_before_it_can_be_collected_and_a_smashed_one_is_gone_when_it_lands()
     {
         var sim = NewSim();
-        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single package
-        Run(sim, 120); // ~12 m along, on segment 1
-        sim.Tick([new BreakSegmentCommand(0, 1)]);
+        sim.AddBeltLine(TwoSegments(), Belt(1000)); // a single truck with one package
+        Run(sim, 120);
+        sim.Tick([new DestroyCommand(sim.State.Belts[0].Packages[0].Id)]);
         var pickup = Assert.Single(sim.State.Pickups);
         sim.AddUnit(Blue, pickup.Position, speed: 0); // waiting where it will land
         Assert.Equal(pickup.SpilledAtTick + (int)(Simulation.SpillFallSeconds * T), pickup.LandsAtTick);
@@ -350,7 +360,7 @@ public class SimulationTests
         var smashing = NewSim();
         smashing.AddBeltLine(TwoSegments(), Belt(1000, spillLoss: 1));
         Run(smashing, 120);
-        smashing.Tick([new BreakSegmentCommand(0, 1)]);
+        smashing.Tick([new DestroyCommand(smashing.State.Belts[0].Packages[0].Id)]);
         var smashed = Assert.Single(smashing.State.Pickups);
         Assert.True(smashed.Smashed); // falls all the same
         smashing.AddUnit(Blue, smashed.Position, speed: 0);

@@ -38,15 +38,19 @@ public partial class SimHost : Node3D
     [Export] public bool Paused;               // the pause menu is open: no ticks run
     [Export] public bool FogOfWar = true;      // `--reveal` shows everything anyway (spectating), as does the demo
     [Export] public int[] AiPlayers = [];      // players the commander AI plays; `--ai=1`, `--ai=0,1` or `--ai=none` overrides
-    [Export] public global::Sim.Ai.AiLevel AiLevel = global::Sim.Ai.AiLevel.Normal; // how hard it plays; `--ai-level=easy|normal|hard` overrides
+    [Export] public global::Sim.Ai.AiLevel AiLevel = global::Sim.Ai.AiLevel.Normal; // how hard it plays; `--ai-level=easy|normal` overrides
     [Export] public bool MatchReports = true;  // write a report per match (user://matches) at game over, or on leaving one that ran a minute; never in the demo
     [Export] public string DataDirectory = "../data"; // relative to the Godot project folder
 
     // Game speed scales sim time per real second. The sim itself always ticks at 20 Hz of sim time.
     [Export(PropertyHint.Range, "0.25,3,0.05")] public float GameSpeed = 1f;
-    [Export] public float BeltSpeed = 1f;      // m/s
-    [Export] public float PackageSpacing = 1f; // m
-    [Export] public float SpawnInterval = 2f;  // s, per source
+    // Supply routes (in the code, belts): their trucks and road.
+    [Export] public float BeltSpeed = 5f;      // m/s, trucks
+    [Export] public float PackageSpacing = 10f; // m, the least between trucks
+    [Export] public float SpawnInterval = 12f; // s, a truck per source
+    [Export] public int TruckLoad = 12;        // packages a truck leaves with
+    [Export] public float TruckHealth = 100f;
+    [Export] public bool StartFull = true;     // trucks already all along the routes at the start
     [Export] public float SegmentLength = 5f;  // m; authored curves are cut into breakable segments this long at most
     [Export] public float SegmentHealth = 100f;
     [Export(PropertyHint.Range, "0,1,0.05")] public float SpillLoss = 0.3f; // share of spilled packages destroyed
@@ -112,7 +116,7 @@ public partial class SimHost : Node3D
             _sim.AddObstacle(ToSim(rock.GlobalPosition), rock.Size.X / 2, rock.Size.Z / 2, MathF.Atan2(facing.X, facing.Z));
         }
 
-        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply);
+        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply, TruckLoad, TruckHealth, StartFull);
         foreach (var path in Belts.GetChildren().OfType<Path3D>())
         {
             if (path.Curve.PointCount < 2) continue;
@@ -170,7 +174,7 @@ public partial class SimHost : Node3D
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai-level=")) is string level)
         {
             if (Enum.TryParse<global::Sim.Ai.AiLevel>(level["--ai-level=".Length..], ignoreCase: true, out var parsed)) AiLevel = parsed;
-            else GD.PushWarning($"Unknown AI level in '{level}'; easy, normal or hard.");
+            else GD.PushWarning($"Unknown AI level in '{level}'; easy or normal.");
         }
         if (!_demo)
             foreach (int p in AiPlayers)
@@ -358,6 +362,7 @@ public partial class SimHost : Node3D
         {
             case SimEventKind.UnitDied: GD.Print($"[{t}] {Who(e.Id)} died"); break;
             case SimEventKind.GathererDestroyed: GD.Print($"[{t}] {Who(e.Id)} destroyed"); break;
+            case SimEventKind.TruckDestroyed: GD.Print($"[{t}] truck {e.Id} destroyed on road {e.Index}"); break;
             case SimEventKind.UnitProduced: GD.Print($"[{t}] {Who(e.Id)} trained at {Who(e.Index)}"); break;
             case SimEventKind.BuildingDestroyed: GD.Print($"[{t}] {Who(e.Id)} destroyed"); break;
             case SimEventKind.BuildingPlaced: GD.Print($"[{t}] {Who(e.Id)} placed by {Who(e.Index)}"); break;
@@ -377,15 +382,27 @@ public partial class SimHost : Node3D
     }
 
     // `godot res://scenes/prototype.tscn -- --demo`: the prototype map (only), as a scripted match. Blue
-    // raids Red's belt beside Red's post: it breaks a segment, kills the post on the way (fire on the
-    // move), and waits by the break to collect the spill as the first packages arrive. Blue pulls back (its vehicles back up, then turn
-    // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's belt; Red goes for Blue's
+    // raids Red's road beside Red's depot: it breaks a piece, kills the depot on the way (fire on the
+    // move), then shoots the truck held up at the break and collects what it spills. Blue pulls back (its vehicles back up, then turn
+    // round) while Red stops training squads to pay its builder to repair the break, and its vehicles break Blue's road; Red goes for Blue's
     // post, turrets swinging onto it on the way; then Blue attack-moves
     // into Red's side and they fight it out. Meanwhile each HQ trains a builder, which puts up a barracks
     // beside the HQ, and the barracks trains squads on repeat, as income allows; they gather at its rally
     // point. To show the ending, scripted kills finish Red: its buildings and posts at 85 s, and its
     // builders at 95 s. It's out once it can't rebuild: at 85 s if it can't afford a building then,
     // otherwise when its builders go.
+    // The loaded truck on open road nearest a point, and where it is.
+    (int Id, SVector3 At)? HeldTruck(SVector3 near)
+    {
+        (int, SVector3)? best = null;
+        float bestSq = float.MaxValue;
+        foreach (var line in _sim.State.Belts)
+            foreach (var t in line.Packages)
+                if (t.Cargo > 0 && !line.Segments[t.Segment].Covered && SVector3.DistanceSquared(t.Position, near) < bestSq)
+                    (bestSq, best) = (SVector3.DistanceSquared(t.Position, near), (t.Id, t.Position with { Y = 0 }));
+        return best;
+    }
+
     void Demo(int tick)
     {
         const int T = Simulation.TicksPerSecond;
@@ -414,7 +431,12 @@ public partial class SimHost : Node3D
                 }
 
         if (tick == 2 * T) SegmentOrder(Blue, new SVector3(28, 0, 11), repair: false); // Red's belt, just upstream of its post
-        if (tick == 12 * T) MoveAll(Blue, new SVector3(27, 0, 9));                      // by the break, where the spill lands
+        if (tick == 12 * T) MoveAll(Blue, new SVector3(27, 0, 9));                      // by the break
+        if (tick == 20 * T && HeldTruck(new SVector3(28, 0, 11)) is var (truck, at))    // the truck waiting there: shoot it, then pick up its load
+        {
+            foreach (int id in _unitsOf[Blue]) _commands.Add(new AttackCommand(Blue, id, truck));
+            MoveAll(Blue, at, queued: true);
+        }
         if (tick == 44 * T) // the first packages reach the break at about 39 s
         {
             MoveAll(Blue, new SVector3(28, 0, -2));                // close behind: vehicles back up...
