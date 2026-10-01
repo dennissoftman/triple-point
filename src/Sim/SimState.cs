@@ -171,7 +171,7 @@ public sealed class Building
         (Id, Owner, Type, Position, Heading, Built, Health) = (id, owner, type, position, heading, built, built ? type.Health : type.Health / 10);
 
     public float MaxHealth => Type.Health;
-    public Vector3 Exit => Position + new Vector3(MathF.Sin(Heading), 0, MathF.Cos(Heading)) * (Type.Size / 2 + 1.5f);
+    public Vector3 Exit => Position + new Vector3(SimMath.Sin(Heading), 0, SimMath.Cos(Heading)) * (Type.Size / 2 + 1.5f);
 }
 
 /// <summary>

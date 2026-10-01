@@ -2,14 +2,14 @@ using System.Globalization;
 using System.Numerics;
 using System.Text.RegularExpressions;
 
-namespace Sim.Tests;
+namespace Sim.Runner;
 
 /// <summary>
 /// The playable map, godot/scenes/main.tscn, as SimHost builds it, read straight from the scene file:
 /// its belts (curves and covered ends), starting buildings and units, and SimHost's belt settings, with
 /// the real game data, navigation over the camera's bounds, and fog of war. So tests can play on the map players play on.
 /// </summary>
-static class MainMap
+public static class MainMap
 {
     static string Repo()
     {

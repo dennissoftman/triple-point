@@ -82,12 +82,12 @@ public sealed class BezierSegment
     // de Casteljau: both halves of a cubic Bezier cut at t.
     static (Cubic Head, Cubic Tail) SplitAt(Cubic p, float t)
     {
-        var ab = Vector3.Lerp(p.A, p.B, t);
-        var bc = Vector3.Lerp(p.B, p.C, t);
-        var cd = Vector3.Lerp(p.C, p.D, t);
-        var abc = Vector3.Lerp(ab, bc, t);
-        var bcd = Vector3.Lerp(bc, cd, t);
-        var mid = Vector3.Lerp(abc, bcd, t);
+        var ab = SimMath.Lerp(p.A, p.B, t);
+        var bc = SimMath.Lerp(p.B, p.C, t);
+        var cd = SimMath.Lerp(p.C, p.D, t);
+        var abc = SimMath.Lerp(ab, bc, t);
+        var bcd = SimMath.Lerp(bc, cd, t);
+        var mid = SimMath.Lerp(abc, bcd, t);
         return (new Cubic(p.A, ab, abc, mid), new Cubic(mid, bcd, cd, p.D));
     }
 

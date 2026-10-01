@@ -80,6 +80,9 @@ public sealed class Commander
     readonly int _me;
     readonly AiSettings _level;
     readonly int _firstAttackTick;                  // its level's first attack time, give or take AttackJitter
+    // Its own, from the match's seed and its player: the AI is a player issuing commands, so a replay of
+    // the commands alone (without the AI) draws the sim's numbers the same way.
+    readonly SimRandom _random;
     readonly List<Command> _out = [];
 
     // What it sees this think; kept between thinks only to be reused.
@@ -100,7 +103,8 @@ public sealed class Commander
     public Commander(Simulation sim, int player, AiSettings level)
     {
         (_sim, _me, _level) = (sim, player, level);
-        _firstAttackTick = (int)((level.FirstAttack + sim.Random.Range(-AttackJitter, AttackJitter)) * Simulation.TicksPerSecond);
+        _random = new SimRandom(sim.Seed * 0x9E3779B9u + (uint)player + 1);
+        _firstAttackTick = (int)((level.FirstAttack + _random.Range(-AttackJitter, AttackJitter)) * Simulation.TicksPerSecond);
         _view = new AiView(sim, player);
         _gone = id => !Alive(id);
     }
@@ -357,11 +361,11 @@ public sealed class Commander
         if (Unguarded() is not Gatherer post) return false;
         var back = Flat(_home - post.Position);
         var toward = back.LengthSquared() > 1 ? Vector3.Normalize(back) : Vector3.UnitZ;
-        heading = MathF.Atan2(-toward.X, -toward.Z);
+        heading = SimMath.Atan2(-toward.X, -toward.Z);
         for (int k = 0; k < 8; k++)
         {
             float a = (k % 2 == 0 ? 1 : -1) * (k + 1) / 2 * MathF.PI / 6; // straight back first, then either side
-            var dir = new Vector3(toward.X * MathF.Cos(a) - toward.Z * MathF.Sin(a), 0, toward.X * MathF.Sin(a) + toward.Z * MathF.Cos(a));
+            var dir = new Vector3(toward.X * SimMath.Cos(a) - toward.Z * SimMath.Sin(a), 0, toward.X * SimMath.Sin(a) + toward.Z * SimMath.Cos(a));
             var spot = Simulation.SnapToGrid(post.Position + dir * DefenseOffset, type.Size);
             if (!_sim.CanPlace(type, spot)) continue;
             at = spot;
@@ -402,14 +406,14 @@ public sealed class Commander
         at = default;
         var toward = Flat(_enemyHome - _home);
         var forward = toward.LengthSquared() > 1 ? Vector3.Normalize(toward) : Vector3.UnitZ;
-        heading = MathF.Atan2(forward.X, forward.Z);
+        heading = SimMath.Atan2(forward.X, forward.Z);
         var roomy = type with { Size = type.Size + BuildClearance };
         float best = float.MaxValue;
         for (float r = 12; r <= 40; r += 4)
             for (int k = 0; k < 16; k++)
             {
                 float a = k * MathF.Tau / 16;
-                var dir = new Vector3(forward.X * MathF.Cos(a) - forward.Z * MathF.Sin(a), 0, forward.X * MathF.Sin(a) + forward.Z * MathF.Cos(a));
+                var dir = new Vector3(forward.X * SimMath.Cos(a) - forward.Z * SimMath.Sin(a), 0, forward.X * SimMath.Sin(a) + forward.Z * SimMath.Cos(a));
                 float score = r + 6 * (1 + Vector3.Dot(dir, forward)); // near, and behind home rather than in front
                 if (score >= best) continue;
                 var spot = Simulation.SnapToGrid(_home + dir * r, type.Size);
@@ -449,11 +453,11 @@ public sealed class Commander
             if (have < fewest) (fewest, pick) = (have, t);
         }
         // Now and then any fighter it trains here instead, so no two matches go the same way.
-        if (pick is not null && _sim.Random.Range(0, 1) < AnyFighterChance)
+        if (pick is not null && _random.Range(0, 1) < AnyFighterChance)
         {
             int fighters = 0;
             foreach (var t in b.Type.Units) if (t.Builds is null && t.Weapon is not null) fighters++;
-            int n = (int)_sim.Random.Range(0, fighters);
+            int n = (int)_random.Range(0, fighters);
             foreach (var t in b.Type.Units)
                 if (t.Builds is null && t.Weapon is not null && n-- == 0) { pick = t; break; }
         }

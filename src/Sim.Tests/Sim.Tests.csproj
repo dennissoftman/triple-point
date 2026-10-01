@@ -16,10 +16,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Sim.Runner" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sim\Sim.csproj" />
+    <ProjectReference Include="..\Sim.Runner\Sim.Runner.csproj" />
   </ItemGroup>
 
 </Project>

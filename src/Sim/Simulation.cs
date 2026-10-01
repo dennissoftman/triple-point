@@ -98,10 +98,10 @@ public sealed partial class Simulation
     readonly List<float> _taken = [];               // PostSpots' scratch
     int _nextId = 1;
 
-    public Simulation(uint seed = 1) => _random = new SimRandom(seed);
+    public Simulation(uint seed = 1) => (Seed, _random) = (seed, new SimRandom(seed));
 
-    /// <summary>The sim's one RNG, for the commander AI's choices: the same seed, the same match.</summary>
-    internal SimRandom Random => _random;
+    /// <summary>The match's seed: the sim's RNG starts from it, and so does each commander AI's own.</summary>
+    public uint Seed { get; }
 
     // ---- Setup ----
 
@@ -329,7 +329,7 @@ public sealed partial class Simulation
         var side = Vector3.Normalize(new Vector3(direction.Z, 0, -direction.X)); // perpendicular, on the ground
         if (Vector3.Dot(side, near - point) < 0) side = -side;
         at = point + side * PostOffset;
-        heading = MathF.Atan2(-side.X, -side.Z); // facing the belt
+        heading = SimMath.Atan2(-side.X, -side.Z); // facing the belt
         return true;
     }
 
@@ -358,7 +358,7 @@ public sealed partial class Simulation
         var side = Vector3.Normalize(new Vector3(direction.Z, 0, -direction.X));
         if (Vector3.Dot(side, near - point) < 0) side = -side;
         at = point + side * PostOffset;
-        heading = MathF.Atan2(-side.X, -side.Z);
+        heading = SimMath.Atan2(-side.X, -side.Z);
         return true;
     }
 
@@ -810,7 +810,7 @@ public sealed partial class Simulation
         {
             house.Occupants = Math.Max(0, house.Occupants - 1);
             if (house.Occupants == 0) house.Owner = Player.None;
-            var side = new Vector3(MathF.Cos(house.Heading), 0, -MathF.Sin(house.Heading));
+            var side = new Vector3(SimMath.Cos(house.Heading), 0, -SimMath.Sin(house.Heading));
             var at = house.Exit + side * ((house.Occupants % 3 - 1) * 2f);
             unit.Position = unit.PrevPosition = at with { Y = unit.Position.Y };
         }
@@ -1020,7 +1020,7 @@ public sealed partial class Simulation
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[^1];
         int slot = building.Produced++ % 7; // the rally point, then six around it, turned with the building
         float angle = building.Heading + (slot - 1) * MathF.Tau / 6;
-        var spot = building.Rally + (slot == 0 ? Vector3.Zero : new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * RallySpread);
+        var spot = building.Rally + (slot == 0 ? Vector3.Zero : new Vector3(SimMath.Sin(angle), 0, SimMath.Cos(angle)) * RallySpread);
         if (GroundDistanceSq(spot, unit.Position) > VehicleParkRadius * VehicleParkRadius) Start(ref unit, new Order(UnitOrder.Move, spot));
         _events.Add(new SimEvent(SimEventKind.UnitProduced, id, building.Id));
     }
@@ -1490,7 +1490,7 @@ public sealed partial class Simulation
     // driving anywhere this tick), the hull pivots toward the target at its turn rate.
     static bool AimAt(ref Unit unit, Vector3 at, bool turnHull = false)
     {
-        float yaw = MathF.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z);
+        float yaw = SimMath.Atan2(at.X - unit.Position.X, at.Z - unit.Position.Z);
         if (unit.TurretArc <= 0) return TurnTurret(ref unit, yaw);
         float off = WrapAngle(yaw - unit.Heading);
         if (turnHull && MathF.Abs(off) > unit.TurretArc && unit.TurnRate > 0)
@@ -1519,7 +1519,7 @@ public sealed partial class Simulation
         if (spread > 0)
         {
             float off = spread * MathF.Sqrt(_random.Range(0, 1)), angle = _random.Range(0, MathF.Tau);
-            at += new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * off;
+            at += new Vector3(SimMath.Sin(angle), 0, SimMath.Cos(angle)) * off;
         }
         if (line >= 0) at.Y = State.Belts[line].Segments[segment].Curve.PositionAt(0).Y + BeltHitRise; // up on the belt
         unit.FireAt = at;
@@ -1537,7 +1537,7 @@ public sealed partial class Simulation
             // Off by up to Scatter at full range, less closer in, anywhere around the aim point.
             float off = unit.Scatter * MathF.Min(1, distance / unit.Range) * MathF.Sqrt(_random.Range(0, 1));
             float angle = _random.Range(0, MathF.Tau);
-            aim += new Vector3(MathF.Sin(angle), 0, MathF.Cos(angle)) * off;
+            aim += new Vector3(SimMath.Sin(angle), 0, SimMath.Cos(angle)) * off;
         }
         State.Projectiles.Add(new Projectile
         {
@@ -1767,7 +1767,7 @@ public sealed partial class Simulation
     {
         var toTarget = target - unit.Position;
         float distance = toTarget.Length();
-        if (distance > 0) unit.Heading = MathF.Atan2(toTarget.X, toTarget.Z);
+        if (distance > 0) unit.Heading = SimMath.Atan2(toTarget.X, toTarget.Z);
         float step = unit.Speed * (1 + unit.RoadBoost) * Dt;
         if (distance <= step)
         {
@@ -1787,7 +1787,7 @@ public sealed partial class Simulation
     {
         float dx = target.X - unit.Position.X, dz = target.Z - unit.Position.Z;
         float distance = MathF.Sqrt(dx * dx + dz * dz);
-        float turnForward = WrapAngle(MathF.Atan2(dx, dz) - unit.Heading);
+        float turnForward = WrapAngle(SimMath.Atan2(dx, dz) - unit.Heading);
         float turnBackward = WrapAngle(turnForward - MathF.PI); // to point the rear at it
         float speed = MathF.Abs(unit.CurrentSpeed);
 
@@ -1918,7 +1918,7 @@ public sealed partial class Simulation
     static float MoveToward(float from, float to, float step) =>
         from < to ? MathF.Min(to, from + step) : MathF.Max(to, from - step);
 
-    static Vector3 Forward(float heading) => new(MathF.Sin(heading), 0, MathF.Cos(heading));
+    static Vector3 Forward(float heading) => new(SimMath.Sin(heading), 0, SimMath.Cos(heading));
 
     // Into (-pi, pi].
     static float WrapAngle(float a)

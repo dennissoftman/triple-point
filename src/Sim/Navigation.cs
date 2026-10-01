@@ -326,8 +326,8 @@ public sealed partial class Simulation
     static bool RectanglesOverlap(Vector3 a, float aw, float ad, float ah, Vector3 b, float bw, float bd, float bh)
     {
         var d = (b - a) with { Y = 0 };
-        var (sa, ca) = MathF.SinCos(ah);
-        var (sb, cb) = MathF.SinCos(bh);
+        var (sa, ca) = SimMath.SinCos(ah);
+        var (sb, cb) = SimMath.SinCos(bh);
         Span<Vector3> axes = [new(ca, 0, -sa), new(sa, 0, ca), new(cb, 0, -sb), new(sb, 0, cb)];
         foreach (var axis in axes)
         {

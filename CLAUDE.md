@@ -21,7 +21,8 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 - `src/Sim` has **zero Godot references**. Never add one.
 - A tick is `(state, commands) -> events` at a fixed 20 Hz. Player input and AI issue the same command objects, each carrying its issuing player.
 - Godot views only read sim state and never change it. No game logic in per-node `_Process`. Selection, colors, names and the local player are Godot-side UI state.
-- `System.Numerics` inside `Sim`; convert to Godot types only in `SimConvert`. One seeded RNG (`SimRandom`) owned by the sim.
+- `System.Numerics` inside `Sim`; convert to Godot types only in `SimConvert`. One seeded RNG (`SimRandom`) owned by the sim; the AI has its own.
+- **Deterministic for lockstep:** in `Sim`, `SimMath` for Sin, Cos, SinCos, Atan2 and Lerp, never MathF's or System.Numerics' Lerp/Reflect (they differ between CPUs); no clocks, threads, `System.Random` or `GetHashCode`. A new state field goes into `Simulation.Hash()`, a new command into `CommandCodec` (both tested). Views' queries never change state, caches included (architecture: Determinism).
 - No allocations or LINQ inside the tick. Batch calls across the C#/engine boundary; never read engine properties back just to compare them.
 - Input goes through Input Map actions in `project.godot` (`select`, `select_add`, `act`, `queue_order`, `force_attack`, `speed_up`, `speed_down`, `attack_move`, `cancel`, `camera_left/right/forward/back`, `camera_zoom_in/out`, `camera_grab`, `debug_swap_player`, `slot_1`..`slot_5`, `stop`, `hold`, `auto_retreat`, `idle_builder`, `group_1`..`group_9`, `group_set_1`..`group_set_9`, `cancel_production`, `rotate_building`, `toggle_debug`, `pause_menu`), never literal keys or buttons in code.
 - Player-facing text goes through `L.T("key", ...)` with the key in `godot/locale/en.po` (`LocaleTests` checks); never a literal string on screen. The sim holds no text.
@@ -30,7 +31,7 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 ## Current state
 
 - **Built:** supply routes of neutral trucks on roads (in the code still belts: a route is a `BeltLine`, a truck a `Package`, a depot a `Gatherer`): roads of breakable pieces, trucks that queue at a break and stop for units in the way, trucks that can be shot (Ctrl+right-click) and spill their load, depots that unload a share of each passing truck that grows down the route (a sixth at home, half at the tail), routes that start full, finite sources that take back what reaches the end (a gauge per source), pickups (hops, shards, collection) and paid repair (builders and engineers, auto-repair nearby); depots built by players, spaced along the road, with free spots shown while placing; routes as plain lines, no junctions, coming from beyond the map through covered stretches; road types (dirt and paved: paved pieces 3× as tough and faster to move on; builders and engineers pave dirt, paid per piece; the main map paved from home through the crossing, dirt along the tail); road and truck visuals (asphalt with edge and center lines, dirt with ruts, verges, craters, crates on the bed, wrecks, hover hints); two players, each starting with an HQ, a builder and 50 packages; production at buildings (paid as they build, one queue with no real limit, Shift queues or cancels five, rally point); mending at home (infantry at a barracks, vehicles at a factory, paid; nothing heals on its own), repairing your buildings, depots and defenses (builders and engineers), an auto-retreat toggle; garrison houses (neutral until infantry go in by right-click; Exit for all, or a squad's tile for one; those inside fire out further, hidden, and the house takes the hits; capacity per type in data; two at the crossing on the main map); a construction prototype (builder, barracks, factory, post, turret after a barracks, heavy anti-tank turret after a factory, range rings; placement anywhere, grid-snapped, posts snapped beside belts; needs the whole cost to start, paid as it grows); win/lose (`CanStillRecover`: production buildings keep a side in, depots don't; a 60 s rebuild clock, game-over banner); a corner-panel interface of fixed sizes (a top strip with packages and alerts, a 4×3 positional command grid on physical keys, a selection panel with a tile per type, a minimap, an idle-builder button); stop, hold position and control groups; a one-line HUD with debug text under F3; a rifle squad, a rocket squad, an engineer, a scout car, a tank and artillery (stops to fire, minimum range, holds ground, range rings); data-driven weapons (bullets and shells, direct and splash, ballistic arcs with scatter; only splash breaks road; armor as a factor per target class, `against`: rifles beat rockets beat tanks beat rifles), a direct hit fells one squad member at most, schema in `docs/data.md`; eased vehicle driving with sim turrets (optionally arc-limited, the hull swings round); vehicle wrecks (view only); fire on the move; return fire (leashed, allies join); attack-move (goes for what it sees within range + 8 m); order paths for the selection, colored by order; readable looks (neutral bodies with side-colored helmets, turret tops and roofs; a silhouette per class; health bars when damaged or selected); cursors; F2 hotseat; a main menu (skirmish setup: your side, Easy or Normal AI or hotseat; a controls page; fullscreen and interface size in `user://settings.cfg`), reached again from pause and game over; RTS camera; the stress scene; a scripted commander AI (`src/Sim/Ai`, Red on the main map, `--ai=`, levels with `--ai-level=easy|normal`; it holds the house on its half, guards a depot with a turret, and varies from seed to seed); match reports (`MatchStats`, `MatchReport`: a text file per match in `user://matches`, i.e. `%APPDATA%/Godot/app_userdata/Triple Point/matches`); navigation (1 m cells, A* round buildings, posts, turrets and rocks by unit radius, soft pushing; `Navigation.cs`, `NavGrid.cs`); fog of war (radius sight on 2 m cells, remembered enemy buildings and belt, a belt-cut alert, firing needs your side's sight, shooters revealed for 3 s; `Vision.cs`, `Sight`, `FogOverlay`; `--reveal` shows everything).
-- **Next in the MVP:** the friends playtest (doctrine: MVP 7). The AI becomes a behaviour tree after v1.
+- **Next in the MVP:** lockstep multiplayer, 1v1 over direct IP (doctrine: MVP 8): batch 1, the deterministic foundation, is built; batch 2 is the network, lobby and desync screen. The friends playtest can run on the export meanwhile. The AI becomes a behaviour tree after v1.
 
 ## Layout
 
@@ -38,6 +39,7 @@ C&C Generals-style RTS built around a shared, physical conveyor-belt economy. Go
 Game.sln            root solution; Godot uses it (dotnet/project/solution_directory = res://..)
 src/Sim/            simulation library, net10.0
 src/Sim.Tests/      xUnit, headless
+src/Sim.Runner/     headless AI match or replay check on the main map, printing state hashes (the cross-JIT test runs it)
 godot/              Godot project: scenes/ (menu, main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md, data.md (story documents are kept out of the repo)
@@ -97,6 +99,12 @@ A playtest build: `python tools/export_build.py` builds the C#, exports the `Win
 
 ```bash
 build/windows/TriplePoint.exe --position -10000,-10000 --fixed-fps 60 --quit-after 4500 -- --start=blue,normal --ai=0,1
+```
+
+Headless determinism check: an AI match on the main map, printing state hashes (`--sections` for each section every line, `--record=<file>` saves a replay, `--replay=<file>` checks one):
+
+```bash
+dotnet run -c Release --project src/Sim.Runner -- --seed=1 --minutes=10 --every=1200
 ```
 
 Check the build's output, never discard it: when the C# build fails, Godot quietly runs the last good build.

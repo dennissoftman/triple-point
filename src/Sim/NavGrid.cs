@@ -63,7 +63,7 @@ public sealed class NavGrid
     /// <summary>Marks solid every cell whose middle is inside a rectangle: half sizes along its own axes, turned by `heading`.</summary>
     public void Block(Vector3 center, float halfWidth, float halfDepth, float heading = 0)
     {
-        var (sin, cos) = MathF.SinCos(heading);
+        var (sin, cos) = SimMath.SinCos(heading);
         float reach = MathF.Sqrt(halfWidth * halfWidth + halfDepth * halfDepth);
         int x0 = Math.Max(0, (int)MathF.Floor((center.X - reach - MinX) / Cell)), x1 = Math.Min(Width - 1, (int)MathF.Floor((center.X + reach - MinX) / Cell));
         int z0 = Math.Max(0, (int)MathF.Floor((center.Z - reach - MinZ) / Cell)), z1 = Math.Min(Depth - 1, (int)MathF.Floor((center.Z + reach - MinZ) / Cell));

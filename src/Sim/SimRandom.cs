@@ -19,6 +19,8 @@ public sealed class SimRandom(uint seed)
         return x == 0 ? 1 : x;
     }
 
+    internal uint State => _state; // for the state hash
+
     public uint NextUInt()
     {
         _state ^= _state << 13;

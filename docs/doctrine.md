@@ -60,6 +60,11 @@ Milestones:
 
 After that, play against the AI with friends. If they ask for more, build a vertical slice: the first 2-3 missions of one faction.
 
+8. [decided] **Lockstep multiplayer, 1v1 (2026-10-01; moved into the MVP):** the MVP's question is whether fighting over the belt is fun, and a friend tests that far better than the scripted AI. Two players on the main map over direct IP (the host forwards a port, or both use a VPN such as Tailscale); fixed 1x speed, either can pause, no reconnecting, no AI in networked matches yet.
+   - [decided] **No Generals desyncs:** floats, guarded, not fixed-point (fixed-point only matters for crossplay with ARM or other OSes, and would touch every system). The guards: the same build and data on both sides (the handshake compares hashes of the build, the data files and the starting state); no math in the sim that differs between CPUs; every match's state hashed by section and compared every second, and a desync stops the match and leaves both sides' state and replay to compare.
+   - [built] **Batch 1, the foundation (headless):** deterministic Sin, Cos, Atan2 and Lerp (`SimMath`), the state hash by section, commands as bytes (`CommandCodec`), replays that check themselves, the AI drawing from its own RNG (a replay of the commands alone reproduces an AI match), and the tests: the source scan, the cross-JIT run, every field in the hash (architecture: Determinism). The cross-JIT run found the first desync before any networking existed: System.Numerics' `Lerp` rounds differently on CPUs with AVX2, and the road network came out different at load.
+   - [decided] **Batch 2:** the network (ENet), a host and join screen in the menu, lockstep pacing with an input delay, pause for both, the desync check and screen, disconnects.
+
 ### Playtests
 
 - [built] **A playtest build (2026-10-01):** a zip for Windows that needs nothing installed, with a how-to that says where the match report is, to send back with notes (`tools/export_build.py`).
@@ -86,7 +91,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
   - Between AIs, patience wins: the side that attacks first, into the other's base and its fresh production, loses.
 - **What changed (2026-09-30):** the belt became neutral supply trucks on roads (Supply routes; the belt is on the Rejected list). A depot takes a third of each truck, so a third flows on past a side's own two depots into the contested middle; a break holds trucks where they can be shot; a shot truck spills its load for whoever is there; routes start full. Between AIs since: 2-7 road breaks a match instead of about one, and in some matches trucks shot and their loads picked up; the scripted AI still rarely shoots trucks. Next: a playtest on it (open decision 9).
 
-**Not in the MVP:** the Eastern bloc, bridges, civilian unrest, multiplayer and lockstep, normal maps, FSR, CMAA2, ECS, save/load, wear transitions, decals, damage stages (a color swap per state is enough).
+**Not in the MVP:** the Eastern bloc, bridges, civilian unrest, multiplayer beyond 1v1 lockstep (more players, matchmaking, a relay, reconnecting), normal maps, FSR, CMAA2, ECS, save/load, wear transitions, decals, damage stages (a color swap per state is enough).
 
 ## Supply routes
 
