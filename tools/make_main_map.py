@@ -179,6 +179,20 @@ _pieces = piece_lengths(BELTS['BlueBelt'])
 COVERED = (sum(_pieces[:len(BLUE_ENTRY)]), sum(_pieces[len(_pieces) - len(BLUE_EXIT):]))
 HQS = {'BlueBelt': (BLUE_HQ, neg(BLUE_HQ)), 'RedBelt': (neg(BLUE_HQ), BLUE_HQ)}
 
+# Each route is paved road from its start through the crossing, to where its tail is PAVED_PAST m along
+# the center line (s), and a dirt track along the contested tail: the rich depots out there break easily.
+PAVED_PAST = 15.0
+
+
+def paved_to():
+    for d, p in sample(BELTS['BlueBelt'], 0.5)[0]:
+        if d > COVERED[0] and p[0] * ALONG[0] + p[1] * ALONG[1] >= PAVED_PAST:
+            return d
+    return 0.0
+
+
+PAVED_TO = paved_to()
+
 
 def check():
     """Prints the balance report and returns the list of rule failures."""
@@ -260,6 +274,9 @@ def check():
     b, _ = sample(BELTS['RedBelt'], 1.0)
     closest = min(dist(p, q) for _, p in a for _, q in b)
     print('Closest the two belts come: %.1f m' % closest)
+    print('Paved from the start to %.0f m (open from %.0f m), dirt beyond' % (PAVED_TO, COVERED[0]))
+    if PAVED_TO <= COVERED[0]:
+        failures.append('no open road is paved')
     if closest < 6:
         failures.append('the belts come within %.1f m of each other' % closest)
     return failures
@@ -299,7 +316,7 @@ def map_nodes():
     s = '[node name="Belts" type="Node3D" parent="."]\n\n'
     for name in BELTS:
         s += ('[node name="%s" type="Path3D" parent="Belts"]\ncurve = SubResource("Curve3D_%s")\nscript = ExtResource("16_beltpath")\n'
-              'CoveredStart = %s\nCoveredEnd = %s\n\n' % (name, name, num(COVERED[0]), num(COVERED[1])))
+              'CoveredStart = %s\nCoveredEnd = %s\nPavedTo = %s\n\n' % (name, name, num(COVERED[0]), num(COVERED[1]), num(PAVED_TO)))
 
     s += '[node name="Gatherers" type="Node3D" parent="."]\n\n'  # none: players build their posts
 

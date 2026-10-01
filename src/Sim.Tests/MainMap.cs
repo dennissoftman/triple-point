@@ -54,7 +54,8 @@ static class MainMap
                 At: new Vector3(numbers[9 * i + 6], numbers[9 * i + 7], numbers[9 * i + 8]))).ToArray();
             var curves = Enumerable.Range(0, points.Length - 1)
                 .Select(i => new BezierSegment(points[i].At, points[i].At + points[i].Out, points[i + 1].At + points[i + 1].In, points[i + 1].At)).ToArray();
-            sim.AddBeltLine(curves, belt, Prop(body, "CoveredStart") is string cs ? F(cs) : 0, Prop(body, "CoveredEnd") is string ce ? F(ce) : 0);
+            sim.AddBeltLine(curves, belt, Prop(body, "CoveredStart") is string cs ? F(cs) : 0, Prop(body, "CoveredEnd") is string ce ? F(ce) : 0,
+                Prop(body, "PavedTo") is string pt ? F(pt) : 0);
         }
 
         foreach (var (body, position, heading) in Spawns(scene, "Obstacles", "Node3D"))

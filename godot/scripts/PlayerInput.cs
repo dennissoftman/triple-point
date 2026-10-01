@@ -34,13 +34,14 @@ public partial class PlayerInput : Node
     [Export] public Control SelectionBox = null!;
     [Export] public int LocalPlayer;                        // the player you control; debug_swap_player cycles it
     [Export] public string CursorName = nameof(CursorKind.Default); // what the cursor shows; for tools
+    public string HintText => _hint is { Visible: true } hint ? hint.Text : ""; // beside the cursor; for tools
     [Export] public int SelectedBuilding = -1;              // a building id, or -1; selected alone, never with units
 
     /// <summary>The command card's slots, in order: a building's unit types, or what builders can build.</summary>
     public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4", "slot_5"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume, Fix, Mend, Garrison }
+    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume, Fix, Mend, Garrison, Pave }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
     /// <summary>
@@ -348,6 +349,7 @@ public partial class PlayerInput : Node
             if (Input.IsActionPressed("force_attack") && SelectionSplashes()) return new(Act.AttackSegment, point, Line: line, Segment: segment); // only splash breaks road
             var s = sim.State.Belts[line].Segments[segment];
             if (s.Health < s.MaxHealth && SelectionRepairs()) return new(Act.Repair, point, Line: line, Segment: segment);
+            if (!s.Paved && s.State != SegmentState.Broken && SelectionRepairs()) return new(Act.Pave, point, Line: line, Segment: segment);
         }
         return new(Act.Move, point);
     }
@@ -379,6 +381,9 @@ public partial class PlayerInput : Node
                 // Only builders and engineers repair; the rest of the selection goes along.
                 Act.Repair => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
                     ? new RepairSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued)
+                    : new MoveCommand(LocalPlayer, id, spread, queued),
+                Act.Pave => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
+                    ? new PaveSegmentCommand(LocalPlayer, id, intent.Line, intent.Segment, queued)
                     : new MoveCommand(LocalPlayer, id, spread, queued),
                 Act.Fix => Host.Sim.State.Units.Find(u => u.Id == id).RepairSeconds > 0
                     ? new RepairCommand(LocalPlayer, id, intent.Target, queued)
@@ -413,7 +418,7 @@ public partial class PlayerInput : Node
                 {
                     Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
-                    Act.Repair or Act.Resume or Act.Fix or Act.Mend => CursorKind.Repair,
+                    Act.Repair or Act.Resume or Act.Fix or Act.Mend or Act.Pave => CursorKind.Repair,
                     Act.Garrison => CursorKind.Garrison,
                     _ => CursorKind.Default,
                 };
@@ -526,10 +531,15 @@ public partial class PlayerInput : Node
         else if (free && over is SVector3 point && BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
         {
             var s = sim.State.Belts[line].Segments[segment];
-            bool splash = SelectionSplashes(), force = Input.IsActionPressed("force_attack") && splash, hurt = s.Health < s.MaxHealth && SelectionRepairs();
-            hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
+            bool repairs = SelectionRepairs(), splash = SelectionSplashes(), force = Input.IsActionPressed("force_attack") && splash;
+            bool hurt = s.Health < s.MaxHealth && repairs, pave = !hurt && repairs && !s.Paved && s.State != SegmentState.Broken;
+            hover = (line, segment, force ? BeltView.HoverKind.Attack : hurt || pave ? BeltView.HoverKind.Repair : BeltView.HoverKind.Look);
             string act = CommandCard.KeyOf("act");
-            hint = L.T("belt.hint", L.T(s.State == SegmentState.Broken ? "belt.broken" : hurt ? "belt.damaged" : "belt.intact"), s.Health.ToString("0"), s.MaxHealth.ToString("0")) + "\n"
+            string kind = L.T(s.Paved ? "belt.paved" : "belt.dirt");
+            string name = s.State == SegmentState.Broken ? L.T("belt.broken", kind) : s.Health < s.MaxHealth ? L.T("belt.damaged", kind) : kind;
+            hint = L.T("belt.hint", name, s.Health.ToString("0"), s.MaxHealth.ToString("0"))
+                 + (s.PaveProgress > 0 ? "  " + L.T("belt.paving", (100 * s.PaveProgress).ToString("0")) : "") + "\n"
+                 + (pave ? L.T("belt.pave", act, Simulation.PaveCost) + "\n" : "")
                  + (!splash ? L.T("belt.splash_only") : force ? "" : L.T("belt.attack", CommandCard.KeyOf("force_attack"), act)); // the cursor shows the rest
         }
         BeltView.Hover = hover;

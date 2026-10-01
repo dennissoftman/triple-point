@@ -309,14 +309,26 @@ msgstr "not enough packages (needs {0})"
 msgid "belt.hint"
 msgstr "{0}  {1}/{2}"
 
-msgid "belt.intact"
-msgstr "Road"
+msgid "belt.dirt"
+msgstr "Dirt road"
 
+msgid "belt.paved"
+msgstr "Paved road"
+
+# {0} what road it is
 msgid "belt.damaged"
-msgstr "Damaged road"
+msgstr "{0}, damaged"
 
 msgid "belt.broken"
-msgstr "Broken road"
+msgstr "{0}, broken"
+
+# {0} how far its paving has got, percent
+msgid "belt.paving"
+msgstr "{0}% paved"
+
+# With a builder or engineer over a dirt piece: {0} the key, {1} its cost
+msgid "belt.pave"
+msgstr "{0}: pave it ({1} packages): tougher, and faster to drive on"
 
 # {0} the force-attack key, {1} the right-click key
 msgid "belt.attack"

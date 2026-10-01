@@ -60,6 +60,12 @@ public sealed partial class Simulation
     const float AcquireReach = 8f;                  // m beyond its range that attack-move goes for what its side sees
     const float BuildReach = 1.5f;                  // m beyond a footprint's edge, past its own radius, that a builder works from
     public const float RoadHalfWidth = 1.6f;        // m; buildings keep clear of the road
+    // Paved road: its pieces take this many times a dirt piece's damage, units on it move faster (vehicles
+    // by the first share, infantry the second), and paving a piece costs this many packages and seconds.
+    public const float PavedHealth = 3f, PavedVehicleBoost = 0.3f, PavedFootBoost = 0.1f;
+    public const int PaveCost = 3;
+    const float PaySlack = 1e-4f;                   // share of a job's whole that float error may leave unpaid
+    public const float PaveSeconds = 6f;
     const float PostHalfSize = 0.8f;                // m; a gatherer post's footprint, for keeping buildings clear
     const float FoundationHealth = 0.1f;            // share of full health a new foundation starts with
     public const float GraceSeconds = 60f;          // to rebuild, once a player has no buildings left
@@ -189,11 +195,12 @@ public sealed partial class Simulation
     /// Adds a belt line; each curve is cut into breakable segments no longer than the config allows. The
     /// first `coveredStart` m and last `coveredEnd` m are covered (unbreakable, no posts; see BeltLine).
     /// </summary>
-    public void AddBeltLine(BezierSegment[] curves, BeltConfig config, float coveredStart = 0, float coveredEnd = 0)
+    public void AddBeltLine(BezierSegment[] curves, BeltConfig config, float coveredStart = 0, float coveredEnd = 0, float pavedTo = 0)
     {
         var segments = curves.SelectMany(c => c.Split(config.MaxSegmentLength)).ToArray();
-        var line = new BeltLine(segments, config, TicksPerSecond, coveredStart, coveredEnd);
+        var line = new BeltLine(segments, config, TicksPerSecond, coveredStart, coveredEnd, pavedTo);
         State.Belts.Add(line);
+        _roadsDirty = true;
         if (!line.StartFull) return;
         // As if it had been running: a truck every spawn interval's drive along the whole route, full.
         float gap = MathF.Max(line.Spacing, line.Speed * line.SpawnIntervalTicks * Dt);
@@ -510,7 +517,7 @@ public sealed partial class Simulation
     /// <summary>Where a unit coming from `from` walks to for an order; for a plain move, the order's own target.</summary>
     public Vector3 OrderPoint(in Order order, Vector3 from) => order.Kind switch
     {
-        UnitOrder.Repair or UnitOrder.AttackSegment when order.Line >= 0 => SegmentPoint(order.Line, order.Segment, from),
+        UnitOrder.Repair or UnitOrder.AttackSegment or UnitOrder.Pave when order.Line >= 0 => SegmentPoint(order.Line, order.Segment, from),
         UnitOrder.Attack => TryGetTarget(order.TargetId, out var at, out _) ? at with { Y = from.Y } : from,
         UnitOrder.Build when order.TargetId >= 0 => TryGetTarget(order.TargetId, out var site, out _) ? site with { Y = from.Y } : from,
         UnitOrder.Repair or UnitOrder.Mend or UnitOrder.Garrison => TryGetTarget(order.TargetId, out var fix, out _) ? fix with { Y = from.Y } : from,
@@ -581,6 +588,9 @@ public sealed partial class Simulation
                 break;
             case SetRetreatCommand r when FindUnit(r.UnitId) is >= 0 and var ri && State.Units[ri].Owner == r.Player:
                 CollectionsMarshal.AsSpan(State.Units)[ri].AutoRetreat = r.On;
+                break;
+            case PaveSegmentCommand p when Open(p.Line, p.Segment) && State.Belts[p.Line].Segments[p.Segment] is { Paved: false, State: not SegmentState.Broken }:
+                Issue(p.Player, p.UnitId, new Order(UnitOrder.Pave, default, p.Line, p.Segment), p.Queued);
                 break;
             case RepairSegmentCommand r when Open(r.Line, r.Segment):
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, r.Line, r.Segment), r.Queued);
@@ -755,11 +765,12 @@ public sealed partial class Simulation
     }
 
     // Pays for `step` of health out of `credit`, a package at a time, each buying max / cost of health; false
-    // if the owner can't pay the next one. A cost of 0 is free.
+    // if the owner can't pay the next one. A cost of 0 is free. (Float slack: the last sliver of a whole
+    // job never costs a package more than its cost.)
     static bool PayFor(ref float credit, Player owner, float step, float max, float cost)
     {
         if (cost <= 0) return true;
-        if (credit < step)
+        if (credit + max * PaySlack < step)
         {
             if (owner.Packages < 1) return false;
             (owner.Packages, owner.Spent) = (owner.Packages - 1, owner.Spent + 1);
@@ -1022,7 +1033,7 @@ public sealed partial class Simulation
         ref var unit = ref CollectionsMarshal.AsSpan(State.Units)[i];
         if (unit.Movement == Movement.Static && order.Kind != UnitOrder.Attack) return; // defenses only aim
         if (order.Kind == UnitOrder.Build && (unit.Builds is null || (order.Structure is not null && Array.IndexOf(unit.Builds, order.Structure) < 0))) return;
-        if (order.Kind == UnitOrder.Repair && unit.RepairSeconds <= 0) return; // only builders and engineers repair
+        if (order.Kind is UnitOrder.Repair or UnitOrder.Pave && unit.RepairSeconds <= 0) return; // only builders and engineers repair and pave
         if (order.Kind == UnitOrder.AttackSegment && unit.SplashRadius <= 0) return; // only splash breaks road
         if (!queued)
         {
@@ -1113,6 +1124,7 @@ public sealed partial class Simulation
     // to front the next, and no side always goes first.
     void UpdateUnits()
     {
+        EnsureRoads();
         var units = CollectionsMarshal.AsSpan(State.Units);
         bool backwards = (State.Tick & 1) == 1;
         for (int k = 0; k < units.Length; k++)
@@ -1124,6 +1136,7 @@ public sealed partial class Simulation
             unit.PrevTurret = unit.Turret;
             (unit.Firing, unit.Driving) = (false, false);
             if (unit.Health <= 0) continue; // killed earlier this tick; removed after the loop
+            unit.RoadBoost = !_pavedRoads.At(unit.Position) ? 0 : unit.Movement == Movement.Foot ? PavedFootBoost : PavedVehicleBoost;
             if (unit.Inside >= 0)
             {
                 // Inside a garrison building it only fires out; any order brings it out first.
@@ -1179,6 +1192,27 @@ public sealed partial class Simulation
                     RepairStructure(ref unit);
                     break;
 
+                case UnitOrder.Pave:
+                {
+                    Engage(ref unit);
+                    var (l, s) = (unit.Current.Line, unit.Current.Segment);
+                    var segment = State.Belts[l].Segments[s];
+                    if (segment.Paved || segment.State == SegmentState.Broken) { Complete(ref unit); break; }
+                    if (!InRange(ref unit, RepairRange)) break;
+                    float step = MathF.Min(Dt / PaveSeconds, 1 - segment.PaveProgress);
+                    float credit = segment.PaveCredit;
+                    bool paid = PayFor(ref credit, State.Players[unit.Owner], step, 1, PaveCost);
+                    segment.PaveCredit = credit;
+                    if (!paid) break; // stalls while broke
+                    segment.PaveProgress += step;
+                    if (segment.PaveProgress >= 1 - 1e-4f)
+                    {
+                        Pave(l, s);
+                        Complete(ref unit);
+                    }
+                    break;
+                }
+
                 case UnitOrder.Repair:
                 {
                     Engage(ref unit);
@@ -1193,6 +1227,7 @@ public sealed partial class Simulation
                     if (segment.Health >= segment.MaxHealth)
                     {
                         segment.State = SegmentState.Normal;
+                        _roadsDirty = true;
                         _events.Add(new SimEvent(SimEventKind.SegmentRepaired, l, s));
                         Complete(ref unit);
                     }
@@ -1733,7 +1768,7 @@ public sealed partial class Simulation
         var toTarget = target - unit.Position;
         float distance = toTarget.Length();
         if (distance > 0) unit.Heading = MathF.Atan2(toTarget.X, toTarget.Z);
-        float step = unit.Speed * Dt;
+        float step = unit.Speed * (1 + unit.RoadBoost) * Dt;
         if (distance <= step)
         {
             unit.Position = target;
@@ -1779,7 +1814,7 @@ public sealed partial class Simulation
         // Brake once the rest of the way is what easing to a stop from here takes, less a margin. Once
         // braking, keep at it unless that would leave it well short: while it turns, the straight-line
         // distance shrinks slower than it rolls, and letting go then would pump the pedals.
-        float top = reverse ? unit.ReverseSpeed : unit.Speed;
+        float top = (reverse ? unit.ReverseSpeed : unit.Speed) * (1 + unit.RoadBoost);
         float slack = distance - MathF.Abs(StoppingDistance(unit));
         bool braking = unit.Effort * unit.CurrentSpeed < 0;
         float want = !through && slack <= StopMargin + (braking ? StopHysteresis : 0) ? 0 : top;
@@ -1940,12 +1975,43 @@ public sealed partial class Simulation
         }
     }
 
+    // A dirt piece becomes paved road: PavedHealth times as tough, keeping the damage it has taken.
+    void Pave(int lineIndex, int segmentIndex)
+    {
+        var segment = State.Belts[lineIndex].Segments[segmentIndex];
+        if (segment.Paved) return;
+        float added = segment.MaxHealth * (PavedHealth - 1);
+        (segment.Paved, segment.MaxHealth, segment.PaveProgress, segment.PaveCredit) = (true, segment.MaxHealth + added, 0, 0);
+        segment.Health += added;
+        _roadsDirty = true;
+        _events.Add(new SimEvent(SimEventKind.SegmentPaved, lineIndex, segmentIndex));
+    }
+
+    readonly PavedRoads _pavedRoads = new();
+    bool _roadsDirty;
+
+    // The paved-road grid, rebuilt only after a piece was paved, broke or was repaired.
+    void EnsureRoads()
+    {
+        if (!_roadsDirty) return;
+        _roadsDirty = false;
+        _pavedRoads.Rebuild(State.Belts, RoadHalfWidth);
+    }
+
+    /// <summary>Whether a unit standing here moves at the paved-road boost (open, paved and not broken).</summary>
+    public bool OnPavedRoad(Vector3 at)
+    {
+        EnsureRoads();
+        return _pavedRoads.At(at);
+    }
+
     void Break(int lineIndex, int segmentIndex, int by)
     {
         var line = State.Belts[lineIndex];
         var segment = line.Segments[segmentIndex];
         if (segment.State == SegmentState.Broken) return;
         (segment.State, segment.Health, segment.BrokenBy) = (SegmentState.Broken, 0, by);
+        _roadsDirty = true;
         _events.Add(new SimEvent(SimEventKind.SegmentBroken, lineIndex, segmentIndex));
         TellCutOff(lineIndex, segmentIndex);
         // Trucks on it stay where they are, and the ones coming wait before it (MovePackages).

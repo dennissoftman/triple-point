@@ -68,7 +68,8 @@ public sealed class Commander
     const float DefenseOffset = 5f;                 // m from a depot, toward home, where its defense goes
     const float AttackJitter = 30f;                 // s either way of its level's first attack time
     const float AnyFighterChance = 0.3f;            // how often a building trains any of its fighters, not the one it has fewest of
-    const float OccupyReach = 60f;                  // m an idle squad goes out of its way to a free garrison building
+    const float OccupyReach = 60f;
+    const float BreakReach = 30f;                   // m upstream of an enemy post that it looks for road to break                  // m an idle squad goes out of its way to a free garrison building
     const float CollectReach = 45f;                 // m an idle unit goes out of its way for a spilled package
     const float CollectDanger = 20f;                // m: no package this close to enemy fighters is worth fetching
     const int CollectorsPerThink = 3;
@@ -619,24 +620,29 @@ public sealed class Commander
         return true;
     }
 
-    // An open, unbroken segment just upstream of an enemy post and downstream of all its own posts on that line.
+    // An open, unbroken segment upstream of an enemy post (within BreakReach) and downstream of all its own
+    // posts on that line: the easiest to break of them (dirt before paved), then the nearest the post.
     bool BeltBreak(out int line, out int segment)
     {
         var state = _sim.State;
         (line, segment) = (-1, -1);
+        float best = float.MaxValue;
         foreach (var g in _view.Ghosts)
         {
             if (!g.IsPost) continue;
             float mine = -1;
             foreach (var m in state.Gatherers) if (m.Owner == _me && m.Line == g.Line) mine = MathF.Max(mine, m.Distance);
             var belt = state.Belts[g.Line];
-            int s = belt.SegmentAt(MathF.Max(0, g.Distance - 6));
-            var seg = belt.Segments[s];
-            if (seg.Covered || _view.SeenState(g.Line, s) == SegmentState.Broken || seg.Start <= mine + 2 || seg.End > g.Distance) continue;
-            (line, segment) = (g.Line, s);
-            return true;
+            for (int s = belt.SegmentAt(MathF.Max(0, g.Distance - 6)); s >= 0; s--)
+            {
+                var seg = belt.Segments[s];
+                if (seg.End < g.Distance - BreakReach || seg.Start <= mine + 2) break;
+                if (seg.Covered || _view.SeenState(g.Line, s) == SegmentState.Broken || seg.End > g.Distance) continue;
+                float score = seg.MaxHealth + (g.Distance - seg.End);
+                if (score < best) (best, line, segment) = (score, g.Line, s);
+            }
         }
-        return false;
+        return line >= 0;
     }
 
     // Who breaks the belt: a fighter that stops to fire (artillery) if it has one, else its first fighter.

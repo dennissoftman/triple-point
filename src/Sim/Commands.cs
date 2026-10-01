@@ -43,6 +43,8 @@ public sealed record SetRetreatCommand(int Player, int UnitId, bool On) : Comman
 
 /// <summary>Walk to the segment and restore it to full health; a broken one works again once full.</summary>
 public sealed record RepairSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
+/// <summary>A builder or engineer paves a dirt road piece: tougher, and faster to move along (paid as it works).</summary>
+public sealed record PaveSegmentCommand(int Player, int UnitId, int Line, int Segment, bool Queued = false) : Command(Player);
 
 /// <summary>Drop every order, current and queued, and stand there: an idle unit (it fires at what's in range and answers fire).</summary>
 public sealed record StopCommand(int Player, int UnitId) : Command(Player);
@@ -83,7 +85,7 @@ public sealed record DestroyCommand(int TargetId) : Command(Sim.Player.None);
 public enum SimEventKind
 {
     UnitArrived, UnitDied, PackageLost, PackageGathered, PickupCollected, GathererDestroyed, TruckDestroyed,
-    SegmentBroken, SegmentRepaired, ShellHit,
+    SegmentBroken, SegmentRepaired, SegmentPaved, ShellHit,
     UnitProduced, BuildingDestroyed, BuildingPlaced, BuildingCompleted, BuildBlocked,
     GraceStarted, GraceEnded, PlayerLost, GameOver,
 }

@@ -6,7 +6,7 @@
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, five with Shift, rally point, cancel),
 # construction (a builder's build key arms a ghost, a click lays the foundation), the minimap, the pause
 # menu, the selection panel, Hold (D) and Stop (S), auto-retreat (X), control groups (Ctrl+1, then 1), and
-# a squad going into a house (right-click) and out again (Exit).
+# a squad going into a house (right-click) and out again (Exit), and the offer to pave a dirt road.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -219,6 +219,9 @@ func _process(_delta) -> bool:
 			motion(cam.unproject_position(RED_BELT))
 		3803:
 			check("a builder over a broken segment: repair", player.get("CursorName"), "Repair")
+			motion(cam.unproject_position(clear_of_red([Vector3(-5, 0, 11), Vector3(-15, 0, 11), Vector3(20, 0, 11)]))) # a dirt piece of Red's road
+		3806:
+			check("a builder over a dirt piece: it offers to pave it", [player.get("CursorName"), (player.get("HintText") as String).contains("pave")], ["Repair", true])
 			cam.set("Focus", Vector2(-10, -17)) # back over Blue's HQ
 		3809:
 			check("selecting a builder shows its build card", root.get_node("Main/Ui/CommandCard").visible, true)

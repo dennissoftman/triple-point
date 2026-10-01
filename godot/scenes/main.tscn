@@ -108,12 +108,14 @@ curve = SubResource("Curve3D_BlueBelt")
 script = ExtResource("16_beltpath")
 CoveredStart = 106.26
 CoveredEnd = 25.003
+PavedTo = 160.065
 
 [node name="RedBelt" type="Path3D" parent="Belts"]
 curve = SubResource("Curve3D_RedBelt")
 script = ExtResource("16_beltpath")
 CoveredStart = 106.26
 CoveredEnd = 25.003
+PavedTo = 160.065
 
 [node name="Gatherers" type="Node3D" parent="."]
 
