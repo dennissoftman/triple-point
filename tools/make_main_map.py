@@ -45,8 +45,9 @@ BUILD_CLEARANCE = 22.0  # m from each HQ's center that no belt comes closer than
 ROCK_BELT_CLEARANCE = 8.0  # m between a rock and any belt
 ROCK_HQ_CLEARANCE = 40.0   # m from each HQ's center to any rock: the AI builds up to this far out
 ROCK_GAP = 10.0            # m at least between two rocks, so every lane takes a tank with room to spare
-HOUSE_BELT_CLEARANCE = 10.0  # m from a house's center to any belt: room for a depot between them
-HOUSE_ROCK_CLEARANCE = 8.0   # m from a house's center to any rock
+HOUSE_BELT_CLEARANCE = 8.0  # m from a house's center to any belt: room to walk round it
+HOUSE_REACH = 12.0          # m from a house's center that a rifle squad inside reaches (8 m, +2 m, +half its 4 m): both roads within it
+HOUSE_ROCK_CLEARANCE = 8.0  # m from a house's center to any rock
 
 # Positions are authored in (s, t): s along the center line (the line equally far from both HQs; +s
 # runs toward the south-east), t across it, toward Blue. The HQs sit on the t axis.
@@ -134,9 +135,10 @@ BLUE_ROCKS = [
 ]
 ROCK_HEIGHT = 2.2
 
-# Blue's garrison houses (neutral buildings infantry go into), each (s, t): beside the contested tail,
-# overlooking it. Red's are the same, mirrored.
-BLUE_HOUSES = [(48, 14)]
+# Blue's garrison houses (neutral buildings infantry go into), each (s, t): at the crossing, on Blue's side
+# of the center line, where a squad inside reaches both roads. Red's are the same, mirrored. (Beside the
+# tails, 2026-10-01, they were useless: nobody fought there.)
+BLUE_HOUSES = [(-4.5, 5.5)]
 
 
 def houses():
@@ -237,9 +239,12 @@ def check():
             if gap < ROCK_GAP:
                 failures.append('rocks %d and %d are %.1f m apart (keep %g m)' % (i, j, gap, ROCK_GAP))
 
-    # Houses keep clear of the belts and rocks, and stand where the fighting is.
+    # Houses keep clear of the belts and rocks, and stand where the fighting is: both roads within reach.
     for i, h in enumerate(houses()):
         near_belt = min(dist(h, p) for p in belt_points)
+        reach = max(min(dist(h, p) for _, p in sample(points, 1.0)[0]) for points in BELTS.values())
+        if reach > HOUSE_REACH:
+            failures.append('house %d is %.1f m from a road: a squad inside reaches %g m' % (i, reach, HOUSE_REACH))
         near_rock = min(rock_distance(h, rock) for rock in all_rocks)
         lead = dist(h, neg(BLUE_HQ)) - dist(h, BLUE_HQ)
         print('House %d at (%.1f, %.1f): %.1f m from a belt, %.1f m from a rock, lead toward Blue %.1f' % (i, h[0], h[1], near_belt, near_rock, lead))

@@ -1,6 +1,7 @@
 // Prototype unit types. Every field, its units and its default: docs/data.md.
 {
   "rifle_squad": { "members": 5, "speed": 4.5, "memberHealth": 20, "weapon": "rifle", "cost": 8, "buildTime": 10, "radius": 1, "sight": 18 },
+  "rocket_squad": { "members": 4, "speed": 4, "memberHealth": 20, "weapon": "rocket", "cost": 10, "buildTime": 12, "radius": 1, "sight": 18 },
   "scout_car": {
     "members": 1, "movement": "wheeled", "speed": 8, "reverseSpeed": 4,
     "acceleration": 4, "braking": 8, "easeIn": 0.3, "easeOut": 0.5, "turnRate": 120, "turretTurnRate": 180,

@@ -30,7 +30,7 @@ public partial class SimHost : Node3D
     [Export] public Label Hud = null!;
 
     [Export] public int PlayerCount = 2;
-    [Export] public int StartingPackages = 20;
+    [Export] public int StartingPackages = 50;
     [Export] public bool EndConditions = true; // players can lose and the game end; off for maps without buildings
     [Export] public bool ShowDebug;            // the debug text under the HUD line; toggle_debug flips it
     [Export] public int BrokenSegments;        // on the whole map, as of the last frame; for tools

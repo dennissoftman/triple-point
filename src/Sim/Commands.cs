@@ -32,8 +32,8 @@ public sealed record MendCommand(int Player, int UnitId, int BuildingId, bool Qu
 /// </summary>
 public sealed record GarrisonCommand(int Player, int UnitId, int BuildingId, bool Queued = false) : Command(Player);
 
-/// <summary>Everyone in one of the player's garrison buildings comes out.</summary>
-public sealed record ExitCommand(int Player, int BuildingId) : Command(Player);
+/// <summary>Squads inside a garrison building of yours come out: one (UnitId), or all of them (UnitId -1).</summary>
+public sealed record ExitCommand(int Player, int BuildingId, int UnitId = -1) : Command(Player);
 
 /// <summary>A builder or engineer repairs one of its owner's damaged buildings, posts or defenses, paid as it goes.</summary>
 public sealed record RepairCommand(int Player, int UnitId, int TargetId, bool Queued = false) : Command(Player);

@@ -7,16 +7,16 @@ namespace Sim.Tests;
 public class NetworkTests
 {
     [Fact]
-    public void A_depot_takes_a_third_of_each_passing_truck_stopping_it_a_moment()
+    public void A_depot_takes_its_share_of_each_passing_truck_stopping_it_a_moment()
     {
         var sim = NewSim();
-        sim.AddBeltLine([Straight(Vector3.Zero, new(40, 0, 0))], Belt(1000) with { Load = 9 }); // one truck, 2 m/s
-        sim.AddGatherer(Blue, new Vector3(10, 0, 2), maxDistance: 3);
+        sim.AddBeltLine([Straight(Vector3.Zero, new(40, 0, 0))], Belt(1000) with { Load = 12 }); // one truck, 2 m/s
+        sim.AddGatherer(Blue, new Vector3(10, 0, 2), maxDistance: 3); // a quarter of the way: a quarter of a load
         var line = sim.State.Belts[0];
 
         Run(sim, 5 * T + 2); // it reaches 10 m after 5 s
         var truck = line.Packages.Single();
-        Assert.Equal(6, truck.Cargo);
+        Assert.Equal(9, truck.Cargo);
         Assert.Equal(3, sim.State.Players[Blue].Gathered);
         Assert.Equal(3, sim.State.Players[Blue].Packages);
         float at = truck.Distance;
@@ -28,21 +28,25 @@ public class NetworkTests
     }
 
     [Fact]
-    public void Three_depots_empty_a_truck_and_what_two_leave_goes_on()
+    public void A_depots_share_grows_down_the_open_road_and_what_they_leave_goes_on()
     {
-        int Lost(int depots)
+        // 140 m, its first and last 20 m covered: the open road runs from 20 to 120 m.
+        int Lost(params float[] at)
         {
             var sim = NewSim();
-            sim.AddBeltLine([Straight(Vector3.Zero, new(100, 0, 0))], Belt(1000) with { Load = 9 }); // one truck
-            foreach (float x in new[] { 10f, 45f, 80f }.Take(depots)) sim.AddGatherer(Blue, new Vector3(x, 0, 2), maxDistance: 3);
-            Run(sim, 70 * T);
+            sim.AddBeltLine([Straight(Vector3.Zero, new(20, 0, 0)), Straight(new(20, 0, 0), new(120, 0, 0)), Straight(new(120, 0, 0), new(140, 0, 0))],
+                Belt(1000) with { Load = 12 }, coveredStart: 20, coveredEnd: 20); // one truck
+            foreach (float x in at) sim.AddGatherer(Blue, new Vector3(x, 0, 2), maxDistance: 3);
+            Run(sim, 100 * T);
             Assert.Empty(sim.State.Belts[0].Packages); // it got to the end
-            Assert.All(sim.State.Gatherers, g => Assert.Equal(3, g.Gathered)); // a third each
+            Assert.All(sim.State.Gatherers, g => Assert.Equal(g.Share, g.Gathered));
             return sim.State.Belts[0].Lost;
         }
-        Assert.Equal(0, Lost(3));
-        Assert.Equal(3, Lost(2)); // two depots let a third through
-        Assert.Equal(9, Lost(0));
+        var line = new BeltLine([Straight(Vector3.Zero, new(140, 0, 0))], Belt(1000) with { Load = 12 }, T, coveredStart: 20, coveredEnd: 20);
+        Assert.Equal([2, 2, 4, 6, 6], new[] { 0f, 20f, 70f, 120f, 140f }.Select(d => Simulation.DepotShare(line, d)));
+        Assert.Equal(0, Lost(22, 70, 118)); // a sixth, a third and a half: a truck's whole load
+        Assert.Equal(6, Lost(22, 70));      // what the home two leave flows on to the tail
+        Assert.Equal(12, Lost());
     }
 
     [Fact]

@@ -34,7 +34,7 @@ static class MainMap
         sim.EnableNavigation(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3]);
         var host = Node(scene, "SimHost");
         float Setting(string name, float fallback) => Prop(host, name) is string v ? F(v) : fallback;
-        int starting = (int)Setting("StartingPackages", 20);
+        int starting = (int)Setting("StartingPackages", 50);
         for (int p = 0; p < 2; p++) sim.State.Players[sim.AddPlayer()].Packages = starting;
 
         // SimHost's defaults, where the scene doesn't set them.

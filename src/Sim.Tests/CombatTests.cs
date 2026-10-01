@@ -589,17 +589,18 @@ public class CombatTests
     }
 
     [Fact]
-    public void Structure_damage_scales_hits_on_buildings_and_depots_but_not_on_units_or_defenses()
+    public void Against_scales_hits_by_target_class_defenses_counting_as_vehicles()
     {
         var sim = NewSim();
         var hq = new BuildingType(Health: 1000, Size: 4, Id: "hq");
-        var siege = new WeaponType(WeaponKind.Bullet, Damage: 10, Reload: 100, Range: 12, StructureDamage: 3);
+        var siege = new WeaponType(WeaponKind.Bullet, Damage: 10, Reload: 100, Range: 12, Against: new(Infantry: 0.5f, Vehicle: 2, Structure: 3));
         sim.AddBeltLine(TwoSegments(), Belt(1000)); // for the post to stand beside
         int building = sim.AddBuilding(Red, new Vector3(-10, 0, 0), hq);
         int post = sim.AddGatherer(Red, new Vector3(5, 0, 3), 4, 300);
         int tank = sim.AddUnit(Red, new Vector3(0, 0, -10), speed: 0, maxHealth: 300, dps: 0, movement: Movement.Tracked);
         int nest = sim.AddUnit(Red, new Vector3(-7, 0, -7), speed: 0, maxHealth: 300, dps: 0, movement: Movement.Static);
-        foreach (int id in new[] { building, post, tank, nest })
+        int squad = sim.AddUnit(Red, new Vector3(7, 0, -7), speed: 0, maxHealth: 300, dps: 0);
+        foreach (int id in new[] { building, post, tank, nest, squad })
         {
             int gun = sim.AddUnit(Blue, Vector3.Zero, speed: 0, weapon: siege);
             sim.Tick([new AttackCommand(Blue, gun, id)]);
@@ -607,8 +608,9 @@ public class CombatTests
         }
         Assert.Equal(1000 - 30, sim.State.Buildings.Single(b => b.Id == building).Health, 0.01f);
         Assert.Equal(300 - 30, sim.State.Gatherers.Single(g => g.Id == post).Health, 0.01f);
-        Assert.Equal(300 - 10, UnitById(sim, tank).Health, 0.01f);
-        Assert.Equal(300 - 10, UnitById(sim, nest).Health, 0.01f);
+        Assert.Equal(300 - 20, UnitById(sim, tank).Health, 0.01f);
+        Assert.Equal(300 - 20, UnitById(sim, nest).Health, 0.01f);
+        Assert.Equal(300 - 5, UnitById(sim, squad).Health, 0.01f);
     }
 
     [Fact]

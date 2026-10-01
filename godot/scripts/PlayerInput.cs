@@ -47,7 +47,8 @@ public partial class PlayerInput : Node
     /// A building about to be placed: snapped to the grid under the cursor (a post: beside the nearest
     /// belt), and what's wrong with putting it there, if anything.
     /// </summary>
-    public readonly record struct Placement(BuildingType Type, SVector3 At, float Heading, string? Problem)
+    /// <summary>`Share` of a truck's `Load`: what a depot there would take (0 for other buildings).</summary>
+    public readonly record struct Placement(BuildingType Type, SVector3 At, float Heading, string? Problem, int Share = 0, int Load = 0)
     {
         public bool Valid => Problem is null;
     }
@@ -186,10 +187,10 @@ public partial class PlayerInput : Node
             }
     }
 
-    /// <summary>Everyone inside the selected garrison building comes out.</summary>
-    public void ExitGarrison()
+    /// <summary>Everyone inside the selected garrison building comes out, or (a unit id) that one squad.</summary>
+    public void ExitGarrison(int unitId = -1)
     {
-        if (Building is Building b) Host.Issue(new ExitCommand(LocalPlayer, b.Id));
+        if (Building is Building b) Host.Issue(new ExitCommand(LocalPlayer, b.Id, unitId));
     }
 
     // The production keys, while a building is selected (a garrison building's first is Exit): one per unit type it produces, and cancel the
@@ -277,7 +278,9 @@ public partial class PlayerInput : Node
         if (problem is null && !Host.Sim.HasRequired(LocalPlayer, type)) problem = L.T("place.requires", L.Building(type.Requires!));
         if (problem is null && !Host.Sim.CanPlace(type, at)) problem = L.T("place.blocked");
         if (problem is null && !Host.Sim.CanAfford(LocalPlayer, type)) problem = L.T("place.money", type.Cost);
-        Placing = new Placement(type, at, heading, problem);
+        int share = 0, load = 0;
+        if (type.Kind == BuildingKind.Post) Host.Sim.ShareAt(at, out share, out load);
+        Placing = new Placement(type, at, heading, problem, share, load);
     }
 
     // Sends the nearest selected builder to put the building down (queued: after what it's doing, and

@@ -55,7 +55,7 @@ public partial class CommandCard : PanelContainer
         {
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             CustomMinimumSize = new Vector2(Columns * CellWidth + (Columns - 1) * Gap, 0),
-            LabelSettings = new LabelSettings { FontSize = 11, FontColor = new Color(1, 0.6f, 0.45f) },
+            LabelSettings = new LabelSettings { FontSize = 11, FontColor = ProblemColor },
             Visible = false,
         });
         var grid = new GridContainer { Columns = Columns };
@@ -135,10 +135,11 @@ public partial class CommandCard : PanelContainer
         if (!show) return;
         for (int i = 0; i < _cells.Length; i++) Clear(i);
         string help = "";
+        bool info = false; // help that isn't a problem
         QueueLength = 0;
 
         if (building is { Type.Kind: BuildingKind.Garrison })
-            Set(SlotCells[0], L.T("card.exit"), L.T("card.exit.tip"), PlayerInput.ExitGarrison, enabled: building.Occupants > 0);
+            Set(SlotCells[0], L.T("card.exit"), L.T("card.exit.tip"), () => PlayerInput.ExitGarrison(), enabled: building.Occupants > 0);
         else if (building is { Built: true }) ShowProduction(building);
         else if (units)
         {
@@ -154,6 +155,7 @@ public partial class CommandCard : PanelContainer
             {
                 Set(ZCell, L.T("card.rotate"), L.T("card.rotate.tip"), PlayerInput.RotatePlacement);
                 if (PlayerInput.Placing is { Problem: string p }) help = L.T("card.cant_place", p);
+                else if (PlayerInput.Placing is { Share: > 0 } spot) (help, info) = (L.T("card.post_share", spot.Share, spot.Load), true);
             }
         }
         for (int i = 0; i < _cells.Length; i++)
@@ -165,10 +167,12 @@ public partial class CommandCard : PanelContainer
         {
             _help.Text = help;
             _help.Visible = help.Length > 0;
+            _help.LabelSettings.FontColor = info ? InfoColor : ProblemColor;
         }
     }
 
     static readonly Color Progressing = new(0.45f, 0.8f, 1f), StalledColor = new(1f, 0.4f, 0.3f);
+    static readonly Color ProblemColor = new(1, 0.6f, 0.45f), InfoColor = new(0.75f, 0.9f, 1f);
 
     void ApplyExtra(int i, (string Badge, float Progress, bool Stalled) want)
     {

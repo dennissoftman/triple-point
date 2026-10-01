@@ -11,8 +11,8 @@ public sealed partial class Simulation
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
     public const int MaxQueue = 999;                // units a building's queue holds: no real limit, only a sane one
-    public const float GarrisonRange = 2f;
-    const float EjectedHealth = 0.5f;               // of their health, what squads keep when their garrison building falls          // m a squad inside a garrison building reaches beyond its walls, on top of its range
+    public const float GarrisonRange = 2f;          // m a squad inside a garrison building reaches beyond its walls, on top of its range
+    const float EjectedHealth = 0.5f;               // of their health, what squads keep when their garrison building falls
     public const float RetreatHealth = 0.3f;        // share of full health below which an auto-retreating unit goes to mend
     const int RetreatCheckTicks = 10;
     const float StructureRepairShare = 0.5f;        // of a building's cost, for a repair from 0 to full
@@ -26,6 +26,10 @@ public sealed partial class Simulation
     public const float CollectRadius = 1.5f;        // m; units collect pickups this close
     public const float SpillFallSeconds = 0.6f;     // a spilled package is in the air this long before it can be collected
     const float GrabReach = 0.5f;                   // m either side of a depot's pull point
+    // A depot's share of each truck that passes it grows down the route: this share of a full load where
+    // the open road starts, up to the last share where it ends. Home keeps a side going; the money is out
+    // in the contested stretch.
+    public const float FirstDepotShare = 1f / 6, LastDepotShare = 0.5f;
     // A destroyed truck's spill: spots either side of the road, 2 rows each side, 4 to a step along it,
     // centered on the truck, far enough apart that packages never overlap.
     static readonly float[] SpillRows = [1.5f, 2.3f]; // m to the side of the road's middle; clear of its edge
@@ -89,6 +93,9 @@ public sealed partial class Simulation
     int _nextId = 1;
 
     public Simulation(uint seed = 1) => _random = new SimRandom(seed);
+
+    /// <summary>The sim's one RNG, for the commander AI's choices: the same seed, the same match.</summary>
+    internal SimRandom Random => _random;
 
     // ---- Setup ----
 
@@ -156,7 +163,7 @@ public sealed partial class Simulation
             MinRange = weapon.MinRange,
             Ballistic = weapon.Kind == WeaponKind.Shell && weapon.Ballistic,
             Scatter = weapon.Scatter,
-            StructureDamage = weapon.StructureDamage,
+            Against = weapon.Vs,
             Prefers = weapon.Prefers,
             ReloadTicks = Math.Max(1, (int)MathF.Round(weapon.Reload * TicksPerSecond)),
             LastShotTick = int.MinValue / 2,
@@ -225,6 +232,26 @@ public sealed partial class Simulation
     /// Adds a gatherer post for `owner` at `position`, pulling from the nearest belt point within
     /// `maxDistance`. Returns its id, or -1 if no belt is that close.
     /// </summary>
+    /// <summary>
+    /// How many packages a depot whose pull point is `distance` along this route takes from each truck: from
+    /// FirstDepotShare of a full load where the open road starts to LastDepotShare where it ends, at least one.
+    /// </summary>
+    public static int DepotShare(BeltLine line, float distance)
+    {
+        float open = line.OpenEnd - line.OpenStart;
+        float along = open > 0 ? Math.Clamp((distance - line.OpenStart) / open, 0, 1) : 0;
+        return Math.Max(1, (int)MathF.Round(line.Load * (FirstDepotShare + (LastDepotShare - FirstDepotShare) * along)));
+    }
+
+    /// <summary>What a depot placed at `at` would take from each passing truck, and a full truck's load; false if it's off the road.</summary>
+    public bool ShareAt(Vector3 at, out int share, out int load)
+    {
+        (share, load) = (0, 0);
+        if (!PullPoint(at, PostReach, out int line, out float along)) return false;
+        (share, load) = (DepotShare(State.Belts[line], along), State.Belts[line].Load);
+        return true;
+    }
+
     public int AddGatherer(int owner, Vector3 position, float maxDistance, float health = GathererHealth, float sight = PostSight)
     {
         if (!PullPoint(position, maxDistance, out int line, out float along)) return -1;
@@ -240,6 +267,7 @@ public sealed partial class Simulation
             MaxHealth = health,
             LastGrabTick = int.MinValue / 2,
             Sight = sight,
+            Share = DepotShare(State.Belts[line], along),
         });
         _navDirty = true;
         return id;
@@ -546,7 +574,7 @@ public sealed partial class Simulation
                 break;
             case ExitCommand x when OwnBuilding(x.Player, x.BuildingId) is { Type.Kind: BuildingKind.Garrison } house:
                 foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
-                    if (unit.Inside == house.Id) Leave(ref unit);
+                    if (unit.Inside == house.Id && (x.UnitId < 0 || unit.Id == x.UnitId)) Leave(ref unit);
                 break;
             case RepairCommand r when Repairable(r.Player, r.TargetId):
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, TargetId: r.TargetId), r.Queued);
@@ -1463,7 +1491,7 @@ public sealed partial class Simulation
         float damage = unit.Damage * unit.Members;
         if (unit.WeaponKind == WeaponKind.Bullet)
         {
-            _bullets.Add(new Bullet(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius, unit.StructureDamage));
+            _bullets.Add(new Bullet(unit.Owner, unit.Id, targetId, line, segment, at, damage, unit.SplashRadius, unit.Against));
             return true;
         }
 
@@ -1491,19 +1519,19 @@ public sealed partial class Simulation
             Speed = unit.ShellSpeed,
             Damage = damage,
             SplashRadius = unit.SplashRadius,
-            StructureDamage = unit.StructureDamage,
+            Against = unit.Against,
             Ballistic = unit.Ballistic,
         });
         return true;
     }
 
-    readonly record struct Bullet(int Owner, int Shooter, int TargetId, int Line, int Segment, Vector3 At, float Damage, float Radius, float Structure);
+    readonly record struct Bullet(int Owner, int Shooter, int TargetId, int Line, int Segment, Vector3 At, float Damage, float Radius, Against Against);
     readonly List<Bullet> _bullets = [];
 
     // The bullets fired this tick hit, all at once after every unit has acted.
     void LandBullets()
     {
-        foreach (var b in _bullets) Impact(b.Owner, b.Shooter, b.TargetId, b.Line, b.Segment, b.At, b.Damage, b.Radius, b.Structure);
+        foreach (var b in _bullets) Impact(b.Owner, b.Shooter, b.TargetId, b.Line, b.Segment, b.At, b.Damage, b.Radius, b.Against);
         _bullets.Clear();
     }
 
@@ -1529,7 +1557,7 @@ public sealed partial class Simulation
                 shells[i] = p;
                 continue;
             }
-            if (alive || p.SplashRadius > 0) Impact(p.Owner, p.Shooter, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius, p.StructureDamage);
+            if (alive || p.SplashRadius > 0) Impact(p.Owner, p.Shooter, alive ? p.TargetId : -2, p.Line, p.Segment, p.Target, p.Damage, p.SplashRadius, p.Against);
             _events.Add(new SimEvent(SimEventKind.ShellHit, p.Id));
             shells[i] = shells[^1];
             shells.RemoveAt(shells.Count - 1);
@@ -1538,13 +1566,13 @@ public sealed partial class Simulation
 
     // A shot by `shooter` (a unit id) landing at `at`: a direct one damages its target; a splash one every
     // enemy of `owner` around (and a belt segment it was aimed at). Target -2: nothing in particular, its
-    // target died on the way. Only splash hurts road: a direct shot at a segment does nothing. `structure`
-    // scales the damage to buildings and depots. True if the aimed-at target was destroyed.
-    bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius, float structure)
+    // target died on the way. Only splash hurts road: a direct shot at a segment does nothing. `against`
+    // scales the damage by what it hits. True if the aimed-at target was destroyed.
+    bool Impact(int owner, int shooter, int targetId, int line, int segment, Vector3 at, float damage, float radius, Against against)
     {
-        if (radius <= 0) return targetId >= 0 && Hit(owner, shooter, targetId, line, segment, damage, structure);
-        bool destroyed = targetId == -1 && Hit(owner, shooter, -1, line, segment, damage, structure);
-        Splash(owner, shooter, at, damage, radius, targetId, structure, ref destroyed);
+        if (radius <= 0) return targetId >= 0 && Hit(owner, shooter, targetId, line, segment, damage, against);
+        bool destroyed = targetId == -1 && Hit(owner, shooter, -1, line, segment, damage, against);
+        Splash(owner, shooter, at, damage, radius, targetId, against, ref destroyed);
         SplashBelts(owner, at, damage, radius, targetId == -1 ? line : -1, segment);
         return destroyed;
     }
@@ -1571,13 +1599,14 @@ public sealed partial class Simulation
     // Full damage at the center, falling to SplashEdge of it at the radius. A squad takes it on the members
     // the blast covers: the overlap of the blast with its footprint, by distance across it, each member
     // losing at most its own health.
-    void Splash(int owner, int shooter, Vector3 at, float damage, float radius, int targetId, float structure, ref bool destroyed)
+    void Splash(int owner, int shooter, Vector3 at, float damage, float radius, int targetId, Against against, ref bool destroyed)
     {
+        float structure = against.Structure;
         foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
         {
             if (unit.Owner == owner || unit.Health <= 0 || unit.Inside >= 0) continue; // those inside: their building takes it
             float d = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
-            float falloff = 1 - (1 - SplashEdge) * MathF.Min(1, d / radius);
+            float falloff = (1 - (1 - SplashEdge) * MathF.Min(1, d / radius)) * Armor(against, unit);
             float hit;
             if (unit.MaxMembers > 1)
             {
@@ -1620,11 +1649,15 @@ public sealed partial class Simulation
             }
     }
 
+    // Times a weapon's damage against this unit: its infantry or its vehicle factor (defenses are vehicles).
+    static float Armor(Against against, in Unit unit) => ClassOf(unit) == TargetClass.Infantry ? against.Infantry : against.Vehicle;
+
     // Damages a unit, post, building or truck by id, or else a belt segment, for `shooter` (a unit of
-    // `owner`'s); buildings and posts take `structure` times the damage (defenses are guns, and take it as
-    // units do: infantry is what beats a heavy turret). True if that destroyed it.
-    bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage, float structure)
+    // `owner`'s), scaled by `against` for what it is (trucks and road take it as it is). True if that
+    // destroyed it.
+    bool Hit(int owner, int shooter, int targetId, int line, int segment, float damage, Against against)
     {
+        float structure = against.Structure;
         if (targetId < 0)
         {
             var s = State.Belts[line].Segments[segment];
@@ -1639,6 +1672,7 @@ public sealed partial class Simulation
         {
             ref var target = ref CollectionsMarshal.AsSpan(State.Units)[u];
             if (target.Inside >= 0) return false; // went in while the shot was on its way
+            damage *= Armor(against, target);
             target.Health -= target.MaxMembers > 1 ? MathF.Min(damage, target.MemberHealth) : damage; // one hit fells one member at most
             (target.LastAttacker, target.LastHitTick) = (shooter, State.Tick);
             int victim = target.Owner;
@@ -1995,7 +2029,7 @@ public sealed partial class Simulation
         line.Packages.Count == 0 || line.Packages[^1].Distance >= line.Spacing - SpacingSlack;
 
     // A truck with cargo reaching a depot's pull point stops there a moment and unloads the depot's share
-    // (a third of a full load) for its owner, once per depot.
+    // (more the further down the route it stands: DepotShare) for its owner, once per depot.
     void UpdateGatherers()
     {
         foreach (ref var g in CollectionsMarshal.AsSpan(State.Gatherers))
@@ -2005,7 +2039,7 @@ public sealed partial class Simulation
             {
                 if (t.Cargo <= 0 || t.Health <= 0 || t.LastDepot == g.Id) continue;
                 if (t.PrevDistance > g.Distance + GrabReach || t.Distance < g.Distance - GrabReach) continue;
-                int take = Math.Min(line.DepotShare, t.Cargo);
+                int take = Math.Min(g.Share, t.Cargo);
                 (t.Cargo, t.LastDepot, t.StoppedUntilTick) = (t.Cargo - take, g.Id, State.Tick + (int)(UnloadSeconds * TicksPerSecond));
                 g.LastGrabTick = State.Tick;
                 g.Gathered += take;

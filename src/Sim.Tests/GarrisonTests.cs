@@ -42,6 +42,12 @@ public class GarrisonTests
 
         sim.Tick([new ExitCommand(Red, house)]); // only its holder empties it
         Assert.Equal(house, UnitById(sim, squad).Inside);
+        int other = Squad(sim, Blue, new Vector3(6, 0, 0));
+        sim.Tick([new GarrisonCommand(Blue, other, house)]);
+        Run(sim, 2 * T);
+        sim.Tick([new ExitCommand(Blue, house, other)]); // one of them
+        Assert.Equal(-1, UnitById(sim, other).Inside);
+        Assert.Equal(house, UnitById(sim, squad).Inside);
         sim.Tick([new ExitCommand(Blue, house)]);
         Assert.Equal(-1, UnitById(sim, squad).Inside);
         Assert.Equal(Player.None, BuildingById(sim, house).Owner);

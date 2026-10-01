@@ -213,22 +213,32 @@ public class AiTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Holds_the_house_on_its_half_and_guards_its_depots_with_turrets()
+    public void Takes_the_house_on_its_half_and_guards_a_depot_with_a_turret()
     {
+        // The houses stand at the crossing, where the fighting is, so they change hands: what's checked is
+        // that each side went in and put a turret up, in the first minutes.
         var sim = MainMap.Load();
         var ais = new[] { new Commander(sim, Blue), new Commander(sim, Red) };
-        Play(sim, ais, 8 * 60);
-        output.WriteLine(Summary(sim, Blue) + " / " + Summary(sim, Red));
-
         var s = sim.State;
+        var houseOf = new int[2];
         foreach (int player in (int[])[Blue, Red])
         {
             var home = s.Buildings.First(b => b.Owner == player && b.Type.Id == "hq").Position;
-            var house = s.Buildings.Where(b => b.Type.Kind == BuildingKind.Garrison).MinBy(b => System.Numerics.Vector3.Distance(b.Position, home))!;
-            Assert.Equal(player, house.Owner);
-            Assert.Contains(s.Units, u => u.Owner == player && u.Inside == house.Id);
-            Assert.Contains(s.Units, u => u.Owner == player && u.Type == "turret");
+            houseOf[player] = s.Buildings.Where(b => b.Type.Kind == BuildingKind.Garrison).MinBy(b => System.Numerics.Vector3.Distance(b.Position, home))!.Id;
         }
+        int[] inAt = [-1, -1], turretAt = [-1, -1];
+        Play(sim, ais, 6 * 60, (_, _) =>
+        {
+            foreach (var u in s.Units)
+            {
+                if (u.Owner is not (Blue or Red)) continue;
+                if (inAt[u.Owner] < 0 && u.Inside == houseOf[u.Owner]) inAt[u.Owner] = s.Tick / T;
+                if (turretAt[u.Owner] < 0 && u.Type == "turret") turretAt[u.Owner] = s.Tick / T;
+            }
+        });
+        output.WriteLine($"in its house at {inAt[Blue]} s / {inAt[Red]} s, a turret at {turretAt[Blue]} s / {turretAt[Red]} s");
+        Assert.All(inAt, at => Assert.InRange(at, 0, 4 * 60));
+        Assert.All(turretAt, at => Assert.InRange(at, 0, 6 * 60));
     }
 
     [Fact]

@@ -21,6 +21,9 @@ msgstr "Neutral"
 msgid "unit.rifle_squad"
 msgstr "Rifle squad"
 
+msgid "unit.rocket_squad"
+msgstr "Rocket squad"
+
 msgid "unit.scout_car"
 msgstr "Scout car"
 
@@ -154,7 +157,7 @@ msgid "card.exit"
 msgstr "Exit"
 
 msgid "card.exit.tip"
-msgstr "Everyone inside comes out. Any order to a squad inside brings it out too."
+msgstr "Everyone inside comes out. Click a squad's tile to bring out just that one."
 
 msgid "card.rotate"
 msgstr "Rotate"
@@ -186,7 +189,11 @@ msgid "card.build.tip"
 msgstr "{0}: {1} packages, {2} s. {3}\nStarting one needs the whole cost in hand; it's paid as it grows\n{4} or click: place it   Shift: place more   {5}: rotate   RMB/Esc: cancel\nRMB your unfinished foundation: build it"
 
 msgid "card.describe.post"
-msgstr "Stands beside a road and unloads a third of each passing truck."
+msgstr "Stands beside a road and unloads part of each passing truck: a sixth where the open road starts, more further down, up to half at its end."
+
+# While placing a depot: {0} packages it would take from each truck, {1} a full truck's load
+msgid "card.post_share"
+msgstr "Here: {0} of each truck's {1}."
 
 msgid "card.describe.defense"
 msgstr "A defense."
@@ -228,6 +235,10 @@ msgstr "Training {0}, {1}; {2} more queued"
 
 msgid "select.not_training"
 msgstr "Not training anything"
+
+# A garrison building's tile per squad inside
+msgid "select.exit.tip"
+msgstr "Click: this squad comes out."
 
 # A garrison building: {0} squads inside, {1} room for
 msgid "select.garrison"

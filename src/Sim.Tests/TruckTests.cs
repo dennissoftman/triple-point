@@ -24,7 +24,7 @@ public class TruckTests
         // So a depot earns at once, not after the first truck has driven the route.
         sim.AddGatherer(Blue, new Vector3(95, 0, 2), maxDistance: 3);
         Run(sim, 5 * T);
-        Assert.Equal(line.DepotShare, sim.State.Players[Blue].Gathered);
+        Assert.Equal(sim.State.Gatherers[0].Share, sim.State.Players[Blue].Gathered);
     }
 
     [Fact]

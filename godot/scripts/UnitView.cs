@@ -79,7 +79,8 @@ public partial class UnitView : Node3D
     const float RestElevation = 12f, LowElevation = 18f, HighElevation = 45f, ElevationSpeed = 30f; // degrees; °/s
 
     /// <summary>`heavyGunRange` above 0: a long barrel that raises with the distance it shoots, up to that range.
-    /// `cannon`: a defense that fires shells (the heavy turret) gets a big turret and a thick barrel.</summary>
+    /// `cannon`: a defense that fires shells (the heavy turret) gets a big turret and a thick barrel; a
+    /// squad that does (rockets) carries a launcher tube over each member's shoulder.</summary>
     public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed, float heavyGunRange = 0, bool cannon = false)
     {
         PlayerIndex = player;
@@ -89,6 +90,12 @@ public partial class UnitView : Node3D
             BuildSquad(members, body);
             // A lone unarmed soldier (an engineer) carries a tool pack on its back (+Z: forward is -Z).
             if (!armed) _members[0].AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.36f, 0.42f, 0.24f) }, MaterialOverride = materials.Dark, Position = new Vector3(0, 0.1f, 0.3f) });
+            if (armed && cannon)
+            {
+                var tube = new CylinderMesh { TopRadius = 0.1f, BottomRadius = 0.1f, Height = 1.0f };
+                foreach (var member in _members) // slung over the right shoulder, sticking up behind
+                    member.AddChild(new MeshInstance3D { Mesh = tube, MaterialOverride = materials.Dark, Position = new Vector3(0.22f, 0.25f, 0.1f), RotationDegrees = new Vector3(-55, 0, 0) });
+            }
         }
         else BuildVehicle(movement, armed, body, turret, materials.Dark, heavyGunRange > 0, cannon && movement == Movement.Static);
         _gunRange = heavyGunRange;

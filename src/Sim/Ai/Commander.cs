@@ -18,14 +18,14 @@ public enum AiLevel { Easy, Normal }
 /// normal; one waits for the behaviour tree.)
 /// </summary>
 public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts,
-    int RaidSize, int PushSize, float FirstAttack, float ReactSeconds, bool Retreats, int Defenses)
+    int RaidSize, int PushSize, float FirstAttack, float ReactSeconds, bool Retreats, int Defenses, int SavedPosts = 2)
 {
     public static AiSettings For(AiLevel level) => level switch
     {
         AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 15, MaxPosts: int.MaxValue,
             RaidSize: 6, PushSize: 12, FirstAttack: 7 * 60, ReactSeconds: 6, Retreats: false, Defenses: 1),
         _ => new(ThinkTicks: 20, TrainPause: 0, MaxPosts: int.MaxValue,
-            RaidSize: 6, PushSize: 10, FirstAttack: 5 * 60, ReactSeconds: 3, Retreats: true, Defenses: 1),
+            RaidSize: 6, PushSize: 10, FirstAttack: 5 * 60, ReactSeconds: 3, Retreats: true, Defenses: 1, SavedPosts: 4),
     };
 }
 
@@ -66,6 +66,8 @@ public sealed class Commander
     const float PostWorthMin = 6f;                  // packages to keep in hand beyond a post's cost, once it has two posts
     const float GuardRadius = 10f;                  // m from a depot that a defense of its guards it
     const float DefenseOffset = 5f;                 // m from a depot, toward home, where its defense goes
+    const float AttackJitter = 30f;                 // s either way of its level's first attack time
+    const float AnyFighterChance = 0.3f;            // how often a building trains any of its fighters, not the one it has fewest of
     const float OccupyReach = 60f;                  // m an idle squad goes out of its way to a free garrison building
     const float CollectReach = 45f;                 // m an idle unit goes out of its way for a spilled package
     const float CollectDanger = 20f;                // m: no package this close to enemy fighters is worth fetching
@@ -76,6 +78,7 @@ public sealed class Commander
     readonly AiView _view;
     readonly int _me;
     readonly AiSettings _level;
+    readonly int _firstAttackTick;                  // its level's first attack time, give or take AttackJitter
     readonly List<Command> _out = [];
 
     // What it sees this think; kept between thinks only to be reused.
@@ -96,6 +99,7 @@ public sealed class Commander
     public Commander(Simulation sim, int player, AiSettings level)
     {
         (_sim, _me, _level) = (sim, player, level);
+        _firstAttackTick = (int)((level.FirstAttack + sim.Random.Range(-AttackJitter, AttackJitter)) * Simulation.TicksPerSecond);
         _view = new AiView(sim, player);
         _gone = id => !Alive(id);
     }
@@ -268,6 +272,7 @@ public sealed class Commander
         }
         int posts = PostCount();
         if (post is not null && posts < 2 && !Planned(post)) return post;
+        if (post is not null && posts < _level.SavedPosts && Built(barracks) && !Planned(post) && PostSite(post, out _, out _)) return post;
         if (barracks is not null && Count(barracks) == 0 && !Planned(barracks)) return barracks;
         if (factory is not null && Count(factory) == 0 && !Planned(factory) && Built(barracks)) return factory;
         // (Each only where there's a site for it: one wanted with nowhere to go would hold up the next.)
@@ -442,6 +447,15 @@ public sealed class Commander
             float have = (Have(t) + Queued(t)) * (t.StopsToFire ? 2 : 1);
             if (have < fewest) (fewest, pick) = (have, t);
         }
+        // Now and then any fighter it trains here instead, so no two matches go the same way.
+        if (pick is not null && _sim.Random.Range(0, 1) < AnyFighterChance)
+        {
+            int fighters = 0;
+            foreach (var t in b.Type.Units) if (t.Builds is null && t.Weapon is not null) fighters++;
+            int n = (int)_sim.Random.Range(0, fighters);
+            foreach (var t in b.Type.Units)
+                if (t.Builds is null && t.Weapon is not null && n-- == 0) { pick = t; break; }
+        }
         return WaitingForMoney() ? null : pick;
     }
 
@@ -540,7 +554,7 @@ public sealed class Commander
         }
         else _threatSince = -1;
         int fighters = _army.Count - _retreating.Count - (_scout >= 0 ? 1 : 0);
-        bool attacking = tick >= _level.FirstAttack * Simulation.TicksPerSecond;
+        bool attacking = tick >= _firstAttackTick;
         if (attacking && fighters >= _level.PushSize && _strength >= PushRatio * _enemyStrength && EnemyBase() is Vector3 target) { AllAttackMove(target); return; }
         if (attacking && fighters >= _level.RaidSize && Raid()) return;
         AllMoveTo(_staging);

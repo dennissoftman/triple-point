@@ -7,7 +7,8 @@ using Sim;
 /// - One unit: its name, health and what it's doing.
 /// - Several: a tile per unit type with how many and their health (the group's, and its worst); a click
 ///   keeps only that type, select_add plus a click drops it.
-/// - A building: its name and health, and what it's training (or, a foundation, how far along it is).
+/// - A building: its name and health, and what it's training (or, a foundation, how far along it is). A
+///   garrison building of yours: a tile per squad inside; a click brings that one out.
 /// Placeholder UI: tiles are buttons with the type's name.
 /// </summary>
 public partial class SelectionPanel : PanelContainer
@@ -24,8 +25,9 @@ public partial class SelectionPanel : PanelContainer
     StyleBoxFlat _healthFill = null!;
     HFlowContainer _tiles = null!;
     // A tile, and what it last showed (kept here, so only changes reach the engine).
-    sealed class Tile(string type, Button button, ProgressBar bar, StyleBoxFlat fill)
+    sealed class Tile(string key, string type, Button button, ProgressBar bar, StyleBoxFlat fill)
     {
+        public readonly string Key = key;   // a unit type, or (a garrison's squads) a unit id
         public readonly string Type = type;
         public readonly Button Button = button;
         public readonly ProgressBar Bar = bar;
@@ -35,7 +37,9 @@ public partial class SelectionPanel : PanelContainer
     }
     readonly List<Tile> _tileViews = [];
     readonly Dictionary<string, (int Count, float Health, float Max, float Worst)> _groups = [];
-    readonly List<string> _order = [];
+    readonly List<string> _order = [];             // the tiles' keys, in order
+    readonly Dictionary<string, string> _typeOf = []; // a garrison tile's unit type, by its key
+    readonly Dictionary<string, float> _healthOf = [];
     string _signature = "", _titleShown = "", _detailShown = "";
     float _healthShown = -1;
     bool _visible, _healthVisible = true;
@@ -131,7 +135,7 @@ public partial class SelectionPanel : PanelContainer
             }
         }
         Show(L.T("select.units", total), -1, _groups.Count > 1 ? L.T("select.narrow", CommandCard.KeyOf("select_add")) : "");
-        Tiles(string.Join(",", _order));
+        Tiles(string.Join(",", _order), type => type, type => PlayerInput.NarrowTo(type, drop: Input.IsActionPressed("select_add")));
         foreach (var tile in _tileViews)
         {
             var g = _groups[tile.Type];
@@ -167,7 +171,32 @@ public partial class SelectionPanel : PanelContainer
         }
         else detail = building.Type.Units.Length > 0 ? L.T("select.not_training") : "";
         Show(L.Building(building.Type.Id), building.Health / building.MaxHealth, detail);
-        Tiles("");
+        if (building.Type.Kind == BuildingKind.Garrison && building.Owner == PlayerInput.LocalPlayer) ShowInside(state, building);
+        else Tiles("");
+    }
+
+    // A tile per squad inside, with its health; a click brings it out.
+    void ShowInside(SimState state, Building house)
+    {
+        _order.Clear();
+        foreach (var u in state.Units)
+        {
+            if (u.Inside != house.Id) continue;
+            string key = u.Id.ToString();
+            _order.Add(key);
+            _typeOf[key] = u.Type;
+            _healthOf[key] = u.Health / u.MaxHealth;
+        }
+        Tiles("in:" + string.Join(",", _order), key => _typeOf[key], key => PlayerInput.ExitGarrison(int.Parse(key)));
+        foreach (var tile in _tileViews)
+        {
+            string text = TypeName(tile.Type);
+            if (tile.Text != text) tile.Button.Text = tile.Text = text;
+            string tip = L.T("select.exit.tip");
+            if (tile.Tip != tip) tile.Button.TooltipText = tile.Tip = tip;
+            float health = _healthOf[tile.Key];
+            if (tile.Health != health) SetBar(tile.Bar, tile.Fill, tile.Health = health);
+        }
     }
 
     void Show(string title, float health, string detail)
@@ -184,8 +213,9 @@ public partial class SelectionPanel : PanelContainer
         fill.BgColor = HealthBar.HealthColor(health);
     }
 
-    // Rebuilds the tiles when the types selected change (signature: their ids in order).
-    void Tiles(string signature)
+    // Rebuilds the tiles when what they stand for changes (signature: their keys in order). `typeOf` gives
+    // a key's unit type, `press` what a click on its tile does.
+    void Tiles(string signature, System.Func<string, string>? typeOf = null, System.Action<string>? press = null)
     {
         if (signature == _signature) return;
         _signature = signature;
@@ -195,18 +225,17 @@ public partial class SelectionPanel : PanelContainer
         if (signature.Length == 0) return;
         for (int k = 0; k < _order.Count && k < MaxTiles; k++)
         {
-            string type = _order[k];
+            string key = _order[k];
             var tile = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
             tile.AddThemeConstantOverride("separation", 1);
             var button = new Button { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(TileWidth, TileHeight), ClipText = true, ClipContents = true };
             button.AddThemeFontSizeOverride("font_size", 11);
-            string id = type;
-            button.Pressed += () => PlayerInput.NarrowTo(id, drop: Input.IsActionPressed("select_add"));
+            button.Pressed += () => press?.Invoke(key);
             tile.AddChild(button);
             var bar = Bar(out var fill, TileWidth, 5);
             tile.AddChild(bar);
             _tiles.AddChild(tile);
-            _tileViews.Add(new Tile(type, button, bar, fill));
+            _tileViews.Add(new Tile(key, typeOf?.Invoke(key) ?? key, button, bar, fill));
         }
     }
 

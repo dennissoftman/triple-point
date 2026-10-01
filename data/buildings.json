@@ -2,7 +2,7 @@
 // Every field, its units and its default: docs/data.md.
 {
   "hq": { "health": 1200, "size": 5, "produces": ["builder"], "sight": 16 },
-  "barracks": { "health": 600, "size": 4, "cost": 16, "buildTime": 20, "produces": ["rifle_squad", "engineer"], "sight": 10,
+  "barracks": { "health": 600, "size": 4, "cost": 16, "buildTime": 20, "produces": ["rifle_squad", "rocket_squad", "engineer"], "sight": 10,
                 "mends": "infantry", "mendSeconds": 20, "mendShare": 0.5 },
   "factory": { "health": 800, "size": 6, "cost": 24, "buildTime": 25, "produces": ["scout_car", "tank", "artillery"], "sight": 10,
                "mends": "vehicle", "mendSeconds": 25, "mendShare": 0.5 },

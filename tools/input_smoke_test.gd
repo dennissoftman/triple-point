@@ -140,7 +140,7 @@ func _process(_delta) -> bool:
 			key(KEY_A, false)
 		2645:
 			check("A arms attack-move", player.get("CursorName"), "AttackMove")
-			click(cam.unproject_position(Vector3(3, 0, 11))) # short of Red's units
+			click(cam.unproject_position(clear_of_red([Vector3(3, 0, 11), Vector3(10, 0, 8), Vector3(-4, 0, 8), Vector3(14, 0, 2)]))) # toward Red, on open ground
 		2650:
 			check("the click attack-moves and disarms (back to the plain cursor over open ground)", player.get("CursorName"), "Move")
 			check("selected units show their order paths, orange for attack-move", path_colors().any(func(c): return absf(c.r - ORANGE.r) + absf(c.g - ORANGE.g) + absf(c.b - ORANGE.b) < 0.02), true)
@@ -337,6 +337,13 @@ func path_colors() -> Array:
 				if not colors.any(func(k): return k.is_equal_approx(c)):
 					colors.append(c)
 	return colors
+
+# The first of these ground points that no living Red unit stands within 5 m of (the fight moves).
+func clear_of_red(points: Array) -> Vector3:
+	for p in points:
+		if not red.any(func(v): return is_instance_valid(v) and v.visible and (v.global_position * Vector3(1, 0, 1)).distance_to(p) < 5):
+			return p
+	return points[-1]
 
 # The living Red unit nearest Blue's side (lowest z).
 func nearest_red() -> Node3D:

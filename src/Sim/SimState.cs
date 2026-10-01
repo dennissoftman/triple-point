@@ -62,6 +62,16 @@ public enum HitKind { Direct, Splash }
 public enum TargetClass { Any, Infantry, Vehicle }
 
 /// <summary>
+/// Armor, from the gun's side: times a weapon's damage against infantry (anything on foot), vehicles
+/// (anything else, defenses too) and structures (buildings, foundations, depots). Trucks and road take
+/// its damage as it is.
+/// </summary>
+public sealed record Against(float Infantry = 1, float Vehicle = 1, float Structure = 1)
+{
+    public static readonly Against Full = new();
+}
+
+/// <summary>
 /// A weapon type, as loaded from /data/weapons.json (fields: docs/data.md): Damage per shot (per member,
 /// for a squad), Reload seconds between shots, Range and MinRange in m, for shells their speed in m/s,
 /// for splash its radius in m. A Ballistic shell flies to where its target stood, off by up to Scatter m,
@@ -69,8 +79,11 @@ public enum TargetClass { Any, Infantry, Vehicle }
 /// </summary>
 public sealed record WeaponType(WeaponKind Kind, float Damage, float Reload, float Range, float ShellSpeed = 0,
     HitKind Hit = HitKind.Direct, float SplashRadius = 0, float MinRange = 0, bool Ballistic = false, float Scatter = 0,
-    float StructureDamage = 1, TargetClass Prefers = TargetClass.Any, string Id = "")
+    Against? Against = null, TargetClass Prefers = TargetClass.Any, string Id = "")
 {
+    /// <summary>Its armor factors; all 1 where the file gives none.</summary>
+    public Against Vs => Against ?? Sim.Against.Full;
+
     /// <summary>No weapon: builders and the like. It never finds anything in range to shoot.</summary>
     public static readonly WeaponType Unarmed = new(WeaponKind.Bullet, 0, 1, 0, Id: "");
 
@@ -196,7 +209,7 @@ public struct Unit
     public float SplashRadius;             // m; 0 for a direct hit
     public float MinRange, Scatter;        // m: won't fire closer; how far off a ballistic shell may land
     public bool Ballistic;                 // its shells fly to a point instead of homing
-    public float StructureDamage;          // times its damage against buildings and depots
+    public Against Against;                // times its damage against each kind of target
     public TargetClass Prefers;            // the units it picks first when several are in range
     public bool StopsToFire;               // fires only while standing still
     public int ReloadTicks, ReadyAtTick, LastShotTick;
@@ -297,9 +310,7 @@ public sealed class BeltLine
     // Counted in packages (Spawned and BlockedSpawns in trucks): Spilled from destroyed trucks, Destroyed
     // of those in the fall, Lost at the end (unlimited sources) or Returned to the reserve.
     public int Spawned, Lost, Returned, Spilled, Destroyed, BlockedSpawns, TrucksDestroyed;
-    /// <summary>A depot takes this many packages from each truck that passes it: a third of a full load, so three empty one.</summary>
-    public int DepotShare => (Load + DepotsToEmpty - 1) / DepotsToEmpty;
-    public const int DepotsToEmpty = 3;
+    public readonly float OpenStart, OpenEnd; // m along it: where its open road starts and ends (between the covered ends)
     internal int TicksUntilSpawn = 1;
 
     /// <summary>
@@ -324,6 +335,7 @@ public sealed class BeltLine
         (Load, TruckHealth, StartFull) = (Math.Max(1, config.Load), config.TruckHealth, config.StartFull);
         SpawnIntervalTicks = Math.Max(1, (int)MathF.Round(config.SpawnIntervalSeconds * ticksPerSecond));
         Supply = Reserve = Math.Max(0, config.Supply);
+        (OpenStart, OpenEnd) = (Math.Min(coveredStart, Length), Math.Max(Length - coveredEnd, Math.Min(coveredStart, Length)));
     }
 
     public bool Finite => Supply > 0;
@@ -354,7 +366,7 @@ public sealed class BeltLine
 
 /// <summary>
 /// A depot (in the code still a gatherer post) beside the road, with a pull point on it. Every truck
-/// that passes the pull point with cargo stops and unloads its share (BeltLine.DepotShare) for the
+/// that passes the pull point with cargo stops and unloads its share (Gatherer.Share) for the
 /// depot's owner, then drives on with the rest.
 /// </summary>
 public struct Gatherer
@@ -367,6 +379,7 @@ public struct Gatherer
     public float Sight;      // m, under fog of war
     public int LastGrabTick; // for effects
     public int Gathered;     // packages, in all
+    public int Share;        // packages it takes from each passing truck (Simulation.DepotShare)
 }
 
 /// <summary>
@@ -378,7 +391,7 @@ public struct Projectile
     public int Id, Owner, Shooter, TargetId, Line, Segment; // Shooter: the unit that fired it, for return fire
     public Vector3 Position, PrevPosition, Target, Origin; // Origin: where it was fired from, for drawing an arc
     public float Speed, Damage, SplashRadius; // SplashRadius 0: a direct hit
-    public float StructureDamage;             // times Damage against buildings and depots
+    public Against Against;                   // times Damage against each kind of target
     public bool Ballistic;                    // flies to Target, a point, and never homes
 }
 

@@ -4,8 +4,9 @@ using static Sim.Tests.TestHelpers;
 namespace Sim.Tests;
 
 /// <summary>
-/// Defenses: a turret can't follow what it was told to shoot, the two turrets need a barracks and a
-/// factory, and the heavy one is the anti-tank choice that infantry beats (with the real data).
+/// Defenses and armor, with the real data: a turret can't follow what it was told to shoot, the two
+/// turrets need a barracks and a factory, the heavy one is the anti-tank choice that rockets beat, and
+/// the counter loop holds: rifles beat rockets, rockets beat tanks, tanks beat rifles.
 /// </summary>
 public class TurretTests
 {
@@ -116,13 +117,43 @@ public class TurretTests
     }
 
     [Fact]
-    public void The_heavy_turret_stops_a_tank_but_not_three_rifle_squads()
+    public void The_heavy_turret_stops_a_tank_and_rifles_but_not_two_rocket_squads()
     {
         Assert.True(units_reach("heavy_turret") >= units_reach("tank"), "no tank outranges it");
         Assert.True(DefenseHolds("heavy_turret", "tank", 1));
-        Assert.False(DefenseHolds("heavy_turret", "rifle_squad", 3));
+        Assert.True(DefenseHolds("heavy_turret", "rifle_squad", 3), "rifles barely scratch armor");
+        Assert.False(DefenseHolds("heavy_turret", "rocket_squad", 2));
         Assert.True(DefenseHolds("turret", "rifle_squad", 2), "infantry is what the plain turret is for");
+        Assert.False(DefenseHolds("turret", "tank", 1), "and a tank is what beats it");
 
         static float units_reach(string id) => Data().Units[id].Gun.Range;
+    }
+
+    [Theory]
+    [InlineData("rifle_squad", "rocket_squad")]
+    [InlineData("rocket_squad", "tank")]
+    [InlineData("tank", "rifle_squad")]
+    public void The_counter_loop_holds_for_the_same_money(string winner, string loser)
+    {
+        // As many of each as the same packages buy (at least one), from 20 m apart, attack-moving.
+        var (units, _) = Data();
+        const int Budget = 40;
+        Assert.Equal(winner, Fight(winner, Math.Max(1, Budget / units[winner].Cost), loser, Math.Max(1, Budget / units[loser].Cost)));
+    }
+
+    // Two groups attack-move on each other from 20 m; the type left standing.
+    static string Fight(string a, int countA, string b, int countB)
+    {
+        var (units, _) = Data();
+        var sim = NewSim();
+        var (blue, red) = (new List<int>(), new List<int>());
+        for (int i = 0; i < countA; i++) blue.Add(sim.AddUnit(Blue, new Vector3(-10, 0, (i - (countA - 1) / 2f) * 3), units[a], heading: MathF.PI / 2));
+        for (int i = 0; i < countB; i++) red.Add(sim.AddUnit(Red, new Vector3(10, 0, (i - (countB - 1) / 2f) * 3), units[b], heading: -MathF.PI / 2));
+        sim.Tick([.. blue.Select(id => (Command)new AttackMoveCommand(Blue, id, new Vector3(10, 0, 0))),
+            .. red.Select(id => (Command)new AttackMoveCommand(Red, id, new Vector3(-10, 0, 0)))]);
+        for (int t = 0; t < 240 * T && blue.Exists(id => Alive(sim, id)) && red.Exists(id => Alive(sim, id)); t++) sim.Tick(NoCommands);
+        bool blueLeft = blue.Exists(id => Alive(sim, id)), redLeft = red.Exists(id => Alive(sim, id));
+        Assert.True(blueLeft != redLeft, $"{a} x{countA} vs {b} x{countB}: the fight ended with one side left");
+        return blueLeft ? a : b;
     }
 }
