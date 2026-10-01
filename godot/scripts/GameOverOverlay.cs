@@ -2,7 +2,8 @@ using Godot;
 using Sim;
 
 /// <summary>
-/// The banner once the game is over: who won (or a draw), with Restart (reloads the scene) and Quit. The
+/// The banner once the game is over: who won (or a draw), with Restart (reloads the scene, with the same
+/// setup), Main menu and Quit. The
 /// world keeps running behind it, and only the banner itself takes clicks, so the camera still works.
 /// Placeholder UI.
 /// </summary>
@@ -41,12 +42,9 @@ public partial class GameOverOverlay : CenterContainer
         var buttons = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         buttons.AddThemeConstantOverride("separation", 16);
         column.AddChild(buttons);
-        var restart = new Button { Text = L.T("menu.restart"), FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
-        restart.Pressed += () => GetTree().ReloadCurrentScene();
-        var quit = new Button { Text = L.T("menu.quit"), FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 0) };
-        quit.Pressed += () => GetTree().Quit();
-        buttons.AddChild(restart);
-        buttons.AddChild(quit);
+        buttons.AddChild(MenuParts.Button(L.T("menu.restart"), () => GetTree().ReloadCurrentScene(), 110));
+        buttons.AddChild(MenuParts.Button(L.T("menu.to_menu"), () => GetTree().ChangeSceneToFile(MatchSetup.MenuScene), 110));
+        buttons.AddChild(MenuParts.Button(L.T("menu.quit"), () => GetTree().Quit(), 110));
         Visible = true;
     }
 }

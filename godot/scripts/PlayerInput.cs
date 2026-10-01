@@ -102,7 +102,7 @@ public partial class PlayerInput : Node
             if (e.IsActionPressed("cancel")) PauseMenu.SetOpen(false);
             return; // the world takes no input while paused
         }
-        if (e.IsActionPressed("debug_swap_player")) { SwapPlayer(); return; }
+        if (e.IsActionPressed("debug_swap_player") && MatchSetup.Current is not { Hotseat: false }) { SwapPlayer(); return; } // not against the AI
         if (e.IsActionPressed("attack_move")) { ArmAttackMove(); return; }
         if (e.IsActionPressed("cancel"))
         {
@@ -559,8 +559,9 @@ public partial class PlayerInput : Node
 
     // ---- Selection ----
 
-    // Hotseat for testing both sides before the AI exists. Each side keeps its own camera: leaving saves
-    // where you were looking, and coming back glides there (or to the side's spawn on its first turn).
+    // Hotseat: two players at one computer hand over (and a tool for testing both sides). Off in a match
+    // against the AI from the menu. Each side keeps its own camera: leaving saves where you were looking,
+    // and coming back glides there (or to the side's spawn on its first turn).
     void SwapPlayer()
     {
         _views[LocalPlayer] = Camera.View;

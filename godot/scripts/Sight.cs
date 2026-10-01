@@ -4,7 +4,8 @@ using SVector3 = System.Numerics.Vector3;
 
 /// <summary>
 /// What the local player may see, for every view: its side's sight and memory under fog of war. SimHost
-/// sets it each frame (the local player changes with debug_swap_player). With `All` (fog off, or a
+/// sets it as it starts and each frame (the local player changes with debug_swap_player), and clears it
+/// as it leaves. With `All` (fog off, or a
 /// spectator: `--reveal`, the demo) everything shows as it is.
 /// </summary>
 public static class Sight

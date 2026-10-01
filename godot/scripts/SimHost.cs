@@ -170,6 +170,13 @@ public partial class SimHost : Node3D
         _sim.Vision(0); // sizes the fog's grid
         AddChild(_fog = new FogOverlay { Name = "Fog" });
         _fog.Setup(_sim);
+        // Who plays what: the scene's exports, then the skirmish setup (MatchSetup), then the command line.
+        if (MatchSetup.Current is { } setup)
+        {
+            PlayerInput.LocalPlayer = setup.LocalPlayer;
+            (AiPlayers, AiLevel) = (setup.Hotseat ? [] : [1 - setup.LocalPlayer], setup.Level);
+            PlayerInput.Camera.Focus = HomeOf(setup.LocalPlayer);
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
             AiPlayers = ai[5..] == "none" ? [] : ai[5..].Split(',').Select(int.Parse).ToArray();
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai-level=")) is string level)
@@ -183,6 +190,9 @@ public partial class SimHost : Node3D
         _stats = new MatchStats(_sim);
         MatchReports &= EndConditions && !_demo;
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
+        // Now, not only each frame: views may draw before the first one, and Sight still holds the last
+        // scene's sim (another map, after Main menu and Skirmish).
+        (Sight.Sim, Sight.Player, Sight.All) = (_sim, PlayerInput.LocalPlayer, _reveal || !_sim.FogOfWar);
     }
 
     // The screen's layout: a slim bar across the top (the HUD line at its left, packages in the middle,
@@ -350,6 +360,7 @@ public partial class SimHost : Node3D
     public override void _ExitTree()
     {
         if (_stats is not null && _sim.State.Tick >= ReportAfterTicks) Report();
+        if (Sight.Sim == _sim) (Sight.Sim, Sight.All) = (null, true);
     }
 
     void Report()

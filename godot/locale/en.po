@@ -374,3 +374,138 @@ msgstr "Restart"
 
 msgid "menu.quit"
 msgstr "Quit"
+
+msgid "menu.to_menu"
+msgstr "Main menu"
+
+msgid "menu.title"
+msgstr "Triple Point"
+
+msgid "menu.skirmish"
+msgstr "Skirmish"
+
+msgid "menu.controls"
+msgstr "Controls"
+
+msgid "menu.settings"
+msgstr "Settings"
+
+msgid "menu.back"
+msgstr "Back"
+
+msgid "menu.start"
+msgstr "Start"
+
+msgid "menu.side"
+msgstr "Your side"
+
+msgid "menu.opponent"
+msgstr "Opponent"
+
+msgid "menu.ai_easy"
+msgstr "Easy AI"
+
+msgid "menu.ai_normal"
+msgstr "Normal AI"
+
+msgid "menu.hotseat"
+msgstr "Hotseat"
+
+# {0} the other side
+msgid "menu.vs_ai"
+msgstr "The computer plays {0}."
+
+# {0} the hand-over key
+msgid "menu.hotseat.tip"
+msgstr "Two players at this computer, taking turns: {0} hands over to the other side."
+
+msgid "menu.keys"
+msgstr "Keys"
+
+msgid "menu.ideas"
+msgstr "How it works"
+
+msgid "menu.ctl.select"
+msgstr "Select; drag a box for many; double-click for every one of that type on screen"
+
+msgid "menu.ctl.act"
+msgstr "Order: move, attack, repair, pave, garrison, by what's under the cursor"
+
+msgid "menu.ctl.queue"
+msgstr "Hold to queue orders, to train or cancel five at once, or to place more than one building"
+
+msgid "menu.ctl.force"
+msgstr "Fire on a truck or a road piece"
+
+msgid "menu.ctl.attack_move"
+msgstr "Attack-move: then click where to go"
+
+msgid "menu.ctl.stop_hold"
+msgstr "Stop / Hold position"
+
+msgid "menu.ctl.retreat"
+msgstr "Auto-retreat to mend, on or off"
+
+msgid "menu.ctl.groups"
+msgstr "Make a control group (1 to 9) / pick it"
+
+msgid "menu.ctl.idle"
+msgstr "Next idle builder"
+
+msgid "menu.ctl.rotate"
+msgstr "Turn the building being placed"
+
+msgid "menu.ctl.cancel_production"
+msgstr "Cancel the last in the queue"
+
+msgid "menu.ctl.camera"
+msgstr "Move the camera (or push the mouse to an edge)\nDrag the camera; the wheel zooms"
+
+msgid "menu.ctl.speed"
+msgstr "Game speed"
+
+msgid "menu.ctl.pause"
+msgstr "Pause menu"
+
+msgid "menu.ctl.swap"
+msgstr "Hotseat: hand over to the other side"
+
+msgid "menu.ctl.debug"
+msgstr "Debug info"
+
+msgid "menu.ctl.card"
+msgstr "The command card's buttons sit on the keys in the same place on the keyboard: its top row on Q W E R, then A S D F, then Z X C V."
+
+msgid "menu.idea.trucks"
+msgstr "Neutral trucks drive the roads from beyond the map. A depot beside a road unloads part of every truck that passes: a sixth where the open road starts, up to half at its end."
+
+# {0} the keys that fire on a truck or road
+msgid "menu.idea.cut"
+msgstr "Artillery breaks road pieces and trucks queue at the break. {0} on a truck shoots it, and its load spills for anyone to pick up."
+
+msgid "menu.idea.roads"
+msgstr "Builders and engineers repair road, paid per piece. Builders pave dirt road: paved pieces are tougher, and units move faster on them."
+
+msgid "menu.idea.armor"
+msgstr "Rifles beat rockets, rockets beat vehicles, tanks beat rifles. Rifles barely scratch vehicles and buildings."
+
+msgid "menu.idea.houses"
+msgstr "Squads go into houses for cover and shoot from inside; Exit brings them out, or click one squad's tile."
+
+msgid "menu.idea.end"
+msgstr "Production buildings keep a side in. A side without one has 60 s to build one, or it's out."
+
+msgid "menu.window"
+msgstr "Window"
+
+msgid "menu.fullscreen"
+msgstr "Fullscreen"
+
+msgid "menu.ui_size"
+msgstr "Interface size"
+
+msgid "menu.ui_compact"
+msgstr "Compact"
+
+msgid "menu.ui_normal"
+msgstr "Normal"

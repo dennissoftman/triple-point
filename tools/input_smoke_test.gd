@@ -6,7 +6,9 @@
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, five with Shift, rally point, cancel),
 # construction (a builder's build key arms a ghost, a click lays the foundation), the minimap, the pause
 # menu, the selection panel, Hold (D) and Stop (S), auto-retreat (X), control groups (Ctrl+1, then 1), and
-# a squad going into a house (right-click) and out again (Exit), and the offer to pave a dirt road.
+# a squad going into a house (right-click) and out again (Exit), the offer to pave a dirt road, and then
+# the main menu: Skirmish as Red against the AI starts the main map with you on Red, and the pause menu's
+# Main menu goes back to it, still set to Red.
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -283,6 +285,34 @@ func _process(_delta) -> bool:
 			key(KEY_1, false)
 		4669:
 			check("1 reselects control group 1", player.get("SelectedCount"), 1)
+			# The menu, as the game starts: its settings left alone, so the window stays off-screen.
+			var menu: Node = load("res://scenes/menu.tscn").instantiate()
+			menu.set("ApplySettings", false)
+			var old := current_scene
+			root.remove_child(old)
+			old.free()
+			root.add_child(menu)
+			current_scene = menu
+		4675:
+			click(menu_button("Skirmish"))
+		4680:
+			check("Skirmish opens the setup", current_scene.get("Page"), "setup")
+			click(menu_button("Red"))
+		4685:
+			click(menu_button("Start"))
+		4760:
+			check("Start loads the main map", current_scene.scene_file_path, "res://scenes/main.tscn")
+			var host := current_scene.get_node("SimHost")
+			check("you play Red, the AI Blue", [current_scene.get_node("PlayerInput").get("LocalPlayer"), Array(host.get("AiPlayers"))], [1, [0]])
+			var focus: Vector2 = current_scene.get_node("Camera").get("Focus")
+			check("the camera starts at Red's home", focus.distance_to(host.call("HomeOf", 1)) < 1.0, true)
+			key(KEY_F10, true)
+			key(KEY_F10, false)
+		4765:
+			click(menu_button("ToMenu"))
+		4775:
+			check("Main menu goes back to the menu", current_scene.scene_file_path, "res://scenes/menu.tscn")
+			check("the menu remembers the side", current_scene.find_child("Red", true, false).button_pressed, true)
 			print("DONE: %d failure(s)" % failures)
 			quit(failures)
 	return false
@@ -295,6 +325,10 @@ const RALLY := Vector3(-4, 0, -14)
 const ORANGE := Color(1, 0.6, 0.15)
 var blue_view: Vector2
 var paused_at := 0
+
+func menu_button(name: String) -> Vector2:
+	var button: Control = current_scene.find_child(name, true, false)
+	return button.get_global_rect().get_center()
 
 func check(name: String, actual, expected):
 	var ok: bool = actual == expected

@@ -53,7 +53,7 @@ Milestones:
    2. [built] Garrison buildings (below), and the AI taught to use them and to guard a depot with a turret (item 5: Defenses, Garrisons).
    3. [built] Road types on the main map (Infrastructure: Road types): a dirt track and a paved road, so routes carry different stakes.
    4. [built] A readability pass (Look): sides at a glance and unit class silhouettes, judged by the grayscale and squint test (2026-10-01). Left for later: a calmer environment (the rocks are the brightest thing on screen), and threat markers.
-   5. A skirmish setup menu (Controls), then the playtest.
+   5. [built] A skirmish setup menu (Controls: Main menu, 2026-10-01), then the playtest.
    - [built] **Garrisons:** neutral buildings on the routes, on the main map (two houses at the crossing: Playable map). How many infantry squads (any on foot) a building holds is its type's `garrison` in buildings.json, so big and small buildings come from data (2 to start). They enter one by right-clicking it and leave with Exit on the card (Q, everyone), a click on a squad's tile in the selection panel (that one), or any order given them; whoever is inside owns it until the last one leaves. Inside they fire out at +2 m range (from the building's wall), take no damage and can't be seen: the building soaks every hit (armor applies: a structure, so artillery at ×3 is the answer), and when it falls they tumble out at half health.
      - An empty one is nobody's: nothing targets it or splashes it, and a side that loses leaves its houses empty. A house never keeps a side in the game (Win and lose).
      - It's part of the map, so it always shows: walls in its holder's color (gray while nobody holds it; under fog, as last seen) and a lit pip on the roof per squad inside.
@@ -207,13 +207,18 @@ The economy runs on neutral supply trucks driving fixed roads across the map. Th
 - [built] **Idle builders:** a button above the minimap shows how many of your builders have nothing to do; it or `.` selects the next one and looks at it.
 - [built] **Top strip, center:** your packages, with income per minute over the last 30 s (depots and pickups). The HUD line (top-left) keeps only speed, game time, whose side you're on, and anyone's rebuild clock; every side's numbers, route counters and performance are under F3.
 - [built] **Every word the player reads is translatable:** symbolic keys into gettext .po files, English the fallback; the language is the OS's unless chosen (`--lang=xx` until there's a settings menu). English only for now.
-- [built] **Pause menu:** Esc when there's nothing to cancel, or F10. The game stops (the camera still moves) and the world takes no clicks; Resume, Restart, Quit.
-- [built] **Game over:** a banner with the winner (or a draw) and the game time, Restart and Quit. The world keeps running behind it.
+- [built] **Main menu (2026-10-01):** the game opens on it: Skirmish, Controls, Settings, Quit.
+  - **Skirmish:** your side (Blue or Red) and the opponent: Easy AI, Normal AI, or Hotseat (two players at one computer, F2 hands over). Start plays the main map with that setup, and Restart keeps it. The menu remembers the last choice while the game runs.
+  - **Controls:** every key, read from the Input Map, and the game's big ideas in six lines (trucks and depot share, cutting roads and shooting trucks, repair and paving, the counter loop, houses, how a side is out).
+  - **Settings:** fullscreen or windowed, and the interface size: Compact or Normal (larger doesn't fit the 1152×648 canvas the panels are laid out on). Saved in `user://settings.cfg` and applied when the menu opens, so tools that open a scene directly keep their own window.
+  - Not in it, by choice: starting money, a fog toggle, the match report (still written to `user://matches`). A scene run directly (the editor, tools) keeps its own exports; `--ai=` and `--ai-level=` override the menu.
+- [built] **Pause menu:** Esc when there's nothing to cancel, or F10. The game stops (the camera still moves) and the world takes no clicks; Resume, Restart, Main menu, Quit.
+- [built] **Game over:** a banner with the winner (or a draw) and the game time, Restart, Main menu and Quit. The world keeps running behind it.
 - [built] Order paths show only for selected units, colored by what the order does: green move, orange attack-move, red attack (a unit, a truck or a road piece), blue repair.
 - [built] The cursor shows what a click will do, computed by the same code that issues the order. Round cursors click at their center; tool cursors point up-left, as on Windows.
 - [built] The camera pans with the arrow keys (A is taken by attack-move), screen edges and middle-drag, and zooms with the wheel. It runs on real time, unaffected by game speed.
 - [built] Game speed is 1x, 1.5x, 2x or 3x. The sim always runs 20 ticks per sim-second, so speed never changes results.
-- [built] F2 hotseat: each side keeps its own camera. Swapping glides to that side's last view, or its spawn on its first visit.
+- [built] F2 hotseat: each side keeps its own camera. Swapping glides to that side's last view, or its spawn on its first visit. Off in a match against the AI started from the menu; on in hotseat and in scenes run directly (a test tool).
 - [decided] The camera is perspective, with pitch 55-60° and field of view 35-40°. Lock it before serious modeling.
 
 ## Factions (working titles; final names are Denys's)
