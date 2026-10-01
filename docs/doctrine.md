@@ -62,6 +62,7 @@ After that, play against the AI with friends. If they ask for more, build a vert
 
 ### Playtests
 
+- [built] **A playtest build (2026-10-01):** a zip for Windows that needs nothing installed, with a how-to that says where the match report is, to send back with notes (`tools/export_build.py`).
 - [built] **Match reports:** every skirmish (not the demo) that ends, or runs a minute before it's left, writes a report to `user://matches`: totals per side (packages gathered, picked up and spent, posts and buildings built and lost, units trained and lost with their cost), belt breaks by whose shot and whose posts they cut off, the first time each building and unit type appeared, and every side's money, income, posts and army every 30 s. The event log names each thing's owner and type.
 - **2026-09-30, Denys vs the AI (normal), main map:** lost at 4:54: out-built (one post for two minutes against the AI's four), raided, then overrun. It felt:
   - **Slow to start.** The belts start empty, and no package reaches a post for about 75 s.

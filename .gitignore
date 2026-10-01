@@ -16,3 +16,6 @@ TestResults/
 # OS
 Thumbs.db
 .DS_Store
+
+# Exported builds (tools/export_build.py)
+/build/

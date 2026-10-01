@@ -211,9 +211,12 @@ public partial class SimHost : Node3D
     }
 
     // Unit types from units.json with their weapons from weapons.json, and building types from buildings.json.
+    // An exported build has no project folder: the export puts the data beside the executable, in data/.
     (Dictionary<string, UnitType> Units, Dictionary<string, BuildingType> Buildings) LoadData()
     {
-        var folder = Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory));
+        var folder = OS.HasFeature("template")
+            ? Path.Combine(OS.GetExecutablePath().GetBaseDir(), "data")
+            : Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory));
         try
         {
             var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(folder, "weapons.json")));

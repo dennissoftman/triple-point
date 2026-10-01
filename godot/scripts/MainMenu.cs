@@ -8,7 +8,9 @@ using Sim.Ai;
 /// the setup (your side; the opponent: the AI at a level, or hotseat) and Start loads the map with it
 /// (MatchSetup). Controls lists the keys, read from the Input Map, and the game's few big ideas. Settings
 /// sets the window (GameSettings), saved as it changes. `cancel` goes back a page. `-- --menu-page=setup`
-/// (or controls, settings) opens on that page, for frame captures. Placeholder UI.
+/// (or controls, settings) opens on that page, for frame captures. `-- --start=red,normal` (blue or red;
+/// easy, normal or hotseat) starts that match at once, the first time the menu opens: an exported build
+/// can't be given a scene on the command line. Placeholder UI.
 /// </summary>
 public partial class MainMenu : Control
 {
@@ -21,6 +23,7 @@ public partial class MainMenu : Control
     Label _setupNote = null!, _title = null!;
 
     [Export] public string Page = "title"; // the page shown; for tools
+    static bool _startedFromArgs;
 
     public override void _Ready()
     {
@@ -44,6 +47,16 @@ public partial class MainMenu : Control
         AddPage(center, "settings", SettingsPage());
         var start = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--menu-page="));
         Show(start is not null && _pages.ContainsKey(start["--menu-page=".Length..]) ? start["--menu-page=".Length..] : "title");
+
+        if (!_startedFromArgs && OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--start=")) is string match)
+        {
+            _startedFromArgs = true;
+            var parts = match["--start=".Length..].ToLowerInvariant().Split(',');
+            _side = parts[0] == "red" ? 1 : 0;
+            string opponent = parts.Length > 1 ? parts[1] : "normal";
+            (_hotseat, _level) = (opponent == "hotseat", opponent == "easy" ? AiLevel.Easy : AiLevel.Normal);
+            Callable.From(StartMatch).CallDeferred(); // not while the tree is still adding this scene
+        }
     }
 
     void AddPage(Control parent, string name, Control column)

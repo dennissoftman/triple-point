@@ -41,7 +41,7 @@ src/Sim.Tests/      xUnit, headless
 godot/              Godot project: scenes/ (menu, main, prototype, stress), views/ (unit), scripts/, assets/PLACEHOLDERS.md
 data/               units.json, weapons.json, buildings.json
 docs/               doctrine.md, architecture.md, data.md (story documents are kept out of the repo)
-tools/              input smoke test, main map generator, frame capture (snap.gd), texture atlas builder
+tools/              input smoke test, main map generator, frame capture (snap.gd), texture atlas builder, playtest build (export_build.py)
 ```
 
 ## Maps
@@ -91,6 +91,12 @@ Unattended visual check: `res://scenes/prototype.tscn -- --demo` plays a scripte
 
 ```bash
 "C:/Program Files/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe" --path godot --fixed-fps 60 --disable-vsync -s ../tools/snap.gd -- --scene=res://scenes/prototype.tscn --frames=600,1040 --out=<dir> --demo
+```
+
+A playtest build: `python tools/export_build.py` builds the C#, exports the `Windows Desktop` preset to `build/windows` (the .NET runtime bundled, `data/` beside the executable), adds `HOW-TO-PLAY.txt` and zips it to `build/TriplePoint-windows-<commit>.zip`. Needs the 4.7.2 .NET export templates (Windows x86_64 is installed). A release build takes no scene on the command line: `-- --start=red,normal` (blue or red; easy, normal or hotseat) starts a match from the menu, and `--ai=` still applies:
+
+```bash
+build/windows/TriplePoint.exe --position -10000,-10000 --fixed-fps 60 --quit-after 4500 -- --start=blue,normal --ai=0,1
 ```
 
 Check the build's output, never discard it: when the C# build fails, Godot quietly runs the last good build.

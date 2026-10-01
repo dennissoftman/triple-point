@@ -127,6 +127,12 @@ JSON in `/data`, parsed by `Sim` with `System.Text.Json`: comments, trailing com
 - `res://scenes/prototype.tscn -- --demo`: a scripted two-player match at 3x on the test map, with both HQs producing and Blue's selected, for unattended checks and movie-maker frames.
 - `stress.tscn` with `-- --perf-log`: the performance numbers above.
 
+## Exported builds
+
+- `tools/export_build.py` exports the `Windows Desktop` preset (`godot/export_presets.cfg`) to `build/windows` (ignored by git) and zips it. The .NET runtime ships in `data_Game_windows_x86_64`, so testers install nothing.
+- An exported build has no project folder, so `SimHost.LoadData` reads `data/` beside the executable (`OS.HasFeature("template")`); the script copies it there. Testers could edit the numbers, which is fine for a playtest.
+- A release build refuses a scene path on the command line, and so `MainMenu` takes `--start=<side>,<opponent>` to start a match at once (the first time it opens). Match reports and logs go to the same `user://` as in the editor (`%APPDATA%/Godot/app_userdata/Triple Point`).
+
 ## References
 
 - OpenRA: an open-source C# C&C, grid-based; the primary code reference.
