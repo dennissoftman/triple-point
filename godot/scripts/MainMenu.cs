@@ -8,9 +8,11 @@ using Sim.Ai;
 /// the setup (your side; the opponent: the AI at a level, or hotseat) and Start loads the map with it
 /// (MatchSetup). Controls lists the keys, read from the Input Map, and the game's few big ideas. Settings
 /// sets the window (GameSettings), saved as it changes. `cancel` goes back a page. `-- --menu-page=setup`
-/// (or controls, settings) opens on that page, for frame captures. `-- --start=red,normal` (blue or red;
-/// easy, normal or hotseat) starts that match at once, the first time the menu opens: an exported build
-/// can't be given a scene on the command line. Placeholder UI.
+/// (or controls, settings, multiplayer) opens on that page, for frame captures. `-- --start=red,normal`
+/// (blue or red; easy, normal or hotseat) starts that match at once, the first time the menu opens: an
+/// exported build can't be given a scene on the command line. Multiplayer hosts or joins a networked match
+/// (NetSession); `-- --host=7777 [--side=red] [--net-delay=3]` hosts and starts as soon as someone joins,
+/// `-- --join=127.0.0.1:7777` joins, for unattended two-machine runs (tools/net_test.py). Placeholder UI.
 /// </summary>
 public partial class MainMenu : Control
 {
@@ -20,7 +22,12 @@ public partial class MainMenu : Control
     int _side;
     bool _hotseat;
     AiLevel _level = AiLevel.Normal;
-    Label _setupNote = null!, _title = null!;
+    Label _setupNote = null!, _title = null!, _netStatus = null!;
+    LineEdit _port = null!, _address = null!;
+    Button _netStart = null!;
+    int _hostSide;
+    bool _autoStart;                    // --host: start as soon as someone joins
+    int _delay = NetSession.DefaultDelay;
 
     [Export] public string Page = "title"; // the page shown; for tools
     static bool _startedFromArgs;
@@ -45,6 +52,7 @@ public partial class MainMenu : Control
         AddPage(center, "setup", SetupPage());
         AddPage(center, "controls", ControlsPage());
         AddPage(center, "settings", SettingsPage());
+        AddPage(center, "multiplayer", MultiplayerPage());
         var start = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--menu-page="));
         Show(start is not null && _pages.ContainsKey(start["--menu-page=".Length..]) ? start["--menu-page=".Length..] : "title");
 
@@ -57,7 +65,18 @@ public partial class MainMenu : Control
             (_hotseat, _level) = (opponent == "hotseat", opponent == "easy" ? AiLevel.Easy : AiLevel.Normal);
             Callable.From(StartMatch).CallDeferred(); // not while the tree is still adding this scene
         }
+        if (!_startedFromArgs && (Arg("--host=") ?? Arg("--join=")) is not null)
+        {
+            _startedFromArgs = true;
+            _hostSide = Arg("--side=") == "red" ? 1 : 0;
+            if (Arg("--net-delay=") is string delay) _delay = int.Parse(delay);
+            Show("multiplayer");
+            if (Arg("--host=") is string port) { _port.Text = port; _autoStart = true; Host(); }
+            else { _address.Text = Arg("--join=")!; Join(); }
+        }
     }
+
+    static string? Arg(string prefix) => OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith(prefix))?[prefix.Length..];
 
     void AddPage(Control parent, string name, Control column)
     {
@@ -91,6 +110,7 @@ public partial class MainMenu : Control
     {
         var column = Column();
         column.AddChild(MenuParts.Button(L.T("menu.skirmish"), () => Show("setup"), 240, "Skirmish"));
+        column.AddChild(MenuParts.Button(L.T("menu.multiplayer"), () => Show("multiplayer"), 240, "Multiplayer"));
         column.AddChild(MenuParts.Button(L.T("menu.controls"), () => Show("controls"), 240, "Controls"));
         column.AddChild(MenuParts.Button(L.T("menu.settings"), () => Show("settings"), 240, "Settings"));
         column.AddChild(MenuParts.Button(L.T("menu.quit"), () => GetTree().Quit(), 240, "Quit"));
@@ -158,8 +178,82 @@ public partial class MainMenu : Control
 
     void StartMatch()
     {
-        MatchSetup.Current = new MatchSetup.Choice(_side, _hotseat, _level);
+        // A fresh seed each match: the AI's choices and the sim's dice differ from game to game.
+        MatchSetup.Current = new MatchSetup.Choice(_side, _hotseat, _level, GD.Randi() | 1);
         GetTree().ChangeSceneToFile(MatchSetup.MatchScene);
+    }
+
+    // ---- Multiplayer ----
+
+    Control MultiplayerPage()
+    {
+        var column = Column(14);
+        column.AddChild(MenuParts.Heading(L.T("menu.multiplayer")));
+        var grid = new GridContainer { Columns = 3 };
+        grid.AddThemeConstantOverride("h_separation", 16);
+        grid.AddThemeConstantOverride("v_separation", 12);
+        column.AddChild(grid);
+
+        grid.AddChild(new Label { Text = L.T("menu.side_hosting") });
+        grid.AddChild(Choices(
+            [("HostBlue", PlayerPalette.Name(0), _hostSide == 0, () => _hostSide = 0), ("HostRed", PlayerPalette.Name(1), _hostSide == 1, () => _hostSide = 1)],
+            button => button.Name == "HostBlue" ? PlayerPalette.Color(0) : PlayerPalette.Color(1)));
+        grid.AddChild(new Control());
+
+        grid.AddChild(new Label { Text = L.T("menu.port") });
+        grid.AddChild(_port = new LineEdit { Name = "Port", Text = NetSession.DefaultPort.ToString(), CustomMinimumSize = new Vector2(360, 0) });
+        grid.AddChild(MenuParts.Button(L.T("menu.host"), Host, 140, "Host"));
+
+        grid.AddChild(new Label { Text = L.T("menu.address") });
+        grid.AddChild(_address = new LineEdit { Name = "Address", PlaceholderText = L.T("menu.address.hint"), CustomMinimumSize = new Vector2(360, 0) });
+        grid.AddChild(MenuParts.Button(L.T("menu.join"), Join, 140, "Join"));
+
+        column.AddChild(_netStatus = new Label { Name = "NetStatus", HorizontalAlignment = HorizontalAlignment.Center, AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(620, 0) });
+
+        var buttons = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        buttons.AddThemeConstantOverride("separation", 16);
+        buttons.AddChild(MenuParts.Button(L.T("menu.back"), () => { NetSession.Instance.Reset(); Show("title"); }, 150, "Back"));
+        buttons.AddChild(_netStart = MenuParts.Button(L.T("menu.start"), () => NetSession.Instance.StartMatch(_hostSide, _delay), 150, "NetStart"));
+        column.AddChild(buttons);
+        return column;
+    }
+
+    void Host()
+    {
+        if (!int.TryParse(_port.Text.Trim(), out int port) || port is < 1 or > 65535) port = NetSession.DefaultPort;
+        NetSession.Instance.Host(port);
+    }
+
+    // "address", "address:port" or "[ipv6]:port".
+    void Join()
+    {
+        var text = _address.Text.Trim();
+        int port = NetSession.DefaultPort, colon = text.LastIndexOf(':');
+        if (colon > 0 && text.IndexOf(':') == colon && int.TryParse(text[(colon + 1)..], out int p)) (text, port) = (text[..colon], p);
+        else if (text.StartsWith('[') && text.IndexOf("]:", System.StringComparison.Ordinal) is int end and > 0 && int.TryParse(text[(end + 2)..], out p))
+            (text, port) = (text[1..end], p);
+        if (text.Length == 0) return;
+        NetSession.Instance.Join(text, port);
+    }
+
+    // The session's state, as it changes (and the host's auto-start, for tools).
+    public override void _Process(double delta)
+    {
+        if (Page != "multiplayer") return;
+        var net = NetSession.Instance;
+        string port = _port.Text.Trim();
+        var addresses = NetSession.LocalAddresses();
+        _netStatus.Text = net.State switch
+        {
+            NetSession.Status.Hosting => L.T("net.hosting", port, addresses.Length > 0 ? string.Join(", ", addresses) : L.T("net.no_address")),
+            NetSession.Status.Joining => L.T("net.joining", _address.Text.Trim()),
+            NetSession.Status.Ready => net.IsHost ? L.T("net.ready.host") : L.T("net.ready.guest"),
+            NetSession.Status.Failed => L.T(net.Problem.Key, net.Problem.Arg),
+            _ => L.T("net.idle"),
+        };
+        _netStart.Visible = net.IsHost && net.State is NetSession.Status.Hosting or NetSession.Status.Ready;
+        _netStart.Disabled = net.State != NetSession.Status.Ready;
+        if (_autoStart && net.IsHost && net.State == NetSession.Status.Ready) { _autoStart = false; net.StartMatch(_hostSide, _delay); }
     }
 
     // ---- Controls ----

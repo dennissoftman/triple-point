@@ -26,9 +26,17 @@ Start TriplePoint.exe. Nothing to install. Windows may warn that the app is unre
 Skirmish: pick your side and the opponent (Easy AI, Normal AI, or Hotseat: two players at one
 computer, F2 hands over). Controls in the main menu lists every key and the main rules.
 
+Multiplayer (two players, each on their own computer, both with this same zip): one clicks
+Multiplayer, picks a side and Host; the other types the host's address (shown on the host's screen)
+and Join; the host clicks Start. Windows asks the host whether TriplePoint may use the network: allow
+it. On the same network that's all. Over the internet the host forwards UDP port 7777 on the router
+to their computer, or you both install Tailscale (tailscale.com) and use the host's Tailscale address.
+
 After each match a report is written to
     %APPDATA%\\Godot\\app_userdata\\Triple Point\\matches
 Paste that path into Explorer's address bar and send the newest file back with your notes.
+If a networked match says "Out of sync", please send the folder it names (under ...\\desyncs): that's
+a bug, and the folder says where.
 """
 
 

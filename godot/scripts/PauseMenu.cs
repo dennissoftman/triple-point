@@ -2,7 +2,8 @@ using Godot;
 
 /// <summary>
 /// The pause menu: the sim stops (the camera and views still run), the world takes no input, and it offers
-/// Resume, Restart (reloads the scene, with the same setup), Main menu and Quit. `pause_menu` opens or closes it; so does `cancel` when
+/// Resume, Restart (reloads the scene, with the same setup), Main menu and Quit. In a networked match it
+/// pauses both players (either can resume), says who paused, and has no Restart. `pause_menu` opens or closes it; so does `cancel` when
 /// there's nothing else to cancel (PlayerInput decides that). Placeholder UI.
 /// </summary>
 public partial class PauseMenu : Control
@@ -10,6 +11,9 @@ public partial class PauseMenu : Control
     [Export] public SimHost Host = null!;
 
     public bool Open => Visible;
+
+    Label _title = null!;
+    Button _restart = null!;
 
     public override void _Ready()
     {
@@ -25,9 +29,9 @@ public partial class PauseMenu : Control
         var column = new VBoxContainer();
         column.AddThemeConstantOverride("separation", 10);
         panel.AddChild(column);
-        column.AddChild(MenuParts.Heading(L.T("menu.paused")));
+        column.AddChild(_title = MenuParts.Heading(L.T("menu.paused")));
         column.AddChild(MenuParts.Button(L.T("menu.resume"), () => SetOpen(false)));
-        column.AddChild(MenuParts.Button(L.T("menu.restart"), () => GetTree().ReloadCurrentScene()));
+        column.AddChild(_restart = MenuParts.Button(L.T("menu.restart"), () => GetTree().ReloadCurrentScene()));
         column.AddChild(MenuParts.Button(L.T("menu.to_menu"), () => GetTree().ChangeSceneToFile(MatchSetup.MenuScene), name: "ToMenu"));
         column.AddChild(MenuParts.Button(L.T("menu.quit"), () => GetTree().Quit()));
         Visible = false;
@@ -41,6 +45,9 @@ public partial class PauseMenu : Control
     public void SetOpen(bool open)
     {
         Visible = open;
-        Host.Paused = open;
+        Host.SetPaused(open);
+        _restart.Visible = !Host.Networked;
+        _title.Text = Host.Networked && Host.PausedBy != Host.PlayerInput.LocalPlayer && Host.PausedBy >= 0
+            ? L.T("net.paused_by", PlayerPalette.Name(Host.PausedBy)) : L.T("menu.paused");
     }
 }

@@ -42,11 +42,7 @@ public sealed class Replay
             foreach (var c in commands) CommandCodec.Write(w, c);
         }
         w.Write(Hashes.Count);
-        foreach (var h in Hashes)
-        {
-            w.Write(h.Tick);
-            for (int i = 0; i < StateHash.Sections.Length; i++) w.Write(h.Section(i));
-        }
+        foreach (var h in Hashes) NetMessage.WriteHash(w, h);
     }
 
     public static Replay Load(Stream stream)
@@ -62,14 +58,21 @@ public sealed class Replay
             for (int i = 0; i < commands.Length; i++) commands[i] = CommandCodec.Read(r);
             replay.Turns.Add((tick, commands));
         }
-        for (int n = r.ReadInt32(); n > 0; n--)
-        {
-            int tick = r.ReadInt32();
-            var s = new ulong[StateHash.Sections.Length];
-            for (int i = 0; i < s.Length; i++) s[i] = r.ReadUInt64();
-            replay.Hashes.Add(new StateHash(tick, s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]));
-        }
+        for (int n = r.ReadInt32(); n > 0; n--) replay.Hashes.Add(NetMessage.ReadHash(r));
         return replay;
+    }
+
+    /// <summary>Plays the commands on `sim` (built from Setup, at tick 0) until its tick is `tick`, without checking.</summary>
+    public void PlayTo(Simulation sim, int tick)
+    {
+        var none = Array.Empty<Command>();
+        int turn = 0;
+        while (turn < Turns.Count && Turns[turn].Tick < sim.State.Tick) turn++;
+        while (sim.State.Tick < tick)
+        {
+            int now = sim.State.Tick;
+            sim.Tick(turn < Turns.Count && Turns[turn].Tick == now ? Turns[turn++].Commands : none);
+        }
     }
 
     /// <summary>

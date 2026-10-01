@@ -509,3 +509,106 @@ msgstr "Compact"
 
 msgid "menu.ui_normal"
 msgstr "Normal"
+
+msgid "menu.multiplayer"
+msgstr "Multiplayer"
+
+msgid "menu.side_hosting"
+msgstr "Your side (if you host)"
+
+msgid "menu.port"
+msgstr "Port"
+
+msgid "menu.host"
+msgstr "Host"
+
+msgid "menu.address"
+msgstr "Address"
+
+msgid "menu.address.hint"
+msgstr "the host's address, e.g. 192.168.1.20:7777"
+
+msgid "menu.join"
+msgstr "Join"
+
+msgid "net.idle"
+msgstr "Host a match and give your friend an address below, or join theirs."
+
+# {0} the port, {1} this machine's addresses
+msgid "net.hosting"
+msgstr "Waiting for a player on port {0}.\nYour addresses: {1}\nOver the internet: forward UDP port {0} on your router to this computer, or both join a VPN such as Tailscale and use its address."
+
+msgid "net.no_address"
+msgstr "none found"
+
+# {0} the address
+msgid "net.joining"
+msgstr "Connecting to {0}…"
+
+msgid "net.ready.host"
+msgstr "A player joined. Start when you're ready."
+
+msgid "net.ready.guest"
+msgstr "Connected. Waiting for the host to start."
+
+# {0} the port
+msgid "net.fail.port"
+msgstr "Can't host on port {0}: is another program using it?"
+
+# {0} the address
+msgid "net.fail.address"
+msgstr "Can't connect to {0}."
+
+msgid "net.fail.connect"
+msgstr "No answer. Check the address and port, and that the host is waiting."
+
+msgid "net.fail.lost"
+msgstr "The host went away."
+
+msgid "net.reject.protocol"
+msgstr "The host runs another version of the game."
+
+msgid "net.reject.build"
+msgstr "The host runs another build of the game: both need the same one."
+
+msgid "net.reject.data"
+msgstr "The host's game data (data/*.json) differs from yours."
+
+msgid "net.reject.full"
+msgstr "The host already has a player."
+
+# {0} the other side
+msgid "net.waiting"
+msgstr "Waiting for {0}…"
+
+# {0} the round trip, ms
+msgid "net.ping"
+msgstr "ping {0} ms"
+
+# {0} the side that paused
+msgid "net.paused_by"
+msgstr "Paused by {0}"
+
+# {0} the other side
+msgid "net.left"
+msgstr "{0} left the match"
+
+# {0} the game time
+msgid "net.desync"
+msgstr "Out of sync at {0}"
+
+# {0} what differs (sections of the game state)
+msgid "net.desync.preparing"
+msgstr "The two games stopped agreeing ({0}). Preparing a report…"
+
+# {0} the folder
+msgid "net.desync.waiting"
+msgstr "Report saved in {0}. Waiting for the other player's…"
+
+# {0} the folder
+msgid "net.desync.sent"
+msgstr "Report saved in {0} and sent to the host. Please send it to the developer."
+
+# {0} the first difference, {1} the folder
+msgid "net.desync.compared"
+msgstr "First difference: {0}\nBoth reports are in {1}. Please send the folder to the developer."

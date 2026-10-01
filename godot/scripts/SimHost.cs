@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Godot;
 using Sim;
 using static SimConvert;
@@ -11,6 +12,10 @@ using SVector3 = System.Numerics.Vector3;
 /// <summary>
 /// Owns the simulation: builds it from the map, collects commands, runs fixed 20 Hz ticks, and syncs
 /// views. Views only read sim state; nothing changes it except commands. Player input lives in PlayerInput.
+/// In a networked match (MatchSetup Networked) commands go through NetSession's Lockstep, ticks run only
+/// once both players' turns are in, at 1x, and a desync stops the match and writes a report: each side
+/// rebuilds the start, plays its own replay to the bad tick and dumps the state there; the joiner sends
+/// its dump to the host, which compares them.
 /// </summary>
 public partial class SimHost : Node3D
 {
@@ -57,8 +62,18 @@ public partial class SimHost : Node3D
     [Export] public int SourceSupply;          // packages each source holds at the start; 0: unlimited
     [Export] public float GathererReach = 4f;        // m from a gatherer marker to the belt it pulls from
 
-    readonly Simulation _sim = new();
+    Simulation _sim = null!;
     readonly List<Command> _commands = [];
+    // A networked match: its lockstep, and how it's going.
+    Lockstep? _net;
+    uint _seed = 1;
+    int _faultAt = -1, _checkEvery, _quitAt = -1; // debug: --net-fault-at, --net-check, --net-quit-at
+    double _waiting;                              // s the next tick has waited for the other player
+    double _quitIn = -1;                          // s until a tool run quits
+    bool _desyncShown, _leftShown, _compared;
+    Task<string>? _dumpTask;
+    string? _dump, _reportFolder;
+    Label _netLabel = null!;
     readonly List<Sim.Ai.Commander> _ais = [];
     MatchStats _stats = null!;
     bool _reported;
@@ -84,8 +99,25 @@ public partial class SimHost : Node3D
 
     public Simulation Sim => _sim;
 
-    /// <summary>Queues a command for the next tick.</summary>
-    public void Issue(Command command) => _commands.Add(command);
+    /// <summary>Queues a command for the next tick (in a networked match: for this side's next turn).</summary>
+    public void Issue(Command command)
+    {
+        if (_net is not null) _net.Issue(command);
+        else _commands.Add(command);
+    }
+
+    /// <summary>A networked match: no restart, no speed change, pausing pauses both.</summary>
+    public bool Networked => _net is not null;
+
+    /// <summary>Who paused (in a networked match, maybe the other player).</summary>
+    public int PausedBy => _net?.PausedBy ?? PlayerInput.LocalPlayer;
+
+    /// <summary>Opens or closes the pause; in a networked match, for both players.</summary>
+    public void SetPaused(bool paused)
+    {
+        Paused = paused;
+        if (_net is not null && _net.Paused != paused) _net.SetPaused(paused);
+    }
 
     /// <summary>Where a player starts: the middle of its unit spawns, on the ground (x, z). The map center if it has none.</summary>
     public Vector2 HomeOf(int player) => player >= 0 && player < _homes.Count ? _homes[player] : Vector2.Zero;
@@ -101,61 +133,11 @@ public partial class SimHost : Node3D
             return;
         }
 
-        for (int p = 0; p < PlayerCount; p++)
-        {
-            _sim.State.Players[_sim.AddPlayer()].Packages = StartingPackages;
-            _unitsOf.Add([]);
-        }
-
-        // Navigation covers the map, which is where the camera may look.
-        var map = PlayerInput.Camera.Bounds;
-        _sim.EnableNavigation(map.Position.X, map.Position.Y, map.End.X, map.End.Y);
-        foreach (var rock in Obstacles?.GetChildren().OfType<MapObstacle>() ?? [])
-        {
-            var facing = -rock.GlobalBasis.Z;
-            _sim.AddObstacle(ToSim(rock.GlobalPosition), rock.Size.X / 2, rock.Size.Z / 2, MathF.Atan2(facing.X, facing.Z));
-        }
-
-        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply, TruckLoad, TruckHealth, StartFull);
-        foreach (var path in Belts.GetChildren().OfType<Path3D>())
-        {
-            if (path.Curve.PointCount < 2) continue;
-            var (coveredStart, coveredEnd, pavedTo) = path is BeltPath b ? (b.CoveredStart, b.CoveredEnd, b.PavedTo) : (0f, 0f, 0f);
-            _sim.AddBeltLine(ToSegments(path), belt, coveredStart, coveredEnd, pavedTo);
-        }
-        foreach (var marker in Gatherers.GetChildren().OfType<OwnedMarker>())
-            if (_sim.AddGatherer(marker.Player, ToSim(marker.GlobalPosition), GathererReach) < 0)
-                GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
-
-        var (types, buildingTypes) = LoadData();
-        _sim.BuildingTypes = buildingTypes;
-        _sim.EndConditions = EndConditions;
-        foreach (var spawn in Buildings.GetChildren().OfType<BuildingSpawn>())
-        {
-            if (!buildingTypes.TryGetValue(spawn.BuildingType, out var type))
-            {
-                GD.PushWarning($"Building spawn '{spawn.Name}' has unknown type '{spawn.BuildingType}'; skipped.");
-                continue;
-            }
-            var facing = -spawn.GlobalBasis.Z; // the exit faces the marker's -Z
-            _sim.AddBuilding(spawn.Player, ToSim(spawn.GlobalPosition), type, MathF.Atan2(facing.X, facing.Z));
-        }
-        var spawnSums = new Vector2[PlayerCount];
-        foreach (var spawn in Units.GetChildren().OfType<UnitSpawn>())
-        {
-            if (!types.TryGetValue(spawn.UnitType, out var type))
-            {
-                GD.PushWarning($"Unit spawn '{spawn.Name}' has unknown type '{spawn.UnitType}'; skipped.");
-                continue;
-            }
-            // Units start facing the way the marker does (its -Z).
-            var facing = -spawn.GlobalBasis.Z;
-            float heading = MathF.Atan2(facing.X, facing.Z);
-            _unitsOf[spawn.Player].Add(_sim.AddUnit(spawn.Player, ToSim(spawn.GlobalPosition), type, heading));
-            spawnSums[spawn.Player] += new Vector2(spawn.GlobalPosition.X, spawn.GlobalPosition.Z);
-        }
-        for (int p = 0; p < PlayerCount; p++)
-            _homes.Add(_unitsOf[p].Count > 0 ? spawnSums[p] / _unitsOf[p].Count : Vector2.Zero);
+        var setup = MatchSetup.Current;
+        _net = setup is { Networked: true } ? NetSession.Instance?.Match : null;
+        _seed = setup?.Seed ?? 1;
+        if (_net is null && Arg("--seed=") is string seed) _seed = uint.Parse(seed);
+        _sim = BuildSim(_seed, _unitsOf, _homes);
         BeltView.Build(_sim.State);
         BuildInterface();
         Hud.MouseFilter = Control.MouseFilterEnum.Pass; // for its tooltip: the keys it no longer spells out
@@ -166,19 +148,29 @@ public partial class SimHost : Node3D
         _perfLog = OS.GetCmdlineUserArgs().Contains("--perf-log");
         _demo = OS.GetCmdlineUserArgs().Contains("--demo");
         _reveal = _demo || OS.GetCmdlineUserArgs().Contains("--reveal");
-        _sim.FogOfWar = FogOfWar;
         _sim.Vision(0); // sizes the fog's grid
         AddChild(_fog = new FogOverlay { Name = "Fog" });
         _fog.Setup(_sim);
         // Who plays what: the scene's exports, then the skirmish setup (MatchSetup), then the command line.
-        if (MatchSetup.Current is { } setup)
+        if (setup is not null)
         {
             PlayerInput.LocalPlayer = setup.LocalPlayer;
-            (AiPlayers, AiLevel) = (setup.Hotseat ? [] : [1 - setup.LocalPlayer], setup.Level);
+            (AiPlayers, AiLevel) = (setup.Hotseat || setup.Networked ? [] : [1 - setup.LocalPlayer], setup.Level);
             PlayerInput.Camera.Focus = HomeOf(setup.LocalPlayer);
         }
-        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
+        if (_net is null && OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai=")) is string ai)
             AiPlayers = ai[5..] == "none" ? [] : ai[5..].Split(',').Select(int.Parse).ToArray();
+        if (_net is not null)
+        {
+            GameSpeed = 1;
+            // Tools: the AI plays this side (its commands go through lockstep like clicks); print the hash
+            // every N ticks, and quit at a tick, to compare two machines' runs; a fault, to test the desync path.
+            if (OS.GetCmdlineUserArgs().Contains("--net-ai")) AiPlayers = [PlayerInput.LocalPlayer];
+            _checkEvery = Arg("--net-check=") is string every ? int.Parse(every) : 0;
+            _quitAt = Arg("--net-quit-at=") is string quit ? int.Parse(quit) : -1;
+            _faultAt = Arg("--net-fault-at=") is string fault ? int.Parse(fault) : -1;
+            GD.Print($"Networked match: seed {_seed}, you are {PlayerPalette.Name(PlayerInput.LocalPlayer)}, delay {_net.Delay} ticks, start {_sim.Hash().All:x16}");
+        }
         if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--ai-level=")) is string level)
         {
             if (Enum.TryParse<global::Sim.Ai.AiLevel>(level["--ai-level=".Length..], ignoreCase: true, out var parsed)) AiLevel = parsed;
@@ -188,6 +180,7 @@ public partial class SimHost : Node3D
             foreach (int p in AiPlayers)
                 if (p >= 0 && p < _sim.State.Players.Count) _ais.Add(new Sim.Ai.Commander(_sim, p, AiLevel));
         _stats = new MatchStats(_sim);
+        if (_net is not null) _net.Replay.Setup = GetTree().CurrentScene?.SceneFilePath ?? MatchSetup.MatchScene;
         MatchReports &= EndConditions && !_demo;
         if (_demo) (GameSpeed, PlayerInput.Camera.EdgeScroll) = (3f, false); // unattended: wherever the mouse is doesn't matter
         // Now, not only each frame: views may draw before the first one, and Sight still holds the last
@@ -208,53 +201,119 @@ public partial class SimHost : Node3D
         Hud.Position = new Vector2(16, 7);
         ui.AddChild(new SelectionPanel { Name = "SelectionPanel", PlayerInput = PlayerInput });
         ui.AddChild(new IdleBuilderButton { Name = "IdleBuilders", PlayerInput = PlayerInput, Minimap = ui.GetChildren().OfType<Minimap>().FirstOrDefault() });
+        // A networked match's notice under the top strip: waiting for the other player.
+        _netLabel = new Label { Name = "NetNotice", HorizontalAlignment = HorizontalAlignment.Center, Visible = false, LabelSettings = new LabelSettings { FontSize = 20, OutlineSize = 4, OutlineColor = Colors.Black } };
+        _netLabel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop);
+        (_netLabel.Position, _netLabel.GrowHorizontal) = (new Vector2(_netLabel.Position.X, 60), Control.GrowDirection.Both);
+        ui.AddChild(_netLabel);
+    }
+
+    static string? Arg(string prefix) => OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith(prefix))?[prefix.Length..];
+
+    /// <summary>
+    /// The match as the map scene sets it up, from its nodes: players, navigation over the camera's
+    /// bounds, rocks, routes, depots, buildings and units. Called once for the match, and again after a
+    /// desync to rebuild the same start (then without `unitsOf` and `homes`). Headings go through SimMath,
+    /// like everything that feeds the sim, so both machines start from the same bits.
+    /// </summary>
+    Simulation BuildSim(uint seed, List<List<int>>? unitsOf, List<Vector2>? homes)
+    {
+        var sim = new Simulation(seed);
+        for (int p = 0; p < PlayerCount; p++)
+        {
+            sim.State.Players[sim.AddPlayer()].Packages = StartingPackages;
+            unitsOf?.Add([]);
+        }
+
+        // Navigation covers the map, which is where the camera may look.
+        var map = PlayerInput.Camera.Bounds;
+        sim.EnableNavigation(map.Position.X, map.Position.Y, map.End.X, map.End.Y);
+        foreach (var rock in Obstacles?.GetChildren().OfType<MapObstacle>() ?? [])
+        {
+            var facing = -rock.GlobalBasis.Z;
+            sim.AddObstacle(ToSim(rock.GlobalPosition), rock.Size.X / 2, rock.Size.Z / 2, SimMath.Atan2(facing.X, facing.Z));
+        }
+
+        var belt = new BeltConfig(BeltSpeed, PackageSpacing, SpawnInterval, SegmentLength, SegmentHealth, SpillLoss, SourceSupply, TruckLoad, TruckHealth, StartFull);
+        foreach (var path in Belts.GetChildren().OfType<Path3D>())
+        {
+            if (path.Curve.PointCount < 2) continue;
+            var (coveredStart, coveredEnd, pavedTo) = path is BeltPath b ? (b.CoveredStart, b.CoveredEnd, b.PavedTo) : (0f, 0f, 0f);
+            sim.AddBeltLine(ToSegments(path), belt, coveredStart, coveredEnd, pavedTo);
+        }
+        foreach (var marker in Gatherers.GetChildren().OfType<OwnedMarker>())
+            if (sim.AddGatherer(marker.Player, ToSim(marker.GlobalPosition), GathererReach) < 0)
+                GD.PushWarning($"Gatherer '{marker.Name}' is more than {GathererReach} m from any belt; skipped.");
+
+        var (types, buildingTypes) = LoadData();
+        sim.BuildingTypes = buildingTypes;
+        sim.EndConditions = EndConditions;
+        sim.FogOfWar = FogOfWar;
+        foreach (var spawn in Buildings.GetChildren().OfType<BuildingSpawn>())
+        {
+            if (!buildingTypes.TryGetValue(spawn.BuildingType, out var type))
+            {
+                GD.PushWarning($"Building spawn '{spawn.Name}' has unknown type '{spawn.BuildingType}'; skipped.");
+                continue;
+            }
+            var facing = -spawn.GlobalBasis.Z; // the exit faces the marker's -Z
+            sim.AddBuilding(spawn.Player, ToSim(spawn.GlobalPosition), type, SimMath.Atan2(facing.X, facing.Z));
+        }
+        var spawnSums = new Vector2[PlayerCount];
+        var spawnCounts = new int[PlayerCount];
+        foreach (var spawn in Units.GetChildren().OfType<UnitSpawn>())
+        {
+            if (!types.TryGetValue(spawn.UnitType, out var type))
+            {
+                GD.PushWarning($"Unit spawn '{spawn.Name}' has unknown type '{spawn.UnitType}'; skipped.");
+                continue;
+            }
+            // Units start facing the way the marker does (its -Z).
+            var facing = -spawn.GlobalBasis.Z;
+            int id = sim.AddUnit(spawn.Player, ToSim(spawn.GlobalPosition), type, SimMath.Atan2(facing.X, facing.Z));
+            unitsOf?[spawn.Player].Add(id);
+            spawnSums[spawn.Player] += new Vector2(spawn.GlobalPosition.X, spawn.GlobalPosition.Z);
+            spawnCounts[spawn.Player]++;
+        }
+        for (int p = 0; p < PlayerCount; p++)
+            homes?.Add(spawnCounts[p] > 0 ? spawnSums[p] / spawnCounts[p] : Vector2.Zero);
+        return sim;
     }
 
     // Unit types from units.json with their weapons from weapons.json, and building types from buildings.json.
-    // An exported build has no project folder: the export puts the data beside the executable, in data/.
     (Dictionary<string, UnitType> Units, Dictionary<string, BuildingType> Buildings) LoadData()
     {
-        var folder = OS.HasFeature("template")
-            ? Path.Combine(OS.GetExecutablePath().GetBaseDir(), "data")
-            : Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"), DataDirectory));
         try
         {
-            var weapons = GameData.ParseWeapons(File.ReadAllText(Path.Combine(folder, "weapons.json")));
-            var units = GameData.ParseUnitTypes(File.ReadAllText(Path.Combine(folder, "units.json")), weapons);
-            return (units, GameData.ParseBuildingTypes(File.ReadAllText(Path.Combine(folder, "buildings.json")), units));
+            var texts = GameFiles.Read(DataDirectory);
+            var weapons = GameData.ParseWeapons(texts[0]);
+            var units = GameData.ParseUnitTypes(texts[1], weapons);
+            return (units, GameData.ParseBuildingTypes(texts[2], units));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
         {
-            GD.PushError($"Can't load game data from {folder}: {e.Message}");
+            GD.PushError($"Can't load game data from {GameFiles.Folder(DataDirectory)}: {e.Message}");
             return ([], []);
         }
     }
 
     public override void _Process(double delta)
     {
-        if (!Paused) _accumulator += delta * GameSpeed;
-        int maxTicks = (int)Math.Ceiling(MaxTicksPerFrameAt1x * GameSpeed);
-        int ticks = 0;
-        while (_accumulator >= TickSeconds)
+        if (_net is not null) NetTicks(delta);
+        else
         {
-            if (++ticks > maxTicks) { _accumulator = 0; break; }
-            if (_demo) Demo(_sim.State.Tick);
-            foreach (var ai in _ais) _commands.AddRange(ai.Think());
-            _tickClock.Restart();
-            var events = _sim.Tick(_commands);
-            _tickSeconds += _tickClock.Elapsed.TotalSeconds;
-            _stats.Observe(_sim, events);
-            _ticksInWindow++;
-            _commands.Clear();
-            foreach (var e in events)
+            if (!Paused) _accumulator += delta * GameSpeed;
+            int maxTicks = (int)Math.Ceiling(MaxTicksPerFrameAt1x * GameSpeed);
+            int ticks = 0;
+            while (_accumulator >= TickSeconds)
             {
-                Log(e);
-                if (e.Kind == SimEventKind.GameOver) Report();
-                Alert(e);
-                UnitsView.OnEvent(e);
-                BeltView.OnEvent(e, _sim.State);
+                if (++ticks > maxTicks) { _accumulator = 0; break; }
+                if (_demo) Demo(_sim.State.Tick);
+                foreach (var ai in _ais) _commands.AddRange(ai.Think());
+                RunTick(_commands);
+                _commands.Clear();
+                _accumulator -= TickSeconds;
             }
-            _accumulator -= TickSeconds;
         }
 
         float alpha = (float)(_accumulator / TickSeconds);
@@ -265,6 +324,117 @@ public partial class SimHost : Node3D
         BuildingsView.Sync(_sim.State, PlayerInput.SelectedBuilding, PlayerInput.Placing);
         UpdatePerf(delta);
         UpdateHud();
+    }
+
+    void RunTick(IReadOnlyList<Command> commands)
+    {
+        _tickClock.Restart();
+        var events = _sim.Tick(commands);
+        _tickSeconds += _tickClock.Elapsed.TotalSeconds;
+        _stats.Observe(_sim, events);
+        _ticksInWindow++;
+        foreach (var e in events)
+        {
+            Log(e);
+            if (e.Kind == SimEventKind.GameOver) Report();
+            Alert(e);
+            UnitsView.OnEvent(e);
+            BeltView.OnEvent(e, _sim.State);
+        }
+    }
+
+    // A networked match's frame: ticks run as real time allows and both turns are in (catching up a few
+    // a frame after a wait), this side's turns leave at once, and the match's state shows: waiting for the
+    // other player, paused by either, out of sync, or left.
+    void NetTicks(double delta)
+    {
+        var net = _net!;
+        if (!net.Paused) _accumulator = Math.Min(_accumulator + delta, MaxBehindSeconds);
+        int ticks = 0;
+        bool stalled = false;
+        while (_accumulator >= TickSeconds && ticks < MaxTicksPerFrameAt1x)
+        {
+            if (!net.Ready(_sim.State.Tick)) { stalled = true; break; }
+            foreach (var ai in _ais) foreach (var c in ai.Think()) net.Issue(c);
+            if (_sim.State.Tick == _faultAt && _sim.State.Units.FirstOrDefault(u => u.Owner == 0) is { Id: > 0 } victim)
+            {
+                GD.Print($"[{_sim.State.Tick}] --net-fault-at: destroying unit {victim.Id} here only");
+                net.InjectFault(new DestroyCommand(victim.Id));
+            }
+            RunTick(net.Begin(_sim));
+            _accumulator -= TickSeconds;
+            ticks++;
+            int tick = _sim.State.Tick;
+            if (_checkEvery > 0 && tick % _checkEvery == 0) GD.Print($"net-check {tick} {_sim.Hash().All:x16}");
+            if (tick == _quitAt) { GD.Print($"net-quit {tick} {_sim.Hash().All:x16}"); GetTree().Quit(); break; }
+        }
+        NetSession.Instance.Flush();
+        _waiting = stalled && !net.Paused && net.Desync is null && !net.PeerLeft ? _waiting + delta : 0;
+        if (_quitIn >= 0 && (_quitIn -= delta) < 0)
+        {
+            if (Arg("--net-snap=") is string snap) GetViewport().GetTexture().GetImage().SavePng(snap); // tools: the screen as it ends
+            GetTree().Quit();
+        }
+
+        if (net.Paused != Paused) PlayerInput.PauseMenu.SetOpen(net.Paused);
+        string other = PlayerPalette.Name(1 - PlayerInput.LocalPlayer);
+        _netLabel.Text = _waiting > WaitShownAfter ? L.T("net.waiting", other) : "";
+        _netLabel.Visible = _netLabel.Text.Length > 0;
+        if (net.Desync is var (desyncTick, sections)) ShowDesync(desyncTick, sections);
+        else if (net.PeerLeft && !_leftShown && !_sim.State.GameOver)
+        {
+            _leftShown = true;
+            GD.Print($"[{_sim.State.Tick}] {other} left the match");
+            GameOver.ShowEnd(L.T("net.left", other), "", PlayerPalette.Color(1 - PlayerInput.LocalPlayer));
+        }
+    }
+
+    const double MaxBehindSeconds = 0.5, WaitShownAfter = 0.3;
+
+    /// <summary>The banner, for a networked match's endings (set in the scene; found if not).</summary>
+    GameOverOverlay GameOver => _gameOver ??= Hud.GetParent().GetChildren().OfType<GameOverOverlay>().First();
+    GameOverOverlay? _gameOver;
+
+    // Out of sync: stop, say so, and write the report. Each side plays its own replay on a freshly built
+    // start to the first bad tick (in the background: a long match takes a few seconds) and dumps the state
+    // there; the joiner sends its dump to the host, which lists the first differences.
+    void ShowDesync(int tick, string sections)
+    {
+        var net = _net!;
+        string when = $"{tick / Simulation.TicksPerSecond / 60}:{tick / Simulation.TicksPerSecond % 60:00}";
+        if (!_desyncShown)
+        {
+            _desyncShown = true;
+            GD.Print($"[{_sim.State.Tick}] DESYNC at tick {tick}: {sections}");
+            _reportFolder = ProjectSettings.GlobalizePath($"user://desyncs/{DateTime.Now:yyyy-MM-dd_HH-mm-ss}-{PlayerPalette.Name(PlayerInput.LocalPlayer).ToLowerInvariant()}");
+            Directory.CreateDirectory(_reportFolder);
+            using (var file = File.Create(Path.Combine(_reportFolder, "replay.tprp"))) net.Replay.Save(file);
+            var fresh = BuildSim(_seed, null, null);
+            var replay = net.Replay;
+            _dumpTask = Task.Run(() => { replay.PlayTo(fresh, tick); return StateDump.Write(fresh); });
+            GameOver.ShowEnd(L.T("net.desync", when), L.T("net.desync.preparing", sections), Colors.Orange);
+        }
+        if (_dump is null && _dumpTask is { IsCompleted: true })
+        {
+            _dump = _dumpTask.Result;
+            File.WriteAllText(Path.Combine(_reportFolder!, "state-here.txt"), _dump);
+            if (!NetSession.Instance.IsHost) net.SendDump(_dump);
+            NetSession.Instance.Flush();
+            GD.Print($"Desync report: {_reportFolder}");
+            GameOver.ShowEnd(L.T("net.desync", when), L.T(NetSession.Instance.IsHost ? "net.desync.waiting" : "net.desync.sent", _reportFolder!), Colors.Orange);
+            if (_quitAt >= 0 && !NetSession.Instance.IsHost) _quitIn = 5; // a tool run: its part is done, once the dump is across
+        }
+        if (!_compared && _dump is not null && net.PeerDump is string theirs)
+        {
+            _compared = true;
+            File.WriteAllText(Path.Combine(_reportFolder!, "state-there.txt"), theirs);
+            var differences = StateDump.Compare(_dump, theirs, 40);
+            File.WriteAllLines(Path.Combine(_reportFolder!, "differences.txt"), differences);
+            foreach (var d in differences.Take(8)) GD.Print("  " + d);
+            var first = differences.FirstOrDefault(d => !d.StartsWith("sim.hash")) ?? "";
+            GameOver.ShowEnd(L.T("net.desync", when), L.T("net.desync.compared", first, _reportFolder!), Colors.Orange);
+            if (_quitAt >= 0) _quitIn = 0.5; // a tool run: done (after a frame or two of the banner, for --net-snap)
+        }
     }
 
     // Once a second: frame rate, sim cost per tick, render cost (CPU and GPU), and what was drawn.
@@ -296,6 +466,7 @@ public partial class SimHost : Node3D
     // Snaps to the next preset up or down; a custom value from the inspector lands on the nearest one.
     void StepSpeed(int direction)
     {
+        if (_net is not null) return; // both players' games run at 1x
         GameSpeed = direction > 0
             ? SpeedSteps.FirstOrDefault(s => s > GameSpeed + 0.01f, SpeedSteps[^1])
             : SpeedSteps.LastOrDefault(s => s < GameSpeed - 0.01f, SpeedSteps[0]);
@@ -315,6 +486,7 @@ public partial class SimHost : Node3D
         ShownTick = state.Tick;
         int seconds = state.Tick / Simulation.TicksPerSecond;
         var hud = L.T("hud.line", GameSpeed.ToString("0.##"), $"{seconds / 60}:{seconds % 60:00}", PlayerPalette.Name(PlayerInput.LocalPlayer));
+        if (_net is not null) hud += "      " + L.T("net.ping", NetSession.Instance.Ping);
         double now = Time.GetTicksMsec() / 1000.0;
         Alerts.RemoveAll(a => a.Until < now); // the top bar shows them
         foreach (var p in state.Players)
@@ -363,6 +535,15 @@ public partial class SimHost : Node3D
     public override void _ExitTree()
     {
         if (_stats is not null && _sim.State.Tick >= ReportAfterTicks) Report();
+        if (_net is not null)
+        {
+            // Every networked match keeps its replay (user://replays), to check or compare later.
+            var folder = ProjectSettings.GlobalizePath("user://replays");
+            Directory.CreateDirectory(folder);
+            using (var file = File.Create(Path.Combine(folder, $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}-{PlayerPalette.Name(PlayerInput.LocalPlayer).ToLowerInvariant()}.tprp")))
+                _net.Replay.Save(file);
+            if (NetSession.Instance.Match == _net) NetSession.Instance.Leave();
+        }
         if (Sight.Sim == _sim) (Sight.Sim, Sight.All) = (null, true);
     }
 
@@ -371,7 +552,8 @@ public partial class SimHost : Node3D
         if (!MatchReports || _reported) return;
         _reported = true;
         _stats.Finish(_sim.State);
-        string ai = _ais.Count == 0 ? "none" : string.Join(", ", _ais.Select(a => PlayerPalette.Name(a.Player))) + $" ({AiLevel})";
+        string ai = (_ais.Count == 0 ? "none" : string.Join(", ", _ais.Select(a => PlayerPalette.Name(a.Player))) + $" ({AiLevel})")
+                    + (_net is not null ? $"; networked, seed {_seed}" : "");
         if (MatchReport.Write(_stats, _sim.State, GetTree().CurrentScene?.SceneFilePath ?? "", ai) is string path)
             GD.Print($"Match report: {path}");
     }
