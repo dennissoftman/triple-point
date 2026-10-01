@@ -4,10 +4,10 @@ Every AI-generated or otherwise temporary asset must be listed here, so nothing 
 
 | Path | Kind | Source / tool | AI-generated | Replace before |
 |------|------|---------------|--------------|----------------|
-| `godot/scripts/Cursors.cs` | Mouse cursors (move, attack, attack-move, repair) | Drawn in code from simple shapes | No | Real cursor art |
+| `godot/scripts/Cursors.cs` | Mouse cursors (move, attack, attack-move, repair, garrison) | Drawn in code from simple shapes | No | Real cursor art |
 | `godot/scripts/UnitsView.cs` | Weapon effects: tracer lines, shell slug, muzzle and impact flash balls; artillery shell smoke puffs and ground shadow disc; range rings | Built-in meshes and flat colors, in code | No | Real VFX |
 | `godot/scripts/UnitsView.cs` | Vehicle wrecks: the unit's own meshes in a burnt material, a boom flash, smoke balls, sinking away | Built-in meshes and flat colors, in code | No | Real wreck models and explosion VFX |
-| `godot/scripts/BuildingsView.cs` | Buildings (a colored block with a door), selection outline, rally flag | Built-in meshes and flat colors, in code | No | Real building models |
+| `godot/scripts/BuildingsView.cs` | Buildings (a colored block with a door; a garrison house with a gable roof and occupancy pips), selection outline, rally flag | Built-in meshes and flat colors, in code | No | Real building models |
 | `godot/scripts/CommandCard.cs` | Command card: a 4×3 grid of default Godot buttons with text, a key label, a count badge and a thin progress bar | Godot's default theme and StyleBoxFlats, in code | No | Real UI with icons |
 | `godot/scripts/SelectionPanel.cs` | Selection panel: a flat dark box, default font, default buttons as type tiles, flat health bars | Godot's default theme and StyleBoxFlats, in code | No | Real UI with unit portraits and icons |
 | `godot/scripts/TopBar.cs` | Top strip: a flat dark rect; alerts as pulsing default-font text | Canvas drawing and default font, in code | No | Real UI |

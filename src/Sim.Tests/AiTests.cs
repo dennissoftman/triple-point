@@ -195,9 +195,13 @@ public class AiTests(ITestOutputHelper output)
                     {
                         MoveCommand m => m.UnitId, AttackCommand m => m.UnitId, AttackMoveCommand m => m.UnitId,
                         AttackSegmentCommand m => m.UnitId, RepairSegmentCommand m => m.UnitId,
-                        BuildCommand m => m.UnitId, ResumeBuildCommand m => m.UnitId, _ => null,
+                        BuildCommand m => m.UnitId, ResumeBuildCommand m => m.UnitId, MendCommand m => m.UnitId,
+                        RepairCommand m => m.UnitId, GarrisonCommand m => m.UnitId, _ => null,
                     };
-                    int? building = c switch { ProduceCommand m => m.BuildingId, SetRallyCommand m => m.BuildingId, _ => null };
+                    int? building = c switch
+                    {
+                        ProduceCommand m => m.BuildingId, SetRallyCommand m => m.BuildingId, ExitCommand m => m.BuildingId, _ => null,
+                    };
                     if (unit is int u) Assert.Equal(ai.Player, sim.State.Units.Single(x => x.Id == u).Owner);
                     if (building is int b) Assert.Equal(ai.Player, sim.State.Buildings.Single(x => x.Id == b).Owner);
                     commands.Add(c);
@@ -206,6 +210,25 @@ public class AiTests(ITestOutputHelper output)
             sim.Tick(commands);
         }
         Assert.True(checkedCount > 100);
+    }
+
+    [Fact]
+    public void Holds_the_house_on_its_half_and_guards_its_depots_with_turrets()
+    {
+        var sim = MainMap.Load();
+        var ais = new[] { new Commander(sim, Blue), new Commander(sim, Red) };
+        Play(sim, ais, 8 * 60);
+        output.WriteLine(Summary(sim, Blue) + " / " + Summary(sim, Red));
+
+        var s = sim.State;
+        foreach (int player in (int[])[Blue, Red])
+        {
+            var home = s.Buildings.First(b => b.Owner == player && b.Type.Id == "hq").Position;
+            var house = s.Buildings.Where(b => b.Type.Kind == BuildingKind.Garrison).MinBy(b => System.Numerics.Vector3.Distance(b.Position, home))!;
+            Assert.Equal(player, house.Owner);
+            Assert.Contains(s.Units, u => u.Owner == player && u.Inside == house.Id);
+            Assert.Contains(s.Units, u => u.Owner == player && u.Type == "turret");
+        }
     }
 
     [Fact]

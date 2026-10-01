@@ -7,6 +7,7 @@
   "factory": { "health": 800, "size": 6, "cost": 24, "buildTime": 25, "produces": ["scout_car", "tank", "artillery"], "sight": 10,
                "mends": "vehicle", "mendSeconds": 25, "mendShare": 0.5 },
   "gatherer_post": { "kind": "post", "health": 300, "size": 2, "cost": 10, "buildTime": 10, "sight": 12 },
+  "house": { "kind": "garrison", "health": 900, "size": 4, "garrison": 2, "sight": 6 },
   "turret": { "kind": "defense", "unit": "turret", "health": 400, "size": 2, "cost": 14, "buildTime": 12, "sight": 8, "requires": "barracks" },
   "heavy_turret": { "kind": "defense", "unit": "heavy_turret", "health": 450, "size": 2, "cost": 26, "buildTime": 18, "sight": 8, "requires": "factory" },
 }

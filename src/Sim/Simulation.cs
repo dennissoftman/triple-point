@@ -11,6 +11,8 @@ public sealed partial class Simulation
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
     public const int MaxQueue = 999;                // units a building's queue holds: no real limit, only a sane one
+    public const float GarrisonRange = 2f;
+    const float EjectedHealth = 0.5f;               // of their health, what squads keep when their garrison building falls          // m a squad inside a garrison building reaches beyond its walls, on top of its range
     public const float RetreatHealth = 0.3f;        // share of full health below which an auto-retreating unit goes to mend
     const int RetreatCheckTicks = 10;
     const float StructureRepairShare = 0.5f;        // of a building's cost, for a repair from 0 to full
@@ -169,6 +171,7 @@ public sealed partial class Simulation
             Radius = radius,
             Sight = DefaultSight,
             PathSlot = -1,
+            Inside = -1,
             Anchor = position,
             RestGoal = new Vector3(float.NaN),
         });
@@ -445,7 +448,7 @@ public sealed partial class Simulation
     public bool TryGetTarget(int id, out Vector3 position, out int owner)
     {
         foreach (var unit in State.Units)
-            if (unit.Id == id && unit.Health > 0) { (position, owner) = (unit.Position, unit.Owner); return true; }
+            if (unit.Id == id && unit.Health > 0 && unit.Inside < 0) { (position, owner) = (unit.Position, unit.Owner); return true; }
         foreach (var post in State.Gatherers)
             if (post.Id == id && post.Health > 0) { (position, owner) = (post.Position, post.Owner); return true; }
         foreach (var building in State.Buildings)
@@ -482,7 +485,7 @@ public sealed partial class Simulation
         UnitOrder.Repair or UnitOrder.AttackSegment when order.Line >= 0 => SegmentPoint(order.Line, order.Segment, from),
         UnitOrder.Attack => TryGetTarget(order.TargetId, out var at, out _) ? at with { Y = from.Y } : from,
         UnitOrder.Build when order.TargetId >= 0 => TryGetTarget(order.TargetId, out var site, out _) ? site with { Y = from.Y } : from,
-        UnitOrder.Repair or UnitOrder.Mend => TryGetTarget(order.TargetId, out var fix, out _) ? fix with { Y = from.Y } : from,
+        UnitOrder.Repair or UnitOrder.Mend or UnitOrder.Garrison => TryGetTarget(order.TargetId, out var fix, out _) ? fix with { Y = from.Y } : from,
         _ => order.Target,
     };
 
@@ -536,6 +539,14 @@ public sealed partial class Simulation
                 break;
             case MendCommand m when OwnBuilding(m.Player, m.BuildingId) is { Built: true, Type.Mends: { } mends } && CanMend(m.UnitId, mends):
                 Issue(m.Player, m.UnitId, new Order(UnitOrder.Mend, default, TargetId: m.BuildingId), m.Queued);
+                break;
+            case GarrisonCommand g when FindBuilding(g.BuildingId) is { Type.Kind: BuildingKind.Garrison } house
+                && (house.Owner == Player.None || house.Owner == g.Player) && FindUnit(g.UnitId) is >= 0 and var gi && State.Units[gi].Movement == Movement.Foot:
+                Issue(g.Player, g.UnitId, new Order(UnitOrder.Garrison, default, TargetId: g.BuildingId), g.Queued);
+                break;
+            case ExitCommand x when OwnBuilding(x.Player, x.BuildingId) is { Type.Kind: BuildingKind.Garrison } house:
+                foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
+                    if (unit.Inside == house.Id) Leave(ref unit);
                 break;
             case RepairCommand r when Repairable(r.Player, r.TargetId):
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Repair, default, TargetId: r.TargetId), r.Queued);
@@ -593,11 +604,11 @@ public sealed partial class Simulation
         return FindUnit(id) is >= 0 and var u && State.Units[u].Owner == player && State.Units[u].Movement == Movement.Static;
     }
 
-    // Commands only reach buildings their issuer owns.
+    // Commands only reach buildings their issuer owns (nobody's are nobody's to command).
     Building? OwnBuilding(int player, int id)
     {
         foreach (var building in State.Buildings)
-            if (building.Id == id) return building.Owner == player ? building : null;
+            if (building.Id == id) return building.Owner == player && player != Player.None ? building : null;
         return null;
     }
 
@@ -728,6 +739,43 @@ public sealed partial class Simulation
         }
         credit -= step;
         return true;
+    }
+
+    // Goes to the garrison building and in, if it's still empty or its owner's and there's room; otherwise
+    // the order is over and it stands outside. Inside it stands at the building's middle, hidden, and fires
+    // out (Engage, with InsideReach on its range); the building is its owner's while anyone is in it.
+    void Enter(ref Unit unit)
+    {
+        if (FindBuilding(unit.Current.TargetId) is not { Type.Kind: BuildingKind.Garrison } house
+            || (house.Owner != Player.None && house.Owner != unit.Owner) || house.Occupants >= house.Type.Garrison)
+        {
+            Complete(ref unit);
+            return;
+        }
+        Engage(ref unit);
+        if (!Reach(ref unit, house.Position, house.Type.Size / 2)) return;
+        FreePath(unit);
+        unit.PathSlot = -1;
+        unit.Pending.Clear();
+        (unit.Current, unit.Inside, unit.InsideReach) = (default, house.Id, house.Type.Size / 2 + GarrisonRange);
+        (unit.Position, unit.CurrentSpeed, unit.RespondTo, unit.Returning, unit.Holding) = (house.Position with { Y = unit.Position.Y }, 0, -1, false, false);
+        (house.Owner, house.Occupants) = (unit.Owner, house.Occupants + 1);
+    }
+
+    // Out of the garrison building it's in: beside its door, spread a little by how many are still in, and
+    // standing there. The last one out leaves the building neutral again.
+    void Leave(ref Unit unit)
+    {
+        if (unit.Inside < 0) return;
+        if (FindBuilding(unit.Inside) is { } house)
+        {
+            house.Occupants = Math.Max(0, house.Occupants - 1);
+            if (house.Occupants == 0) house.Owner = Player.None;
+            var side = new Vector3(MathF.Cos(house.Heading), 0, -MathF.Sin(house.Heading));
+            var at = house.Exit + side * ((house.Occupants % 3 - 1) * 2f);
+            unit.Position = unit.PrevPosition = at with { Y = unit.Position.Y };
+        }
+        (unit.Inside, unit.InsideReach, unit.Anchor) = (-1, 0, unit.Position);
     }
 
     /// <summary>The nearest of its owner's finished buildings that mends a unit's class, if there is one.</summary>
@@ -882,7 +930,11 @@ public sealed partial class Simulation
         foreach (ref var post in CollectionsMarshal.AsSpan(State.Gatherers))
             if (post.Owner == player.Index) post.Health = 0;
         foreach (var building in State.Buildings)
-            if (building.Owner == player.Index) building.Health = 0;
+            if (building.Owner == player.Index)
+            {
+                if (building.Type.Kind == BuildingKind.Garrison) (building.Owner, building.Occupants) = (Player.None, 0); // its squads die inside; the building stays
+                else building.Health = 0;
+            }
     }
 
     // A scripted kill of a unit, post or building by id; it's removed with the rest of the dead.
@@ -1044,6 +1096,16 @@ public sealed partial class Simulation
             unit.PrevTurret = unit.Turret;
             (unit.Firing, unit.Driving) = (false, false);
             if (unit.Health <= 0) continue; // killed earlier this tick; removed after the loop
+            if (unit.Inside >= 0)
+            {
+                // Inside a garrison building it only fires out; any order brings it out first.
+                if (unit.Current.Kind == UnitOrder.None)
+                {
+                    Engage(ref unit);
+                    continue;
+                }
+                Leave(ref unit);
+            }
             // Auto-retreat: badly hurt, it drops what it's doing and goes to mend.
             if (unit.AutoRetreat && unit.Movement != Movement.Static && unit.Current.Kind != UnitOrder.Mend && State.Tick % RetreatCheckTicks == 0
                 && unit.Health < unit.MaxHealth * RetreatHealth && NearestMender(unit) is { } mender)
@@ -1079,6 +1141,10 @@ public sealed partial class Simulation
 
                 case UnitOrder.Mend:
                     Mend(ref unit);
+                    break;
+
+                case UnitOrder.Garrison:
+                    Enter(ref unit);
                     break;
 
                 case UnitOrder.Repair when unit.Current.Line < 0:
@@ -1147,9 +1213,9 @@ public sealed partial class Simulation
     void UpdateAttack(ref Unit unit)
     {
         int targetId = unit.Current.TargetId;
-        if (!TryGetTarget(targetId, out var at, out int owner) || owner == unit.Owner)
+        if (!TryGetTarget(targetId, out var at, out int owner) || owner == unit.Owner || (owner == Player.None && !FindTruck(targetId, out _)))
         {
-            Complete(ref unit);
+            Complete(ref unit); // gone, its own, or an empty garrison building (nobody's)
             return;
         }
         if (unit.Movement == Movement.Static && (!SeesTarget(unit.Owner, targetId) || Vector3.Distance(unit.Position, at with { Y = unit.Position.Y }) > unit.Range))
@@ -1204,7 +1270,7 @@ public sealed partial class Simulation
         var at = Vector3.Zero;
         foreach (var other in State.Units)
         {
-            if (other.Owner == unit.Owner || other.Owner == Player.None || other.Health <= 0) continue;
+            if (other.Owner == unit.Owner || other.Owner == Player.None || other.Health <= 0 || other.Inside >= 0) continue;
             float sq = GroundDistanceSq(unit.Position, other.Position);
             if (sq <= rangeSq || sq >= bestSq || !SeesUnit(unit.Owner, other)) continue;
             (found, bestSq, at) = (true, sq, other.Position);
@@ -1220,7 +1286,7 @@ public sealed partial class Simulation
             }
             foreach (var building in State.Buildings)
             {
-                if (building.Owner == unit.Owner || building.Health <= 0) continue;
+                if (building.Owner == unit.Owner || building.Owner == Player.None || building.Health <= 0) continue;
                 float sq = GroundDistanceSq(unit.Position, building.Position);
                 if (sq <= rangeSq || sq >= bestSq || !SeesArea(unit.Owner, building.Position, building.Type.Size / 2)) continue;
                 (found, bestSq, at) = (true, sq, building.Position);
@@ -1305,11 +1371,12 @@ public sealed partial class Simulation
     bool FindTarget(in Unit unit, out int target, out Vector3 at)
     {
         (target, at) = (-1, Vector3.Zero);
-        float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = unit.Range * unit.Range, minSq = unit.MinRange * unit.MinRange;
+        float range = unit.Range + unit.InsideReach; // from inside a garrison building, it reaches past the walls
+        float bestHealth = float.MaxValue, bestSq = float.MaxValue, rangeSq = range * range, minSq = unit.MinRange * unit.MinRange;
         bool bestPreferred = false;
         foreach (var other in State.Units)
         {
-            if (other.Owner == unit.Owner || other.Health <= 0) continue;
+            if (other.Owner == unit.Owner || other.Health <= 0 || other.Inside >= 0) continue; // nobody shoots those inside: their building takes the hits
             float sq = GroundDistanceSq(unit.Position, other.Position);
             if (sq > rangeSq || sq < minSq) continue;
             bool preferred = unit.Prefers != TargetClass.Any && ClassOf(other) == unit.Prefers;
@@ -1329,7 +1396,7 @@ public sealed partial class Simulation
         }
         foreach (var building in State.Buildings)
         {
-            if (building.Owner == unit.Owner || building.Health <= 0) continue;
+            if (building.Owner == unit.Owner || building.Owner == Player.None || building.Health <= 0) continue; // an empty garrison building is nobody's
             float sq = GroundDistanceSq(unit.Position, building.Position);
             if (sq > rangeSq || sq < minSq || building.Health > bestHealth || (building.Health == bestHealth && sq >= bestSq)) continue;
             if (!SeesArea(unit.Owner, building.Position, building.Type.Size / 2)) continue;
@@ -1508,7 +1575,7 @@ public sealed partial class Simulation
     {
         foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
         {
-            if (unit.Owner == owner || unit.Health <= 0) continue;
+            if (unit.Owner == owner || unit.Health <= 0 || unit.Inside >= 0) continue; // those inside: their building takes it
             float d = MathF.Sqrt(GroundDistanceSq(unit.Position, at));
             float falloff = 1 - (1 - SplashEdge) * MathF.Min(1, d / radius);
             float hit;
@@ -1535,7 +1602,7 @@ public sealed partial class Simulation
         }
         foreach (var building in State.Buildings)
         {
-            if (building.Owner == owner || building.Health <= 0) continue;
+            if (building.Owner == owner || building.Owner == Player.None || building.Health <= 0) continue;
             float d = MathF.Sqrt(GroundDistanceSq(building.Position, at));
             if (d > radius) continue;
             building.Health -= structure * damage * (1 - (1 - SplashEdge) * d / radius);
@@ -1571,6 +1638,7 @@ public sealed partial class Simulation
         if (u >= 0)
         {
             ref var target = ref CollectionsMarshal.AsSpan(State.Units)[u];
+            if (target.Inside >= 0) return false; // went in while the shot was on its way
             target.Health -= target.MaxMembers > 1 ? MathF.Min(damage, target.MemberHealth) : damage; // one hit fells one member at most
             (target.LastAttacker, target.LastHitTick) = (shooter, State.Tick);
             int victim = target.Owner;
@@ -1589,6 +1657,7 @@ public sealed partial class Simulation
         foreach (var building in State.Buildings)
         {
             if (building.Id != targetId) continue;
+            if (building.Owner == Player.None) return false; // emptied while the shot was on its way
             building.Health -= damage * structure;
             GiveAway(shooter, building.Owner);
             return building.Health <= 0;
@@ -1794,6 +1863,7 @@ public sealed partial class Simulation
         for (int i = State.Units.Count - 1; i >= 0; i--)
         {
             if (State.Units[i].Health > 0) continue;
+            if (State.Units[i].Inside >= 0 && FindBuilding(State.Units[i].Inside) is { } home && --home.Occupants <= 0) (home.Owner, home.Occupants) = (Player.None, 0);
             _events.Add(new SimEvent(SimEventKind.UnitDied, State.Units[i].Id));
             FreePath(State.Units[i]);
             if (State.Units[i].Movement == Movement.Static) _navDirty = true;
@@ -1809,6 +1879,13 @@ public sealed partial class Simulation
         for (int i = State.Buildings.Count - 1; i >= 0; i--)
         {
             if (State.Buildings[i].Health > 0) continue;
+            if (State.Buildings[i].Occupants > 0) // its squads tumble out, hurt
+                foreach (ref var unit in CollectionsMarshal.AsSpan(State.Units))
+                    if (unit.Inside == State.Buildings[i].Id)
+                    {
+                        unit.Health *= EjectedHealth;
+                        Leave(ref unit);
+                    }
             _events.Add(new SimEvent(SimEventKind.BuildingDestroyed, State.Buildings[i].Id));
             State.Buildings.RemoveAt(i);
             _navDirty = true;
@@ -1900,7 +1977,7 @@ public sealed partial class Simulation
         foreach (ref var u in CollectionsMarshal.AsSpan(State.Units))
         {
             float reach = BlockRadius + u.Radius;
-            if (u.Health <= 0 || GroundDistanceSq(u.Position, ahead) > reach * reach) continue;
+            if (u.Health <= 0 || u.Inside >= 0 || GroundDistanceSq(u.Position, ahead) > reach * reach) continue;
             blocked = true;
             bool idle = u.Current.Kind == UnitOrder.None && u.Pending.Count == 0 && !u.Firing && u.RespondTo < 0 && !u.Holding && u.Movement != Movement.Static;
             if (!idle) continue;

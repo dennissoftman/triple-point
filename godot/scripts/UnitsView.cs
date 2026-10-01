@@ -16,6 +16,7 @@ public partial class UnitsView : Node3D
 {
     const float PathHeight = 0.05f;  // just above the ground
     const float AimHeight = 0.5f;    // tracers end this far above what they hit
+    const float WindowHeight = 1.6f; // m up a building's wall that those inside fire from
     const float FlashSeconds = 0.15f; // sim time a muzzle or impact flash lasts
     const float ArcRise = 0.28f;     // a ballistic shell's peak, as a share of the distance it flies
     const float PuffSeconds = 0.9f;  // sim time a smoke puff behind a ballistic shell lasts
@@ -116,7 +117,7 @@ public partial class UnitsView : Node3D
             view.Sync(position, heading, turret, delta, unit.Members, unit.Health / unit.MaxHealth, unit.Firing, ToGodot(unit.FireAt),
                 unit.CurrentAcceleration, unit.LateralAcceleration);
             view.Selected = selection.Contains(unit.Id);
-            bool shown = Sight.Sees(unit);
+            bool shown = unit.Inside < 0 && Sight.Sees(unit); // inside a building: the building shows it
             if (view.Visible != shown) view.Visible = shown;
             if (shown && unit.WeaponKind == WeaponKind.Shell && _lastShots.GetValueOrDefault(unit.Id, unit.LastShotTick) != unit.LastShotTick)
                 _flashes.Add((view.Muzzles[0], 1, FlashSeconds));
@@ -335,6 +336,25 @@ public partial class UnitsView : Node3D
         bool drawing = false;
         foreach (var unit in state.Units)
         {
+            if (unit.Firing && unit.WeaponKind == WeaponKind.Bullet && unit.Inside >= 0 && Sight.SeesAt(unit.Position))
+            {
+                // From inside a building: a burst from its windows, one per member, round its middle.
+                if (!drawing) { _lines.SurfaceBegin(Mesh.PrimitiveType.Lines, FireMaterial); drawing = true; }
+                var house = ToGodot(unit.Position);
+                var target = ToGodot(unit.FireAt) + new Vector3(0, AimHeight, 0);
+                var side = (target - house) with { Y = 0 };
+                side = side.LengthSquared() > 0.01f ? side.Normalized() : Vector3.Forward;
+                var across = new Vector3(-side.Z, 0, side.X);
+                float depth = 0;
+                foreach (var b in state.Buildings) if (b.Id == unit.Inside) depth = b.Type.Size / 2;
+                for (int i = 0; i < unit.Members; i++)
+                {
+                    if ((state.Tick + i) % 4 >= 2) continue;
+                    _lines.SurfaceAddVertex(house + side * depth + across * ((i - (unit.Members - 1) / 2f) * 0.6f) + new Vector3(0, WindowHeight, 0));
+                    _lines.SurfaceAddVertex(target);
+                }
+                continue;
+            }
             if (!unit.Firing || unit.WeaponKind != WeaponKind.Bullet || !_views[unit.Id].Visible) continue;
             var muzzles = _views[unit.Id].Muzzles;
             var at = ToGodot(unit.FireAt) + new Vector3(0, AimHeight, 0);

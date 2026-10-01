@@ -10,20 +10,22 @@ public enum AiLevel { Easy, Normal }
 /// A level's numbers: how often it thinks (ticks; its reaction time), how long a building it trains at
 /// stands idle between units (s), how many posts it takes at most; the fighters it gathers before it
 /// raids and before it pushes, and the game time (s) before it goes on the attack at all; how long (s) an
-/// enemy near its things must be in view before the army answers; and whether hurt units pull back.
+/// enemy near its things must be in view before the army answers; whether hurt units pull back; and how
+/// many defenses it saves up for, each beside another depot (one at every depot stalled AI matches, and
+/// normal saving for a second lost to easy every time: the money does more as units).
 /// They exist to make it beatable by someone learning the game (first playtest: it raided at 3:30 and
 /// won every fight), never to change its plan. (A hard level that only thought faster didn't beat
 /// normal; one waits for the behaviour tree.)
 /// </summary>
 public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int MaxPosts,
-    int RaidSize, int PushSize, float FirstAttack, float ReactSeconds, bool Retreats)
+    int RaidSize, int PushSize, float FirstAttack, float ReactSeconds, bool Retreats, int Defenses)
 {
     public static AiSettings For(AiLevel level) => level switch
     {
         AiLevel.Easy => new(ThinkTicks: 40, TrainPause: 15, MaxPosts: int.MaxValue,
-            RaidSize: 6, PushSize: 12, FirstAttack: 7 * 60, ReactSeconds: 6, Retreats: false),
+            RaidSize: 6, PushSize: 12, FirstAttack: 7 * 60, ReactSeconds: 6, Retreats: false, Defenses: 1),
         _ => new(ThinkTicks: 20, TrainPause: 0, MaxPosts: int.MaxValue,
-            RaidSize: 6, PushSize: 10, FirstAttack: 5 * 60, ReactSeconds: 3, Retreats: true),
+            RaidSize: 6, PushSize: 10, FirstAttack: 5 * 60, ReactSeconds: 3, Retreats: true, Defenses: 1),
     };
 }
 
@@ -41,6 +43,9 @@ public readonly record struct AiSettings(int ThinkTicks, float TrainPause, int M
 /// - Idle fighters shoot passing trucks that won't unload at any of its depots (their cargo spills for it
 ///   to pick up, or at least the enemy's depots don't get it), while no enemy fighter is close.
 /// - Spilled packages where no enemy stands get picked up by whoever is idle nearest.
+/// - Defenses: once it has a barracks, a turret beside each of its depots, and once it has a factory, a
+///   heavy turret too, with money to spare.
+/// - Garrisons: an idle rifle squad goes into each free garrison building on its half of the map.
 /// - Under fog of war it knows only what its side sees and remembers (AiView), and sends its fastest
 ///   fighter to look along the enemy's half of the belt wherever it hasn't looked for a while.
 ///
@@ -59,6 +64,9 @@ public sealed class Commander
     const int WantedEngineers = 1, WantedBuilders = 2;
     const float BuildClearance = 8f;                // m added to a new building's side when it looks for room: 4 m between buildings, so tanks get out
     const float PostWorthMin = 6f;                  // packages to keep in hand beyond a post's cost, once it has two posts
+    const float GuardRadius = 10f;                  // m from a depot that a defense of its guards it
+    const float DefenseOffset = 5f;                 // m from a depot, toward home, where its defense goes
+    const float OccupyReach = 60f;                  // m an idle squad goes out of its way to a free garrison building
     const float CollectReach = 45f;                 // m an idle unit goes out of its way for a spilled package
     const float CollectDanger = 20f;                // m: no package this close to enemy fighters is worth fetching
     const int CollectorsPerThink = 3;
@@ -83,9 +91,11 @@ public sealed class Commander
     int _threatSince = -1;                          // the tick it first saw the enemy near its things, this time
     float _strength, _enemyStrength;
 
-    public Commander(Simulation sim, int player, AiLevel level = AiLevel.Normal)
+    public Commander(Simulation sim, int player, AiLevel level = AiLevel.Normal) : this(sim, player, AiSettings.For(level)) { }
+
+    public Commander(Simulation sim, int player, AiSettings level)
     {
-        (_sim, _me, _level) = (sim, player, AiSettings.For(level));
+        (_sim, _me, _level) = (sim, player, level);
         _view = new AiView(sim, player);
         _gone = id => !Alive(id);
     }
@@ -105,6 +115,7 @@ public sealed class Commander
         Fight();
         Mend();
         Ambush();
+        Occupy();
         Collect();
         Scout();
         return _out;
@@ -125,7 +136,7 @@ public sealed class Commander
             {
                 if (u.Builds is not null) _builders.Add(i);
                 else if (u.Damage <= 0 && u.RepairSeconds > 0) _engineers.Add(i);
-                else if (u.Damage > 0 && u.Movement != Movement.Static)
+                else if (u.Damage > 0 && u.Movement != Movement.Static && u.Inside < 0 && u.Current.Kind != UnitOrder.Garrison) // those in (or headed for) a garrison building hold it
                 {
                     _army.Add(i);
                     if (!_retreating.Contains(u.Id)) _strength += Strength(u);
@@ -179,7 +190,7 @@ public sealed class Commander
         Vector3? home = null, any = null;
         foreach (var g in _view.Ghosts)
         {
-            if (g.IsPost || g.Type is null || _sim.State.Players[g.Owner].Lost) continue;
+            if (g.IsPost || g.Type is null || g.Owner < 0 || g.Type.Kind == BuildingKind.Garrison || _sim.State.Players[g.Owner].Lost) continue;
             float d = Vector3.DistanceSquared(g.Position, _home);
             if (TrainsBuilders(g.Type) && d < best) (best, home) = (d, g.Position);
             if (d < bestAny) (bestAny, any) = (d, g.Position);
@@ -211,6 +222,10 @@ public sealed class Commander
             {
                 if (PostSite(type, out var at, out float heading)) _out.Add(new BuildCommand(_me, builder.Id, type.Id, at, heading));
             }
+            else if (type.Kind == BuildingKind.Defense)
+            {
+                if (DefenseSite(type, out var at, out float heading)) _out.Add(new BuildCommand(_me, builder.Id, type.Id, at, heading));
+            }
             else if (BaseSite(type, out var at, out float heading)) _out.Add(new BuildCommand(_me, builder.Id, type.Id, at, heading));
             // one new building per think: the next builder sees this one as planned
             if (_out.Count > 0 && _out[^1] is BuildCommand) break;
@@ -235,11 +250,15 @@ public sealed class Commander
     BuildingType? NextBuilding(in Unit builder)
     {
         if (builder.Builds is null) return null;
-        BuildingType? post = null, barracks = null, factory = null;
+        BuildingType? post = null, barracks = null, factory = null, turret = null, heavy = null;
         foreach (var id in builder.Builds)
         {
             if (!_sim.BuildingTypes.TryGetValue(id, out var t)) continue;
             if (t.Kind == BuildingKind.Post) post ??= t;
+            else if (t.Kind == BuildingKind.Defense)
+            {
+                if (t.Defense?.Gun.Prefers == TargetClass.Vehicle) heavy ??= t; else turret ??= t;
+            }
             else if (t.Kind == BuildingKind.Building && t.Units.Length > 0)
             {
                 bool vehicles = false;
@@ -251,8 +270,18 @@ public sealed class Commander
         if (post is not null && posts < 2 && !Planned(post)) return post;
         if (barracks is not null && Count(barracks) == 0 && !Planned(barracks)) return barracks;
         if (factory is not null && Count(factory) == 0 && !Planned(factory) && Built(barracks)) return factory;
-        if (post is not null && posts < _level.MaxPosts && !Planned(post) && _sim.State.Players[_me].Packages >= post.Cost + PostWorthMin) return post;
-        return null;
+        // (Each only where there's a site for it: one wanted with nowhere to go would hold up the next.)
+        if (post is not null && posts < _level.MaxPosts && !Planned(post) && _sim.State.Players[_me].Packages >= post.Cost + PostWorthMin
+            && PostSite(post, out _, out _)) return post;
+        // Once the base stands, defenses up to its level's count (saved for), each beside a depot none guards
+        // yet: turrets and heavy turrets in turn.
+        if (!Built(barracks) || (factory is not null && !Built(factory)) || Unguarded() is null) return null;
+        if ((turret is not null && Planned(turret)) || (heavy is not null && Planned(heavy))) return null;
+        int turrets = turret is null ? 0 : Defenses(turret), heavies = heavy is null ? 0 : Defenses(heavy);
+        if (turrets + heavies >= _level.Defenses) return null;
+        bool heavyNext = heavy is not null && _sim.HasRequired(_me, heavy) && (turret is null || heavies < turrets);
+        var defense = heavyNext ? heavy : turret is not null && _sim.HasRequired(_me, turret) ? turret : null;
+        return defense is not null && DefenseSite(defense, out _, out _) ? defense : null;
     }
 
     int PostCount()
@@ -282,6 +311,56 @@ public sealed class Commander
     {
         foreach (int i in _builders)
             if (_sim.State.Units[i].Current is { Kind: UnitOrder.Build, Structure: string s } && s == type.Id) return true;
+        return false;
+    }
+
+    // Its defenses of this type, standing or going up.
+    int Defenses(BuildingType defense)
+    {
+        int n = 0;
+        foreach (var u in _sim.State.Units) if (u.Owner == _me && u.Movement == Movement.Static && u.Type == defense.Defense?.Id) n++;
+        foreach (var b in _sim.State.Buildings) if (b.Owner == _me && !b.Built && b.Type.Id == defense.Id) n++;
+        return n;
+    }
+
+    // One of its depots (nearest home first, the order it takes them) with no defense of its own, standing
+    // or going up, within GuardRadius; null if all have one.
+    Gatherer? Unguarded()
+    {
+        var state = _sim.State;
+        Gatherer? pick = null;
+        float best = float.MaxValue;
+        foreach (var g in state.Gatherers)
+        {
+            if (g.Owner != _me) continue;
+            bool guarded = false;
+            foreach (var u in state.Units)
+                if (u.Owner == _me && u.Movement == Movement.Static && u.Damage > 0 && Vector3.Distance(u.Position, g.Position) <= GuardRadius) guarded = true;
+            foreach (var b in state.Buildings)
+                if (b.Owner == _me && !b.Built && b.Type.Kind == BuildingKind.Defense && Vector3.Distance(b.Position, g.Position) <= GuardRadius) guarded = true;
+            float d = Vector3.DistanceSquared(g.Position, _home);
+            if (!guarded && d < best) (best, pick) = (d, g);
+        }
+        return pick;
+    }
+
+    // Beside an unguarded depot, toward home, on the grid where it fits: the defense faces away from home.
+    bool DefenseSite(BuildingType type, out Vector3 at, out float heading)
+    {
+        (at, heading) = (default, 0);
+        if (Unguarded() is not Gatherer post) return false;
+        var back = Flat(_home - post.Position);
+        var toward = back.LengthSquared() > 1 ? Vector3.Normalize(back) : Vector3.UnitZ;
+        heading = MathF.Atan2(-toward.X, -toward.Z);
+        for (int k = 0; k < 8; k++)
+        {
+            float a = (k % 2 == 0 ? 1 : -1) * (k + 1) / 2 * MathF.PI / 6; // straight back first, then either side
+            var dir = new Vector3(toward.X * MathF.Cos(a) - toward.Z * MathF.Sin(a), 0, toward.X * MathF.Sin(a) + toward.Z * MathF.Cos(a));
+            var spot = Simulation.SnapToGrid(post.Position + dir * DefenseOffset, type.Size);
+            if (!_sim.CanPlace(type, spot)) continue;
+            at = spot;
+            return true;
+        }
         return false;
     }
 
@@ -381,16 +460,49 @@ public sealed class Commander
         return n;
     }
 
-    // An idle builder wants a building it can't afford yet: save for it.
+    // An idle builder wants a building it can't afford yet: save for it. And one on its way to a site
+    // not laid yet: keep the money for it, since it's only started with the whole cost in hand.
     bool WaitingForMoney()
     {
         foreach (int i in _builders)
         {
             var u = _sim.State.Units[i];
+            if (u.Current is { Kind: UnitOrder.Build, TargetId: < 0 }) return true;
             if (u.Current.Kind != UnitOrder.None) continue;
             if (NextBuilding(u) is BuildingType t && !_sim.CanAfford(_me, t)) return true;
         }
         return false;
+    }
+
+    // ---- Garrisons ----
+
+    // Each free garrison building on its half (nearer its home than the enemy's) gets an idle rifle squad
+    // from the army, the nearest, one per think; it holds the building from then on.
+    void Occupy()
+    {
+        var state = _sim.State;
+        foreach (var house in state.Buildings)
+        {
+            if (house.Type.Kind != BuildingKind.Garrison || (house.Owner != Sim.Player.None && house.Owner != _me)) continue;
+            if (Vector3.Distance(house.Position, _home) >= Vector3.Distance(house.Position, _enemyHome)) continue;
+            int headed = 0;
+            foreach (var u in state.Units)
+                if (u.Owner == _me && u.Current.Kind == UnitOrder.Garrison && u.Current.TargetId == house.Id) headed++;
+            if (house.Occupants + headed >= house.Type.Garrison) continue;
+            int pick = -1;
+            float best = OccupyReach;
+            foreach (int i in _army)
+            {
+                var u = state.Units[i];
+                if (u.Movement != Movement.Foot || u.MaxMembers < 2 || Busy(u.Id) || _retreating.Contains(u.Id) || u.Id == _scout) continue;
+                float d = Vector3.Distance(u.Position, house.Position);
+                if (d < best) (best, pick) = (d, u.Id);
+            }
+            if (pick < 0) continue;
+            _out.Add(new GarrisonCommand(_me, pick, house.Id));
+            _ordered.Add(pick);
+            return;
+        }
     }
 
     // ---- Fighting ----
@@ -457,7 +569,8 @@ public sealed class Commander
         float best = float.MaxValue;
         Vector3? at = null;
         foreach (var g in _view.Ghosts)
-            if (!g.IsPost && Vector3.DistanceSquared(g.Position, _home) is float d && d < best) (best, at) = (d, g.Position);
+            if (!g.IsPost && g.Owner >= 0 && g.Type?.Kind != BuildingKind.Garrison && Vector3.DistanceSquared(g.Position, _home) is float d && d < best)
+                (best, at) = (d, g.Position);
         return at;
     }
 

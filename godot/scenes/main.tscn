@@ -141,6 +141,18 @@ transform = Transform3D(0.555, 0, 0.832, 0, 1, 0, -0.832, 0, 0.555, 49.92, 0, 33
 script = ExtResource("10_bspawn")
 Player = 1
 
+[node name="House0" type="Marker3D" parent="Buildings"]
+transform = Transform3D(-0.555, 0, -0.832, 0, 1, 0, 0.832, 0, -0.555, 14.992, 0, -47.706)
+script = ExtResource("10_bspawn")
+Player = -1
+BuildingType = "house"
+
+[node name="House1" type="Marker3D" parent="Buildings"]
+transform = Transform3D(0.555, 0, 0.832, 0, 1, 0, -0.832, 0, 0.555, -14.992, 0, 47.706)
+script = ExtResource("10_bspawn")
+Player = -1
+BuildingType = "house"
+
 [node name="Obstacles" type="Node3D" parent="."]
 
 [node name="Rock0" type="Node3D" parent="Obstacles"]

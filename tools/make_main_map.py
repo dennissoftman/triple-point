@@ -45,6 +45,8 @@ BUILD_CLEARANCE = 22.0  # m from each HQ's center that no belt comes closer than
 ROCK_BELT_CLEARANCE = 8.0  # m between a rock and any belt
 ROCK_HQ_CLEARANCE = 40.0   # m from each HQ's center to any rock: the AI builds up to this far out
 ROCK_GAP = 10.0            # m at least between two rocks, so every lane takes a tank with room to spare
+HOUSE_BELT_CLEARANCE = 10.0  # m from a house's center to any belt: room for a depot between them
+HOUSE_ROCK_CLEARANCE = 8.0   # m from a house's center to any rock
 
 # Positions are authored in (s, t): s along the center line (the line equally far from both HQs; +s
 # runs toward the south-east), t across it, toward Blue. The HQs sit on the t axis.
@@ -131,6 +133,15 @@ BLUE_ROCKS = [
     (70, 16, 8, 5, 10),     # out on the flank, beside Blue's tail
 ]
 ROCK_HEIGHT = 2.2
+
+# Blue's garrison houses (neutral buildings infantry go into), each (s, t): beside the contested tail,
+# overlooking it. Red's are the same, mirrored.
+BLUE_HOUSES = [(48, 14)]
+
+
+def houses():
+    out = [st(s, t) for s, t in BLUE_HOUSES]
+    return out + [neg(p) for p in out]
 
 
 def rocks():
@@ -226,6 +237,19 @@ def check():
             if gap < ROCK_GAP:
                 failures.append('rocks %d and %d are %.1f m apart (keep %g m)' % (i, j, gap, ROCK_GAP))
 
+    # Houses keep clear of the belts and rocks, and stand where the fighting is.
+    for i, h in enumerate(houses()):
+        near_belt = min(dist(h, p) for p in belt_points)
+        near_rock = min(rock_distance(h, rock) for rock in all_rocks)
+        lead = dist(h, neg(BLUE_HQ)) - dist(h, BLUE_HQ)
+        print('House %d at (%.1f, %.1f): %.1f m from a belt, %.1f m from a rock, lead toward Blue %.1f' % (i, h[0], h[1], near_belt, near_rock, lead))
+        if near_belt < HOUSE_BELT_CLEARANCE:
+            failures.append('house %d comes within %.1f m of a belt (keep %g m)' % (i, near_belt, HOUSE_BELT_CLEARANCE))
+        if near_rock < HOUSE_ROCK_CLEARANCE:
+            failures.append('house %d comes within %.1f m of a rock (keep %g m)' % (i, near_rock, HOUSE_ROCK_CLEARANCE))
+        if abs(lead) >= SAFE_LEAD:
+            failures.append('house %d leads %.0f m toward a side; houses stand where the fighting is' % (i, lead))
+
     # The belts never touch (no junctions, no crossings).
     a, _ = sample(BELTS['BlueBelt'], 1.0)
     b, _ = sample(BELTS['RedBelt'], 1.0)
@@ -285,6 +309,11 @@ def map_nodes():
     s += '[node name="BlueHQ" type="Marker3D" parent="Buildings"]\n%s\nscript = ExtResource("10_bspawn")\n\n' % transform(*BLUE_HQ, facing=toward_middle)
     s += '[node name="RedHQ" type="Marker3D" parent="Buildings"]\n%s\nscript = ExtResource("10_bspawn")\nPlayer = 1\n\n' % transform(*neg(BLUE_HQ), facing=neg(toward_middle))
 
+    for i, h in enumerate(houses()):
+        facing = toward_middle if i < len(BLUE_HOUSES) else neg(toward_middle)
+        s += '[node name="House%d" type="Marker3D" parent="Buildings"]\n%s\nscript = ExtResource("10_bspawn")\nPlayer = -1\nBuildingType = "house"\n\n' % (
+            i, transform(*h, facing=facing))
+
     s += '[node name="Obstacles" type="Node3D" parent="."]\n\n'
     for i, (c, d, length, thick) in enumerate(rocks()):
         # Size is (width, height, depth), its depth along the node's facing (-Z).
@@ -322,7 +351,7 @@ def main():
     scene = re.sub(r'(id="PlaneMesh_ground"\]\n(?:.*\n)*?)size = Vector2\([^)]*\)', r'\g<1>size = Vector2(%s, %s)' % SIZE, scene, count=1)
     scene = re.sub(r'Bounds = Rect2\([^)]*\)', 'Bounds = Rect2(%s, %s, %s, %s)' % (-SIZE[0] // 2, -SIZE[1] // 2, SIZE[0], SIZE[1]), scene, count=1)
     io.open(SCENE, 'w', encoding='utf-8', newline='\n').write(scene)
-    print('Wrote %s: %d belts, %d rocks.' % (SCENE, len(BELTS), len(rocks())))
+    print('Wrote %s: %d belts, %d rocks, %d houses.' % (SCENE, len(BELTS), len(rocks()), len(houses())))
 
 
 if __name__ == '__main__':

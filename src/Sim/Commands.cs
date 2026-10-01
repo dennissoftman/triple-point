@@ -26,6 +26,15 @@ public sealed record AttackSegmentCommand(int Player, int UnitId, int Line, int 
 /// </summary>
 public sealed record MendCommand(int Player, int UnitId, int BuildingId, bool Queued = false) : Command(Player);
 
+/// <summary>
+/// An infantry squad goes into a garrison building that's empty or already its owner's, if there's room
+/// when it gets there. Any later order brings it out first.
+/// </summary>
+public sealed record GarrisonCommand(int Player, int UnitId, int BuildingId, bool Queued = false) : Command(Player);
+
+/// <summary>Everyone in one of the player's garrison buildings comes out.</summary>
+public sealed record ExitCommand(int Player, int BuildingId) : Command(Player);
+
 /// <summary>A builder or engineer repairs one of its owner's damaged buildings, posts or defenses, paid as it goes.</summary>
 public sealed record RepairCommand(int Player, int UnitId, int TargetId, bool Queued = false) : Command(Player);
 

@@ -21,12 +21,12 @@ public sealed class Player
     public Player(int index) => Index = index;
 }
 
-public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove, Build, Mend }
+public enum UnitOrder { None, Move, Repair, AttackSegment, Attack, AttackMove, Build, Mend, Garrison }
 
 /// <summary>
 /// What a unit is doing. Segment orders use Line/Segment; Attack uses TargetId (a unit, post or building),
-/// and so do Repair without a segment (one of its owner's buildings, posts or defenses) and Mend (the
-/// building it mends at).
+/// and so do Repair without a segment (one of its owner's buildings, posts or defenses), Mend (the
+/// building it mends at) and Garrison (the building it goes into).
 /// Target is where the unit heads: for segment orders it's filled in when the order starts, and for
 /// Attack it follows the target. Build puts up a Structure (a building type id) at Target facing Facing,
 /// or, with a TargetId, works on that foundation; TargetId is filled in once the foundation is laid.
@@ -105,9 +105,10 @@ public sealed record UnitType(
 /// <summary>
 /// What a finished building becomes. A Building stays one (and may produce units); a Post turns into a
 /// gatherer post, and must be built beside a belt; a Defense turns into a unit that can't move, of the
-/// type named by the building type's Unit.
+/// type named by the building type's Unit. A Garrison is a neutral building on the map (nobody builds
+/// one) that infantry go into: whoever is inside owns it until the last one leaves.
 /// </summary>
-public enum BuildingKind { Building, Post, Defense }
+public enum BuildingKind { Building, Post, Defense, Garrison }
 
 /// <summary>
 /// A building type, as loaded from /data/buildings.json: Health, Size (m, the side of its square
@@ -116,11 +117,11 @@ public enum BuildingKind { Building, Post, Defense }
 /// how far it sees under fog of war (a post keeps its type's). Requires: a building type its owner needs a
 /// finished one of before starting this one. Mends: the class of its owner's units it heals when sent
 /// there (barracks infantry, factory vehicles), from 0 to full in MendSeconds for MendShare of the unit's
-/// cost. Id is its key in the file.
+/// cost. Garrison: how many infantry squads a Garrison building holds. Id is its key in the file.
 /// </summary>
 public sealed record BuildingType(float Health, float Size, string[]? Produces = null, int Cost = 0,
     float BuildTime = 0, BuildingKind Kind = BuildingKind.Building, string? Unit = null, float Sight = 10,
-    string? Requires = null, TargetClass? Mends = null, float MendSeconds = 20, float MendShare = 0.5f, string Id = "")
+    string? Requires = null, TargetClass? Mends = null, float MendSeconds = 20, float MendShare = 0.5f, int Garrison = 0, string Id = "")
 {
     [System.Text.Json.Serialization.JsonIgnore] public UnitType[] Units { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore] public UnitType? Defense { get; init; } // Kind Defense: the unit it becomes
@@ -136,8 +137,10 @@ public sealed record BuildingType(float Health, float Size, string[]? Produces =
 /// </summary>
 public sealed class Building
 {
-    public readonly int Id, Owner;
+    public readonly int Id;
+    public int Owner { get; internal set; } // changes only for a garrison: whoever is inside, or Player.None
     public readonly BuildingType Type;
+    public int Occupants { get; internal set; } // squads inside a garrison building
     public readonly Vector3 Position;
     public readonly float Heading;      // radians, like a unit's; the exit is on this side
     public float Health;
@@ -211,6 +214,8 @@ public struct Unit
     public Vector3 Anchor;
     public bool Returning;
     public bool Holding;                   // holding position (HoldCommand) until its next order
+    public int Inside;                     // the garrison building it's in, or -1: then it's hidden, can't be hit, and fires out
+    internal float InsideReach;            // m added to its range while inside: half the building, and GarrisonRange
     public bool AutoRetreat;               // goes to mend on its own when badly hurt (SetRetreatCommand)
     public int Cost;                       // its type's, in packages: what mending it is a share of
     internal float RepairCredit;           // health it has paid for and not yet put in, mending or repairing

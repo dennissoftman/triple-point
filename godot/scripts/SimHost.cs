@@ -431,6 +431,7 @@ public partial class SimHost : Node3D
         if (tick == 1)
             foreach (var hq in _sim.State.Buildings)
             {
+                if (hq.Type.Id != "hq") continue;
                 _commands.Add(new ProduceCommand(hq.Owner, hq.Id, "builder"));
                 if (hq.Owner == PlayerInput.LocalPlayer) PlayerInput.SelectedBuilding = hq.Id; // shows the command card
             }

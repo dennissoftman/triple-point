@@ -10,22 +10,28 @@ using static SimConvert;
 /// gets an outline and a flag on its rally point, and a building being placed shows as a ghost, green
 /// where it fits and red where it doesn't. Under fog of war an enemy building shows live while seen, as
 /// last seen while remembered (even once it's gone, until the player looks again), and not at all before
-/// it's been seen. Placeholder look, built in code.
+/// it's been seen. A garrison building (a house) is part of the map, so it always shows: walls in the
+/// color of whoever holds it (gray while nobody does; under fog, as last seen), a roof, and a pip on the
+/// roof ridge per place inside, lit for each squad in it. Placeholder look, built in code.
 /// </summary>
 public partial class BuildingsView : Node3D
 {
     const float BlockHeight = 3f, LowBlockHeight = 1.4f; // production buildings; posts and defenses
+    const float WallHeight = 2.4f, RoofHeight = 1.3f;     // a garrison building's walls and the roof on them
     const float MinFoundation = 0.1f;                     // share of full height a new foundation shows
     static readonly Color Working = new(0.85f, 0.85f, 0.9f), Stalled = new(0.95f, 0.6f, 0.15f);
     static readonly Color Fits = new(0.4f, 1, 0.5f, 0.35f), Blocked = new(1, 0.3f, 0.25f, 0.35f);
+    static readonly StandardMaterial3D Roof = new() { AlbedoColor = new Color(0.36f, 0.24f, 0.2f) };
+    static readonly StandardMaterial3D PipEmpty = new() { AlbedoColor = new Color(0.12f, 0.12f, 0.13f) };
 
     [Export] public StandardMaterial3D BuildingMaterial = null!;
     [Export] public Material? IndicatorMaterial; // outline and rally flag, like the switch arrows
 
-    sealed record View(Node3D Root, Node3D Block, HealthBar Health, HealthBar Progress, MeshInstance3D Outline)
+    sealed record View(Node3D Root, Node3D Block, MeshInstance3D Body, HealthBar Health, HealthBar Progress, MeshInstance3D Outline, MeshInstance3D[] Pips)
     {
         public bool Selected;
         public float Height = -1; // share of full height, as drawn
+        public int Owner = int.MinValue, Occupants = -1; // a garrison building's, as drawn
     }
 
     readonly Dictionary<int, View> _views = []; // by building id; destroyed ones go away
@@ -98,7 +104,11 @@ void fragment() {
             bool live = Sight.SeesStructure(building.Owner, building.Position, building.Type.Size / 2);
             if (!live)
             {
-                ShowRemembered(building.Id, view);
+                if (!ShowRemembered(building.Id, view) && building.Type.Kind == BuildingKind.Garrison)
+                {
+                    view.Root.Visible = true; // never seen: part of the map all the same, and nobody's as far as anyone knows
+                    ShowHolder(view, Player.None, 0);
+                }
                 continue;
             }
             view.Root.Visible = true;
@@ -112,6 +122,8 @@ void fragment() {
             if (!building.Built) view.Progress.Set((float)building.BuildProgress / building.Type.BuildTicks, building.BuildStalled ? Stalled : Working);
             else if (building.Queue.Count > 0) view.Progress.Set((float)building.Progress / building.Queue[0].BuildTicks, building.Stalled ? Stalled : Working);
             view.Progress.Visible = !building.Built || building.Queue.Count > 0;
+
+            if (building.Type.Kind == BuildingKind.Garrison) ShowHolder(view, building.Owner, building.Occupants);
 
             bool isSelected = building.Id == selected;
             if (view.Selected != isSelected) view.Outline.Visible = view.Selected = isSelected;
@@ -144,8 +156,19 @@ void fragment() {
         {
             float height = ghost.Built ? 1 : MinFoundation;
             if (height != view.Height) view.Block.Scale = new Vector3(1, view.Height = height, 1);
+            if (ghost.Type.Kind == BuildingKind.Garrison) ShowHolder(view, ghost.Owner, ghost.Owner == Player.None ? 0 : -1);
         }
         return remembered;
+    }
+
+    // A garrison building's walls in its holder's color, and a lit pip per squad inside (-1: not known,
+    // all dark, as remembered).
+    void ShowHolder(View view, int owner, int occupants)
+    {
+        if (owner != view.Owner) view.Body.MaterialOverride = MaterialFor(view.Owner = owner);
+        if (occupants == view.Occupants) return;
+        view.Occupants = occupants;
+        for (int i = 0; i < view.Pips.Length; i++) view.Pips[i].MaterialOverride = i < occupants ? PipMaterialFor(owner) : PipEmpty;
     }
 
     void SyncGhost(PlayerInput.Placement? placing)
@@ -167,7 +190,12 @@ void fragment() {
         _ghost.Rotation = new Vector3(0, p.Heading, 0);
     }
 
-    static float HeightOf(BuildingType type) => type.Kind == BuildingKind.Building ? BlockHeight : LowBlockHeight;
+    static float HeightOf(BuildingType type) => type.Kind switch
+    {
+        BuildingKind.Building => BlockHeight,
+        BuildingKind.Garrison => WallHeight + RoofHeight,
+        _ => LowBlockHeight,
+    };
 
     View Build(Building building)
     {
@@ -177,7 +205,25 @@ void fragment() {
         // The block scales up from the ground as a foundation is built.
         var block = new Node3D();
         root.AddChild(block);
-        block.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size, height, size) }, MaterialOverride = MaterialFor(building.Owner), Position = new Vector3(0, height / 2, 0) });
+        bool house = building.Type.Kind == BuildingKind.Garrison;
+        float walls = house ? WallHeight : height;
+        var body = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size, walls, size) }, MaterialOverride = MaterialFor(building.Owner), Position = new Vector3(0, walls / 2, 0) };
+        block.AddChild(body);
+        var pips = new MeshInstance3D[house ? building.Type.Garrison : 0];
+        if (house)
+        {
+            // A gable roof, its ridge running toward the exit side, and the pips along the ridge.
+            block.AddChild(new MeshInstance3D { Mesh = new PrismMesh { Size = new Vector3(size + 0.4f, RoofHeight, size + 0.4f) }, MaterialOverride = Roof, Position = new Vector3(0, walls + RoofHeight / 2, 0) });
+            for (int i = 0; i < pips.Length; i++)
+                block.AddChild(pips[i] = new MeshInstance3D
+                {
+                    Mesh = new BoxMesh { Size = new Vector3(0.45f, 0.45f, 0.45f) },
+                    MaterialOverride = PipEmpty,
+                    Position = new Vector3(0, walls + RoofHeight + 0.35f, (i - (pips.Length - 1) / 2f) * 0.8f),
+                });
+            // A door on the exit side, as production buildings have.
+            block.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size * 0.3f, walls * 0.6f, 0.2f) }, MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.1f, 0.1f, 0.11f) }, Position = new Vector3(0, walls * 0.3f, size / 2) });
+        }
         if (building.Type.Units.Length > 0) // the door: a dark slab on the exit side (the building's +z, along its heading)
             block.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size * 0.4f, height * 0.55f, 0.2f) }, MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.1f, 0.1f, 0.11f) }, Position = new Vector3(0, height * 0.275f, size / 2) });
         var outline = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size + 0.6f, 0.08f, size + 0.6f) }, MaterialOverride = IndicatorMaterial, Position = new Vector3(0, 0.04f, 0), Visible = false };
@@ -187,7 +233,21 @@ void fragment() {
         var progress = new HealthBar { Position = new Vector3(0, height + 0.5f, 0), Visible = false };
         root.AddChild(health);
         root.AddChild(progress);
-        return new View(root, block, health, progress, outline);
+        return new View(root, block, body, health, progress, outline, pips);
+    }
+
+    readonly Dictionary<int, StandardMaterial3D> _pipMaterials = []; // per player
+
+    StandardMaterial3D PipMaterialFor(int player)
+    {
+        if (_pipMaterials.TryGetValue(player, out var material)) return material;
+        return _pipMaterials[player] = new StandardMaterial3D
+        {
+            AlbedoColor = PlayerPalette.Color(player),
+            EmissionEnabled = true,
+            Emission = PlayerPalette.Color(player),
+            EmissionEnergyMultiplier = 0.6f,
+        };
     }
 
     StandardMaterial3D MaterialFor(int player)

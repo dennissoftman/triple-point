@@ -40,7 +40,7 @@ public partial class PlayerInput : Node
     public static readonly string[] SlotActions = ["slot_1", "slot_2", "slot_3", "slot_4", "slot_5"];
 
     /// <summary>What a click will order: the cursor and the commands both come from this.</summary>
-    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume, Fix, Mend }
+    enum Act { None, Move, Attack, AttackMove, AttackSegment, Repair, Rally, Resume, Fix, Mend, Garrison }
     readonly record struct Intent(Act Kind, SVector3 Point, int Target = -1, int Line = -1, int Segment = -1);
 
     /// <summary>
@@ -162,7 +162,6 @@ public partial class PlayerInput : Node
     /// <summary>The selected building, if it's still there.</summary>
     public Building? Building => SelectedBuilding < 0 ? null : Host.Sim.State.Buildings.Find(b => b.Id == SelectedBuilding);
 
-    /// <summary>Queues a unit of this type at the selected building.</summary>
     public const int Batch = 5; // units a Shift-click (queue_order) queues or cancels at once
 
     /// <summary>Queues one unit of this type at the selected building, or a Batch with queue_order (Shift) held.</summary>
@@ -187,10 +186,17 @@ public partial class PlayerInput : Node
             }
     }
 
-    // The production keys, while a building is selected: one per unit type it produces, and cancel the
+    /// <summary>Everyone inside the selected garrison building comes out.</summary>
+    public void ExitGarrison()
+    {
+        if (Building is Building b) Host.Issue(new ExitCommand(LocalPlayer, b.Id));
+    }
+
+    // The production keys, while a building is selected (a garrison building's first is Exit): one per unit type it produces, and cancel the
     // last queued (with Shift, five at a time).
     bool ProductionKey(InputEvent e, Building building)
     {
+        if (building.Type.Kind == BuildingKind.Garrison && e.IsActionPressed(SlotActions[0])) { ExitGarrison(); return true; }
         var types = building.Type.Units;
         for (int i = 0; i < SlotActions.Length && i < types.Length; i++)
             if (e.IsActionPressed(SlotActions[i])) { Produce(types[i].Id); return true; }
@@ -331,6 +337,7 @@ public partial class PlayerInput : Node
             return new(Act.Resume, point, site);
         if (FixTarget(screen, point) is int fix) return new(Act.Fix, point, fix);
         if (MendAt(point) is int mender) return new(Act.Mend, point, mender);
+        if (GarrisonAt(point) is int house) return new(Act.Garrison, point, house);
         if (EnemyAt(screen, point) is int target) return new(Act.Attack, point, target);
         if (Input.IsActionPressed("force_attack") && TruckAt(point) is int truck) return new(Act.Attack, point, truck); // trucks are nobody's: only on purpose
         if (BeltPoint(screen) is SVector3 onBelt && sim.FindSegment(onBelt, BeltView.BeltWidth / 2 + PickTolerance, out int line, out int segment, openOnly: true))
@@ -377,6 +384,10 @@ public partial class PlayerInput : Node
                 Act.Mend => Mends(intent.Target, Host.Sim.State.Units.Find(u => u.Id == id), hurtOnly: true)
                     ? new MendCommand(LocalPlayer, id, intent.Target, queued)
                     : new MoveCommand(LocalPlayer, id, spread, queued),
+                // Squads on foot go in (the sim keeps out those it has no room for); the rest go along.
+                Act.Garrison => Host.Sim.State.Units.Find(u => u.Id == id).Movement == Movement.Foot
+                    ? new GarrisonCommand(LocalPlayer, id, intent.Target, queued)
+                    : new MoveCommand(LocalPlayer, id, spread, queued),
                 _ => null,
             };
             if (command is not null) Host.Issue(command);
@@ -400,6 +411,7 @@ public partial class PlayerInput : Node
                     Act.Move or Act.Rally => CursorKind.Move,
                     Act.Attack or Act.AttackSegment => CursorKind.Attack,
                     Act.Repair or Act.Resume or Act.Fix or Act.Mend => CursorKind.Repair,
+                    Act.Garrison => CursorKind.Garrison,
                     _ => CursorKind.Default,
                 };
         }
@@ -435,6 +447,29 @@ public partial class PlayerInput : Node
             if (_selection.Contains(u.Id) && Mends(b, u, hurtOnly: true)) return b;
         return null;
     }
+
+    // A garrison building under the cursor that's nobody's or yours (as far as you know) with room left, if
+    // a squad on foot is selected.
+    int? GarrisonAt(SVector3 point)
+    {
+        var state = Host.Sim.State;
+        bool foot = false;
+        foreach (var u in state.Units) if (u.Movement == Movement.Foot && _selection.Contains(u.Id)) foot = true;
+        if (!foot) return null;
+        foreach (var b in state.Buildings)
+        {
+            float half = b.Type.Size / 2;
+            if (b.Type.Kind != BuildingKind.Garrison || MathF.Abs(b.Position.X - point.X) > half || MathF.Abs(b.Position.Z - point.Z) > half) continue;
+            int owner = KnownOwner(b);
+            return owner == Player.None || (owner == LocalPlayer && b.Occupants < b.Type.Garrison) ? b.Id : null;
+        }
+        return null;
+    }
+
+    // Who holds a building as far as the local player knows: its owner while seen (or yours), else as last
+    // seen; a garrison building never seen is nobody's.
+    static int KnownOwner(Building b) =>
+        Sight.SeesStructure(b.Owner, b.Position, b.Type.Size / 2) ? b.Owner : Sight.Remembers(b.Id, out var ghost) ? ghost.Owner : Player.None;
 
     // Whether a building mends this unit's class (and, `hurtOnly`, whether the unit needs it).
     bool Mends(int buildingId, in Unit unit, bool hurtOnly) =>
@@ -563,7 +598,7 @@ public partial class PlayerInput : Node
 
         var box = new Rect2(from, to - from).Abs();
         foreach (var u in Host.Sim.State.Units)
-            if (u.Owner == LocalPlayer && ScreenPosition(u) is Vector2 p && box.HasPoint(p) && !_selection.Contains(u.Id))
+            if (u.Owner == LocalPlayer && u.Inside < 0 && ScreenPosition(u) is Vector2 p && box.HasPoint(p) && !_selection.Contains(u.Id))
                 _selection.Add(u.Id);
     }
 
@@ -576,7 +611,7 @@ public partial class PlayerInput : Node
         if (!Input.IsActionPressed("select_add")) _selection.Clear();
         var onScreen = GetViewport().GetVisibleRect();
         foreach (var u in Host.Sim.State.Units)
-            if (u.Owner == LocalPlayer && u.Type == type && ScreenPosition(u) is Vector2 p && onScreen.HasPoint(p) && !_selection.Contains(u.Id))
+            if (u.Owner == LocalPlayer && u.Type == type && u.Inside < 0 && ScreenPosition(u) is Vector2 p && onScreen.HasPoint(p) && !_selection.Contains(u.Id))
                 _selection.Add(u.Id);
     }
 
@@ -704,7 +739,8 @@ public partial class PlayerInput : Node
             float dx = post.Position.X - ground.X, dz = post.Position.Z - ground.Z;
             if (post.Owner != LocalPlayer && dx * dx + dz * dz <= PostPickRadius * PostPickRadius && Known(post.Id, post.Owner, post.Position, 1)) return post.Id;
         }
-        return BuildingAt(ground, mine: false);
+        // Not a building nobody holds (an empty garrison building): there's nothing in it to fight.
+        return BuildingAt(ground, mine: false) is int b && KnownOwner(Host.Sim.State.Buildings.Find(x => x.Id == b)!) != Player.None ? b : null;
     }
 
     // The building (yours, or anyone else's) whose footprint covers this ground point.
@@ -730,7 +766,7 @@ public partial class PlayerInput : Node
         float bestDistance = float.MaxValue;
         foreach (var unit in Host.Sim.State.Units)
         {
-            if ((unit.Owner == LocalPlayer) != mine || !Sight.Sees(unit) || ScreenPosition(unit) is not Vector2 p) continue;
+            if ((unit.Owner == LocalPlayer) != mine || unit.Inside >= 0 || !Sight.Sees(unit) || ScreenPosition(unit) is not Vector2 p) continue;
             float d = p.DistanceTo(screen);
             float radius = unit.MaxMembers > 1 ? SquadPickRadius : VehiclePickRadius;
             if (d <= radius && d < bestDistance) (best, bestDistance) = (unit.Id, d);

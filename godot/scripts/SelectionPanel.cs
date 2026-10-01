@@ -158,6 +158,7 @@ public partial class SelectionPanel : PanelContainer
             string how = L.T(building.BuildStalled ? "card.site.stalled" : building.WorkedTick >= state.Tick - 1 ? "card.site.building" : "card.site.waiting");
             detail = L.T("card.site", L.Building(building.Type.Id), 100 * building.BuildProgress / building.Type.BuildTicks, how);
         }
+        else if (building.Type.Kind == BuildingKind.Garrison) detail = L.T("select.garrison", building.Occupants, building.Type.Garrison);
         else if (building.Queue.Count > 0)
         {
             var first = building.Queue[0];

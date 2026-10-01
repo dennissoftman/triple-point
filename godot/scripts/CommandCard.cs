@@ -8,9 +8,9 @@ using Sim;
 /// keyboard (QWER / ASDF / ZXCV, physical keys, so the same places on any layout). The top row is what to
 /// make: a building's unit types (cost, how many are queued, progress on the one in production; left click
 /// queues one, right click takes one off) or what the selected builders can put up (a click arms
-/// placement). The middle row is the unit commands: attack-move, stop, hold position. The bottom row's Z
-/// toggles a building's repeat, or turns a building being placed. A line above the grid says why a
-/// placement can't go. It issues nothing itself: it goes through PlayerInput, like the keys. Placeholder UI.
+/// placement), or for a garrison building of yours, Exit. The middle row is the unit commands: attack-move,
+/// stop, hold position. The bottom row's Z turns a building being placed, and X toggles auto-retreat. A line
+/// above the grid says why a placement can't go. It issues nothing itself: it goes through PlayerInput, like the keys. Placeholder UI.
 /// </summary>
 public partial class CommandCard : PanelContainer
 {
@@ -137,7 +137,9 @@ public partial class CommandCard : PanelContainer
         string help = "";
         QueueLength = 0;
 
-        if (building is { Built: true }) ShowProduction(building);
+        if (building is { Type.Kind: BuildingKind.Garrison })
+            Set(SlotCells[0], L.T("card.exit"), L.T("card.exit.tip"), PlayerInput.ExitGarrison, enabled: building.Occupants > 0);
+        else if (building is { Built: true }) ShowProduction(building);
         else if (units)
         {
             var builds = PlayerInput.Buildable;

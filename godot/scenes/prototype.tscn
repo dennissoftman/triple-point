@@ -181,6 +181,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, 22)
 script = ExtResource("10_bspawn")
 Player = 1
 
+[node name="House" type="Marker3D" parent="Buildings"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -16, 0, 0)
+script = ExtResource("10_bspawn")
+Player = -1
+BuildingType = "house"
+
 [node name="BeltView" type="Node3D" parent="."]
 script = ExtResource("2_beltview")
 BeltMaterial = SubResource("StandardMaterial3D_belt")

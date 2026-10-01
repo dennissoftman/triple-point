@@ -5,7 +5,8 @@
 # double-click select by type, the cursor, attack-move, order paths (only for the selection, colored by
 # order), camera pan and zoom, production (select the HQ, queue by hotkey, five with Shift, rally point, cancel),
 # construction (a builder's build key arms a ghost, a click lays the foundation), the minimap, the pause
-# menu, the selection panel, Hold (D) and Stop (S), auto-retreat (X), and control groups (Ctrl+1, then 1).
+# menu, the selection panel, Hold (D) and Stop (S), auto-retreat (X), control groups (Ctrl+1, then 1), and
+# a squad going into a house (right-click) and out again (Exit).
 # Needs a window (headless Godot drops input events). From the repo root:
 #   Godot_v4.7.2-stable_mono_win64_console.exe --path godot --fixed-fps 60 -s ../tools/input_smoke_test.gd
 # Prints PASS/FAIL per check and exits with the number of failures.
@@ -13,6 +14,7 @@ extends SceneTree
 
 const RED_BELT := Vector3(9, 0, 11) # on Red's road, on the prototype map
 const FORMATION := Vector3(0, 0, -6)  # where Blue's four units gather first
+const HOUSE := Vector3(-16, 0, 0)     # the neutral house, on the prototype map
 
 var frame := 0
 var failures := 0
@@ -72,6 +74,26 @@ func _process(_delta) -> bool:
 			right_click(cam.unproject_position(RED_BELT))
 		790:
 			key(KEY_CTRL, false)
+		800:
+			# While the artillery shells: a squad goes into the neutral house, hides, and comes out on Exit (Q).
+			click(screen(blue[0]))
+		805:
+			motion(cam.unproject_position(HOUSE))
+		808:
+			check("cursor over a free house with a squad selected: garrison", player.get("CursorName"), "Garrison")
+			right_click(cam.unproject_position(HOUSE))
+		1400:
+			check("the squad went in: hidden, and out of the selection", [blue[0].visible, selected(blue)], [false, 0])
+			click(cam.unproject_position(HOUSE + Vector3(0, 2, 0)))
+		1405:
+			check("clicking the house you hold selects it", player.get("SelectedBuilding") >= 0, true)
+			key(KEY_Q, true) # Exit, the first cell
+			key(KEY_Q, false)
+		1410:
+			check("Exit brings the squad out", blue[0].visible, true)
+			click(screen(blue[0]))
+		1415:
+			right_click(cam.unproject_position(FORMATION + Vector3(-1.5, 0, -1.5))) # back to its slot
 		2320:
 			# Only splash breaks road: the artillery (the tank can't) shells the 100-health piece down, ~20 s.
 			check("Ctrl+right-click on an enemy belt segment breaks it", root.get_node("Main/SimHost").get("BrokenSegments"), 1)
@@ -213,7 +235,7 @@ func _process(_delta) -> bool:
 			check("and hides the grid", root.get_node("Main/BuildingsView/Grid").visible, false)
 		4594:
 			# ~16 m from the rally point, at a tracked builder's pace.
-			check("the builder laid a foundation", building_count(), 3)
+			check("the builder laid a foundation", building_count(), 4) # two HQs, the house and it
 			var map := root.get_node("Main/Ui/Minimap") as Control
 			var bounds: Rect2 = cam.get("Bounds")
 			var target := Vector2(20, 10)

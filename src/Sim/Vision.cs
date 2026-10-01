@@ -85,7 +85,7 @@ public sealed partial class Simulation
 
     /// <summary>Whether a player sees a unit: its own always; an enemy where it sees it, or while that unit is given away by its shots.</summary>
     public bool SeesUnit(int player, in Unit unit) =>
-        unit.Owner == player || Sees(player, unit.Position)
+        unit.Owner == player || (unit.Inside < 0 && Sees(player, unit.Position))
         || (unit.RevealSince < State.Tick && unit.RevealUntil >= State.Tick && (unit.RevealMask & (1 << player)) != 0);
 
     /// <summary>The tick a player last saw a ground point; int.MinValue if never.</summary>

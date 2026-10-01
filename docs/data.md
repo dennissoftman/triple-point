@@ -64,7 +64,8 @@ Named by `builds` in units.json, and by `BuildingType` on a map's building spawn
 | `produces` | unit ids | none | What it trains, in the order the command card shows them. |
 | `cost` | packages | 0 | Paid bit by bit over `buildTime` while a builder works on the foundation; starting one needs the whole cost in hand, and it stalls if the money runs out after that. |
 | `buildTime` | s | 0 | How long a builder takes to put it up. |
-| `kind` | `building`, `post` or `defense` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. |
+| `kind` | `building`, `post`, `defense` or `garrison` | `building` | What it becomes when finished: stays a building (and may produce units); becomes a gatherer post (it must stand beside open belt); becomes the unit named by `unit`, a static defense. A garrison is a neutral building placed on the map (nobody builds one) that infantry squads go into: whoever is inside owns it, fires out of it and can't be hit; the building takes the hits, and its squads come out at half health when it falls. |
+| `garrison` | integer | 0 | A garrison: how many infantry squads it holds; above 0 exactly for that kind, so big and small buildings are just different types. |
 | `unit` | unit id | none | A defense: the unit it becomes. |
 | `sight` | m | 10 | How far beyond its footprint's edge it sees under fog of war (a finished post keeps it; a finished defense sees as its unit does). |
 | `mends` | `infantry` or `vehicle` | none | Its owner's units of that class it heals when sent to it (right-click it): barracks infantry, factory vehicles. A squad regains its lost members as it heals. |

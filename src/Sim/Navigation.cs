@@ -286,7 +286,7 @@ public sealed partial class Simulation
         }
     }
 
-    static bool Pushable(in Unit u) => u.Health > 0 && u.Movement != Movement.Static;
+    static bool Pushable(in Unit u) => u.Health > 0 && u.Movement != Movement.Static && u.Inside < 0;
 
     // Pushed `away` from a unit under way, a unit also goes to the side of its path (the side it's already
     // on; right in front, to its right), so it's shoved aside rather than ahead, and two meeting head on

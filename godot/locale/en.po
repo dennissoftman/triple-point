@@ -60,6 +60,9 @@ msgstr "Turret"
 msgid "building.heavy_turret"
 msgstr "Heavy turret"
 
+msgid "building.house"
+msgstr "House"
+
 # --- Mouse buttons, as key names
 msgid "key.lmb"
 msgstr "LMB"
@@ -147,6 +150,12 @@ msgstr "Retreat\noff"
 msgid "card.retreat.tip"
 msgstr "Auto-retreat: below {0}% health they go to mend on their own, infantry at your barracks, vehicles at your factory. Right-click either with hurt units to send them yourself."
 
+msgid "card.exit"
+msgstr "Exit"
+
+msgid "card.exit.tip"
+msgstr "Everyone inside comes out. Any order to a squad inside brings it out too."
+
 msgid "card.rotate"
 msgstr "Rotate"
 
@@ -219,6 +228,10 @@ msgstr "Training {0}, {1}; {2} more queued"
 
 msgid "select.not_training"
 msgstr "Not training anything"
+
+# A garrison building: {0} squads inside, {1} room for
+msgid "select.garrison"
+msgstr "{0}/{1} squads inside"
 
 # --- What a unit is doing
 msgid "order.idle"

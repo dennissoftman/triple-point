@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Godot;
 
 /// <summary>What the mouse would do right now, shown as the cursor.</summary>
-public enum CursorKind { Default, Move, Attack, AttackMove, Repair }
+public enum CursorKind { Default, Move, Attack, AttackMove, Repair, Garrison }
 
 /// <summary>
 /// Placeholder cursors, drawn in code the first time they're needed (listed in PLACEHOLDERS.md). Round
@@ -64,6 +64,8 @@ public static class Cursors
             // Shoot this: a crosshair. Orange for attack-move, which shoots whatever it meets on the way.
             CursorKind.Attack => (Center, Layers((p => Crosshair(p, Center), new Color(1, 0.3f, 0.25f)))),
             CursorKind.AttackMove => (Center, Layers((p => Crosshair(p, Center), new Color(1, 0.65f, 0.15f)))),
+            // Go in here: a house with its door open (cut out).
+            CursorKind.Garrison => (Center, Layers((House, new Color(1, 0.85f, 0.35f)))),
             // Fix this: a wrench, jaws up-left where it grips, handle down to the right.
             _ => (WrenchGrip, Layers((Wrench, new Color(0.35f, 0.9f, 1)))),
         };
@@ -92,7 +94,13 @@ public static class Cursors
         MathF.Min(Segment(p, c + new Vector2(0, -14), c + new Vector2(0, -5), 2.5f), Segment(p, c + new Vector2(0, 5), c + new Vector2(0, 14), 2.5f)),
         MathF.Min(Segment(p, c + new Vector2(-14, 0), c + new Vector2(-5, 0), 2.5f), Segment(p, c + new Vector2(5, 0), c + new Vector2(14, 0), 2.5f))));
 
-    // Point-symmetric about the center: one arrow right along the top, one left along the bottom.
+    // A house: walls and a pointed roof, with the door cut out of the walls' bottom middle.
+    static float House(Vector2 p)
+    {
+        float body = Polygon(p, [new(5, 15), new(16, 4), new(27, 15), new(24, 15), new(24, 28), new(8, 28), new(8, 15)]);
+        float door = Polygon(p, [new(13, 19), new(19, 19), new(19, 28.5f), new(13, 28.5f)]);
+        return MathF.Max(body, -door);
+    }
 
     static readonly Vector2 WrenchHead = new(9, 9), WrenchGrip = new(5, 5);
 
