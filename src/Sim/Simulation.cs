@@ -11,6 +11,7 @@ public sealed partial class Simulation
     // Tuning; moves to /data as it settles.
     public const float RepairRange = 2.5f;          // m from the segment
     public const int MaxQueue = 999;                // units a building's queue holds: no real limit, only a sane one
+    public const int MaxPending = 200;              // orders a unit has queued (shift) after its current one: likewise
     public const float GarrisonRange = 2f;          // m a squad inside a garrison building reaches beyond its walls, on top of its range
     const float EjectedHealth = 0.5f;               // of their health, what squads keep when their garrison building falls
     public const float RetreatHealth = 0.3f;        // share of full health below which an auto-retreating unit goes to mend
@@ -550,18 +551,40 @@ public sealed partial class Simulation
         return _events;
     }
 
+    // Commands may come from another machine, whose game could be modified: values no click makes (not a
+    // number, infinite, a count of none) are dropped, and points are pulled onto the map. The same on every
+    // machine, so it can't split them; the rest (whose unit, what it may do) is checked where each applies.
+    static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+
+    Vector3 OnMap(Vector3 v) => Nav is { } nav
+        ? new Vector3(Math.Clamp(v.X, nav.MinX, nav.MaxX), Math.Clamp(v.Y, -MaxHeight, MaxHeight), Math.Clamp(v.Z, nav.MinZ, nav.MaxZ))
+        : Vector3.Clamp(v, new Vector3(-MaxReach), new Vector3(MaxReach));
+
+    const float MaxHeight = 100f, MaxReach = 1e5f; // m: no map is near either
+
+    static bool Sane(Command command) => command switch
+    {
+        MoveCommand m => Finite(m.Target),
+        AttackMoveCommand m => Finite(m.Target),
+        SetRallyCommand r => Finite(r.Rally),
+        BuildCommand b => Finite(b.Position) && float.IsFinite(b.Heading),
+        ProduceCommand p => p.Count > 0,
+        _ => true,
+    };
+
     void Apply(Command command)
     {
+        if (!Sane(command)) return;
         switch (command)
         {
             case MoveCommand m:
-                Issue(m.Player, m.UnitId, new Order(UnitOrder.Move, m.Target), m.Queued);
+                Issue(m.Player, m.UnitId, new Order(UnitOrder.Move, OnMap(m.Target)), m.Queued);
                 break;
             case AttackCommand a when Knows(a.Player, a.TargetId, out _): // only what its side sees or remembers
                 Issue(a.Player, a.UnitId, new Order(UnitOrder.Attack, default, TargetId: a.TargetId), a.Queued);
                 break;
             case AttackMoveCommand am:
-                Issue(am.Player, am.UnitId, new Order(UnitOrder.AttackMove, am.Target), am.Queued);
+                Issue(am.Player, am.UnitId, new Order(UnitOrder.AttackMove, OnMap(am.Target)), am.Queued);
                 break;
             case StopCommand stop:
                 Halt(stop.Player, stop.UnitId, hold: false);
@@ -602,7 +625,7 @@ public sealed partial class Simulation
                 Destroy(d.TargetId);
                 break;
             case BuildCommand b:
-                Issue(b.Player, b.UnitId, new Order(UnitOrder.Build, b.Position, Structure: b.BuildingType, Facing: b.Heading), b.Queued);
+                Issue(b.Player, b.UnitId, new Order(UnitOrder.Build, OnMap(b.Position), Structure: b.BuildingType, Facing: b.Heading), b.Queued);
                 break;
             case ResumeBuildCommand r when OwnBuilding(r.Player, r.BuildingId) is { Built: false }:
                 Issue(r.Player, r.UnitId, new Order(UnitOrder.Build, default, TargetId: r.BuildingId), r.Queued);
@@ -626,7 +649,7 @@ public sealed partial class Simulation
                 building.Queue.RemoveAt(c.Index);
                 break;
             case SetRallyCommand r when OwnBuilding(r.Player, r.BuildingId) is { } building:
-                building.Rally = r.Rally;
+                building.Rally = OnMap(r.Rally);
                 break;
         }
     }
@@ -1041,7 +1064,7 @@ public sealed partial class Simulation
             Start(ref unit, order);
         }
         else if (unit.Current.Kind == UnitOrder.None) Start(ref unit, order);
-        else unit.Pending.Enqueue(order);
+        else if (unit.Pending.Count < MaxPending) unit.Pending.Enqueue(order);
     }
 
     // Stop, or hold position: every order dropped, standing where it is, and that's its spot now.

@@ -16,6 +16,7 @@ public partial class NetSession : Node
     public const int DefaultPort = 7777;
     public const int DefaultDelay = 3; // ticks: 150 ms, for round trips up to about 250 ms
     const double LingerSeconds = 5;
+    const int MaxDelay = 20; // ticks: a second; a host asking for more is broken or up to something
 
     public enum Status { Idle, Hosting, Joining, Ready, InMatch, Failed }
 
@@ -148,11 +149,23 @@ public partial class NetSession : Node
         }
     }
 
+    // Once a match is on, everything goes to its Lockstep, which checks it (a lobby message then is a
+    // violation). Before, the lobby's own messages; one that doesn't parse drops whoever sent it.
     void Handle(byte[] message)
     {
-        var kind = NetMessage.KindOf(message);
-        if (Match is not null && kind < NetMessage.Kind.Hello) { Match.Receive(message); return; }
-        switch (kind)
+        if (Match is not null) { Match.Receive(message); return; }
+        try { HandleLobby(message); }
+        catch (Exception e) when (e is System.IO.EndOfStreamException or System.IO.InvalidDataException or System.IO.IOException or ArgumentException or OverflowException)
+        {
+            GD.Print($"A malformed lobby message ({e.GetType().Name}); dropping the other side");
+            if (IsHost) { _peer?.GetPeer(_other)?.PeerDisconnectLater(); State = Status.Hosting; }
+            else Fail("net.fail.lost", "");
+        }
+    }
+
+    void HandleLobby(byte[] message)
+    {
+        switch (NetMessage.KindOf(message))
         {
             case NetMessage.Kind.Hello when IsHost:
                 var hello = NetMessage.ReadHello(message);
@@ -182,6 +195,7 @@ public partial class NetSession : Node
                 break;
             case NetMessage.Kind.Setup when !IsHost && State == Status.Ready:
                 var setup = NetMessage.ReadSetup(message);
+                if (setup.HostPlayer is not (0 or 1) || setup.Delay is < 1 or > MaxDelay) { Fail("net.fail.lost", ""); return; }
                 Begin(setup, 1 - setup.HostPlayer);
                 break;
         }

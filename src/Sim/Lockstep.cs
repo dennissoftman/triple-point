@@ -8,6 +8,12 @@ namespace Sim;
 /// Each turn sent at a tick that's a multiple of HashEvery carries the state's hash then; a peer's hash
 /// that differs from this machine's for the same tick is a desync, and both stop. Transport-agnostic:
 /// messages go out through Outbox and come in through Receive, in order (ENet's reliable channel).
+///
+/// The peer's messages are checked, since its game could be modified: a turn must be the next one
+/// expected from it (no skipping, repeating or running ahead), carry the hash when one is due, hold no
+/// more than MaxCommandsPerTurn commands and only its own player's (no orders for the other side's units,
+/// no scripted ones), and parse to its last byte. Anything else is a Violation: the match stops, as for a
+/// desync. State the peer changes on its own machine (its money, its units) shows as a desync.
 /// </summary>
 public sealed class Lockstep
 {
@@ -31,18 +37,26 @@ public sealed class Lockstep
     /// <summary>The peer's state dump at the desync, once it arrives.</summary>
     public string? PeerDump { get; private set; }
 
+    /// <summary>What the peer sent that no honest game sends, once it has: the match stops.</summary>
+    public string? Violation { get; private set; }
+
+    /// <summary>More than any player issues in a tick (a big box-selection's orders), to bound what a peer can make this machine hold.</summary>
+    public const int MaxCommandsPerTurn = 2000;
+
     readonly Dictionary<int, Command[]>[] _turns;   // per player: tick -> its commands for it
     readonly List<Command> _pending = [];          // issued here since the last turn sent
     readonly List<Command> _run = [];              // the tick's commands, merged
     readonly List<Command> _faults = [];           // InjectFault's
     readonly Dictionary<int, StateHash> _own = [];
     readonly Dictionary<int, StateHash>[] _theirs; // per player: tick -> its hash
+    readonly int[] _expect;                        // per player: the tick its next turn must be for
 
     public Lockstep(int localPlayer, int players, int delay, uint seed, string setup, int hashEvery = Replay.DefaultHashEvery)
     {
         (LocalPlayer, Players, Delay, HashEvery) = (localPlayer, players, Math.Max(1, delay), hashEvery);
         _turns = [.. Enumerable.Range(0, players).Select(_ => new Dictionary<int, Command[]>())];
         _theirs = [.. Enumerable.Range(0, players).Select(_ => new Dictionary<int, StateHash>())];
+        _expect = [.. Enumerable.Repeat(Delay, players)];
         Replay = new Replay { Seed = seed, Setup = setup, HashEvery = hashEvery };
     }
 
@@ -61,7 +75,7 @@ public sealed class Lockstep
     /// </summary>
     public bool Ready(int tick)
     {
-        if (Paused || Desync is not null) return false;
+        if (Paused || Desync is not null || Violation is not null) return false;
         if (tick < Delay) return true;
         foreach (var turns in _turns)
             if (!turns.ContainsKey(tick)) return false;
@@ -118,47 +132,80 @@ public sealed class Lockstep
 
     public void Receive(byte[] message)
     {
+        if (Violation is not null) return;
+        try { Read(message); }
+        catch (Exception e) when (e is EndOfStreamException or InvalidDataException or IOException or ArgumentException or OverflowException or IndexOutOfRangeException)
+        {
+            Violate($"a malformed message ({e.GetType().Name})");
+        }
+    }
+
+    void Read(byte[] message)
+    {
+        if (message.Length == 0) { Violate("an empty message"); return; }
+        using var r = NetMessage.Read(message);
         switch (NetMessage.KindOf(message))
         {
             case NetMessage.Kind.Turn:
             {
-                using var r = NetMessage.Read(message);
-                int tick = r.ReadInt32(), player = r.ReadByte();
-                var commands = new Command[r.ReadInt32()];
-                for (int i = 0; i < commands.Length; i++) commands[i] = CommandCodec.Read(r);
-                if (player < 0 || player >= Players || player == LocalPlayer) break;
-                _turns[player][tick] = commands;
-                if (r.ReadBoolean())
+                int tick = r.ReadInt32(), player = r.ReadByte(), count = r.ReadInt32();
+                if (player >= Players || player == LocalPlayer) { Violate($"a turn for player {player}"); return; }
+                if (tick != _expect[player]) { Violate($"a turn for tick {tick} when {_expect[player]} was next"); return; }
+                if (count < 0 || count > MaxCommandsPerTurn) { Violate($"{count} commands in one turn"); return; }
+                var commands = new Command[count];
+                for (int i = 0; i < count; i++)
                 {
-                    var hash = NetMessage.ReadHash(r);
-                    _theirs[player][hash.Tick] = hash;
-                    Compare(player, hash.Tick);
+                    commands[i] = CommandCodec.Read(r);
+                    if (commands[i].Player != player) { Violate($"a {commands[i].GetType().Name} for player {commands[i].Player}"); return; }
+                }
+                bool hashed = r.ReadBoolean(), due = (tick - Delay) % HashEvery == 0;
+                StateHash? hash = hashed ? NetMessage.ReadHash(r) : null;
+                if (hashed != due || (hash is { } h && h.Tick != tick - Delay)) { Violate($"a turn for tick {tick} {(due ? "without its hash" : "with a hash out of turn")}"); return; }
+                End(r);
+                _expect[player]++;
+                _turns[player][tick] = commands;
+                if (hash is { } theirs)
+                {
+                    _theirs[player][theirs.Tick] = theirs;
+                    Compare(player, theirs.Tick);
                 }
                 break;
             }
             case NetMessage.Kind.Pause:
             {
-                using var r = NetMessage.Read(message);
-                (Paused, PausedBy) = (r.ReadBoolean(), r.ReadByte());
-                if (!Paused) PausedBy = Player.None;
+                bool paused = r.ReadBoolean();
+                int by = r.ReadByte();
+                End(r);
+                if (by >= Players || by == LocalPlayer) { Violate($"a pause by player {by}"); return; }
+                (Paused, PausedBy) = (paused, paused ? by : Player.None);
                 break;
             }
             case NetMessage.Kind.Desync:
             {
-                using var r = NetMessage.Read(message);
                 (int tick, string sections) = (r.ReadInt32(), r.ReadString());
+                End(r);
                 Desync ??= (tick, sections);
                 break;
             }
             case NetMessage.Kind.Dump:
             {
-                using var r = NetMessage.Read(message);
-                PeerDump = r.ReadString();
+                var dump = r.ReadString();
+                End(r);
+                if (Desync is not null) PeerDump = dump; // only wanted after a desync
                 break;
             }
             case NetMessage.Kind.Bye: PeerLeft = true; break;
+            default: Violate($"a message of kind {message[0]} during the match"); break;
         }
     }
+
+    // Every byte read: an honest message has nothing after its fields.
+    static void End(BinaryReader r)
+    {
+        if (r.BaseStream.Position != r.BaseStream.Length) throw new InvalidDataException("bytes left over");
+    }
+
+    void Violate(string what) => Violation ??= what;
 
     /// <summary>Pauses or resumes, for everyone.</summary>
     public void SetPaused(bool paused)

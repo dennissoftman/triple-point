@@ -369,7 +369,7 @@ public partial class SimHost : Node3D
             if (tick == _quitAt) { GD.Print($"net-quit {tick} {_sim.Hash().All:x16}"); GetTree().Quit(); break; }
         }
         NetSession.Instance.Flush();
-        _waiting = stalled && !net.Paused && net.Desync is null && !net.PeerLeft ? _waiting + delta : 0;
+        _waiting = stalled && !net.Paused && net.Desync is null && net.Violation is null && !net.PeerLeft ? _waiting + delta : 0;
         if (_quitIn >= 0 && (_quitIn -= delta) < 0)
         {
             if (Arg("--net-snap=") is string snap) GetViewport().GetTexture().GetImage().SavePng(snap); // tools: the screen as it ends
@@ -380,7 +380,16 @@ public partial class SimHost : Node3D
         string other = PlayerPalette.Name(1 - PlayerInput.LocalPlayer);
         _netLabel.Text = _waiting > WaitShownAfter ? L.T("net.waiting", other) : "";
         _netLabel.Visible = _netLabel.Text.Length > 0;
-        if (net.Desync is var (desyncTick, sections)) ShowDesync(desyncTick, sections);
+        if (net.Violation is string violation)
+        {
+            if (!_leftShown)
+            {
+                _leftShown = true;
+                GD.Print($"[{_sim.State.Tick}] VIOLATION: {other}'s game sent {violation}; the match stopped");
+                GameOver.ShowEnd(L.T("net.violation", other), L.T("net.violation.detail"), Colors.Orange); // what exactly: the log
+            }
+        }
+        else if (net.Desync is var (desyncTick, sections)) ShowDesync(desyncTick, sections);
         else if (net.PeerLeft && !_leftShown && !_sim.State.GameOver)
         {
             _leftShown = true;

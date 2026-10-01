@@ -612,3 +612,10 @@ msgstr "Report saved in {0} and sent to the host. Please send it to the develope
 # {0} the first difference, {1} the folder
 msgid "net.desync.compared"
 msgstr "First difference: {0}\nBoth reports are in {1}. Please send the folder to the developer."
+
+# {0} the other side
+msgid "net.violation"
+msgstr "{0}'s game broke the rules"
+
+msgid "net.violation.detail"
+msgstr "It sent something no unmodified game sends. The match stopped."
