@@ -7,15 +7,19 @@ using Sim;
 /// The look of one unit. A squad is a capsule per member, walking loosely in a wedge behind the squad's
 /// sim position (visual only: the sim has one position per squad). A vehicle is a hull on wheels or
 /// tracks that follows the sim's heading and leans on its suspension as it speeds up, brakes and turns,
-/// with a turret that follows the sim's turret; an unarmed one (a builder) carries a blade instead, and a
-/// static one (a defense) sits on a squat base. Tinted by
-/// owner, with a selection ring and a health bar. UnitsView positions it.
+/// with a turret that follows the sim's turret; an unarmed one (a builder) carries a blade and a crane
+/// instead, and a static one (a defense) sits on a squat base. Bodies are neutral and the side shows as an
+/// accent seen from above (helmets, turret tops, the cab roof); each class has its own silhouette: rifles,
+/// long launchers over the shoulder (rockets), a big pack (engineer); a long narrow car, a wide tank with a
+/// long gun, artillery with its turret set back on a long hull. With a selection ring and a health bar.
+/// UnitsView positions it.
 /// </summary>
 public partial class UnitView : Node3D
 {
     const float TurnSharpness = 8f;    // squads turn toward their heading (1/s)
     const float FollowSharpness = 5f;  // how tightly members keep to their wedge slots (1/s)
-    const float MemberRadius = 0.28f, MemberHeight = 1.3f;
+    const float MemberRadius = 0.28f, MemberHeight = 1.3f, HelmetRadius = 0.24f;
+    const float AccentThickness = 0.06f; // m: the side-colored plate on a turret's or cab's top
     const float SlotSpacing = 0.9f;    // m between members
     const float WheelRadius = 0.35f;
     // Suspension, for the look of weight only: the hull leans against acceleration (degrees per m/s²),
@@ -84,20 +88,27 @@ public partial class UnitView : Node3D
     public void Setup(int player, UnitMaterials materials, int members, Movement movement, bool armed, float heavyGunRange = 0, bool cannon = false)
     {
         PlayerIndex = player;
-        var (body, turret) = materials.For(player);
+        var accent = materials.Accent(player);
         if (members > 1 || movement == Movement.Foot)
         {
-            BuildSquad(members, body);
-            // A lone unarmed soldier (an engineer) carries a tool pack on its back (+Z: forward is -Z).
-            if (!armed) _members[0].AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.36f, 0.42f, 0.24f) }, MaterialOverride = materials.Dark, Position = new Vector3(0, 0.1f, 0.3f) });
-            if (armed && cannon)
+            BuildSquad(members, materials.Infantry, accent);
+            // Members face -Z (their facing, set in SyncSquad); +Z is the back, +X the right.
+            if (!armed) // an engineer: a big tool pack on its back
+                _members[0].AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.5f, 0.55f, 0.36f) }, MaterialOverride = materials.Dark, Position = new Vector3(0, 0.1f, 0.34f) });
+            else if (cannon) // rockets: a long launcher over the right shoulder, along the facing
             {
-                var tube = new CylinderMesh { TopRadius = 0.1f, BottomRadius = 0.1f, Height = 1.0f };
-                foreach (var member in _members) // slung over the right shoulder, sticking up behind
-                    member.AddChild(new MeshInstance3D { Mesh = tube, MaterialOverride = materials.Dark, Position = new Vector3(0.22f, 0.25f, 0.1f), RotationDegrees = new Vector3(-55, 0, 0) });
+                var tube = new CylinderMesh { TopRadius = 0.11f, BottomRadius = 0.11f, Height = 1.4f };
+                foreach (var member in _members)
+                    member.AddChild(new MeshInstance3D { Mesh = tube, MaterialOverride = materials.Dark, Position = new Vector3(0.26f, 0.42f, 0.1f), RotationDegrees = new Vector3(90, 0, 0) });
+            }
+            else // rifles, held forward
+            {
+                var rifle = new BoxMesh { Size = new Vector3(0.06f, 0.06f, 0.7f) };
+                foreach (var member in _members)
+                    member.AddChild(new MeshInstance3D { Mesh = rifle, MaterialOverride = materials.Dark, Position = new Vector3(0.2f, 0.05f, -0.3f) });
             }
         }
-        else BuildVehicle(movement, armed, body, turret, materials.Dark, heavyGunRange > 0, cannon && movement == Movement.Static);
+        else BuildVehicle(movement, armed, materials.Vehicle, materials.Turret, accent, materials.Dark, heavyGunRange > 0, cannon && movement == Movement.Static);
         _gunRange = heavyGunRange;
 
         float ringRadius = members > 1 ? 2.1f : 1.9f;
@@ -107,12 +118,14 @@ public partial class UnitView : Node3D
         AddChild(_health);
     }
 
-    void BuildSquad(int members, Material body)
+    void BuildSquad(int members, Material body, Material accent)
     {
         var mesh = new CapsuleMesh { Radius = MemberRadius, Height = MemberHeight };
+        var helmet = new SphereMesh { Radius = HelmetRadius, Height = HelmetRadius * 1.4f };
         for (int i = 0; i < members; i++)
         {
             var member = new MeshInstance3D { Mesh = mesh, MaterialOverride = body };
+            member.AddChild(new MeshInstance3D { Mesh = helmet, MaterialOverride = accent, Position = new Vector3(0, MemberHeight / 2 - HelmetRadius * 0.5f, 0) });
             AddChild(member);
             _members.Add(member);
             _memberPositions.Add(Vector3.Zero);
@@ -120,22 +133,38 @@ public partial class UnitView : Node3D
     }
 
     // Forward is -Z throughout, as Basis.LookingAt expects.
-    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material dark, bool heavyGun, bool cannon)
+    void BuildVehicle(Movement movement, bool armed, Material body, Material turretBody, Material accent, Material dark, bool heavyGun, bool cannon)
     {
         bool tracked = movement == Movement.Tracked, fixedBase = movement == Movement.Static;
         (_pitchPerAccel, _rollPerAccel) = tracked ? (0.9f, 0.3f) : (0.7f, 0.45f);
-        var hull = fixedBase ? new Vector3(1.8f, 0.8f, 1.8f) : tracked ? new Vector3(1.7f, 0.7f, 2.5f) : new Vector3(1.4f, 0.5f, 2.2f);
+        // Hulls by class: a squat base (defense), a long one (artillery), a wide one (tank), a builder's,
+        // a long narrow car.
+        var hull = fixedBase ? new Vector3(1.8f, 0.8f, 1.8f)
+            : heavyGun ? new Vector3(1.6f, 0.6f, 3.2f)
+            : tracked && armed ? new Vector3(2.0f, 0.65f, 2.7f)
+            : tracked ? new Vector3(1.7f, 0.7f, 2.4f)
+            : new Vector3(1.2f, 0.45f, 2.4f);
         float hullBottom = fixedBase ? 0 : tracked ? 0.35f : WheelRadius + 0.1f;
 
         _hull = new Node3D();
         AddChild(_hull);
         AddBox(_hull, hull, body, new Vector3(0, hullBottom + hull.Y / 2, 0));
-        if (!armed) AddBox(_hull, new Vector3(hull.X + 0.5f, 0.55f, 0.18f), dark, new Vector3(0, 0.3f, -(hull.Z / 2 + 0.35f))); // a dozer blade
+        float top = hullBottom + hull.Y;
+        if (!armed)
+        {
+            // A builder: a dozer blade in front, a cab with a side-colored roof, and a crane arm reaching back.
+            AddBox(_hull, new Vector3(hull.X + 0.5f, 0.55f, 0.18f), dark, new Vector3(0, 0.3f, -(hull.Z / 2 + 0.35f)));
+            AddBox(_hull, new Vector3(1.0f, 0.55f, 0.9f), turretBody, new Vector3(0, top + 0.275f, -0.5f));
+            AddBox(_hull, new Vector3(0.9f, AccentThickness, 0.8f), accent, new Vector3(0, top + 0.55f + AccentThickness / 2, -0.5f));
+            AddBox(_hull, new Vector3(0.18f, 1.6f, 0.18f), dark, new Vector3(0.4f, top + 0.8f, 0.7f));
+            var boom = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.14f, 0.14f, 1.8f) }, MaterialOverride = dark, Position = new Vector3(0.4f, top + 1.45f, 1.25f), RotationDegrees = new Vector3(-25, 0, 0) };
+            _hull.AddChild(boom);
+        }
         for (int side = -1; side <= 1 && !fixedBase; side += 2)
         {
             if (tracked)
             {
-                AddBox(_hull, new Vector3(0.45f, 0.65f, 2.7f), dark, new Vector3(side * (hull.X / 2 + 0.2f), 0.33f, 0));
+                AddBox(_hull, new Vector3(0.45f, 0.65f, hull.Z + 0.2f), dark, new Vector3(side * (hull.X / 2 + 0.2f), 0.33f, 0));
                 continue;
             }
             for (int end = -1; end <= 1; end += 2)
@@ -152,24 +181,27 @@ public partial class UnitView : Node3D
             }
         }
 
-        // The turret isn't parented to the hull: it aims on its own.
+        // The turret isn't parented to the hull: it aims on its own. Artillery's sits toward the back.
         _turretHeight = hullBottom + hull.Y;
         if (!armed) return;
         _turret = new Node3D { Position = new Vector3(0, _turretHeight, 0) };
         AddChild(_turret);
-        var turret = heavyGun || cannon ? new Vector3(1.2f, 0.6f, 1.4f) : tracked ? new Vector3(1.0f, 0.4f, 1.1f) : new Vector3(0.65f, 0.3f, 0.75f);
-        AddBox(_turret, turret, turretBody, new Vector3(0, turret.Y / 2, 0));
-        _barrelLength = heavyGun ? 2.6f : cannon ? 2.0f : tracked ? 1.4f : 0.8f;
+        var turret = heavyGun ? new Vector3(1.1f, 0.55f, 1.2f) : cannon ? new Vector3(1.2f, 0.6f, 1.4f)
+            : tracked ? new Vector3(1.3f, 0.45f, 1.4f) : new Vector3(0.55f, 0.3f, 0.6f);
+        float back = heavyGun ? 0.8f : 0; // m behind the turret ring the box sits
+        AddBox(_turret, turret, turretBody, new Vector3(0, turret.Y / 2, back));
+        AddBox(_turret, new Vector3(turret.X * 0.8f, AccentThickness, turret.Z * 0.8f), accent, new Vector3(0, turret.Y + AccentThickness / 2, back));
+        _barrelLength = heavyGun ? 2.6f : cannon ? 2.0f : tracked ? 2.0f : 0.9f;
         if (heavyGun)
         {
             // A long barrel raised toward the sky, hinged at the front of the turret.
-            _hinge = new Node3D { Position = new Vector3(0, turret.Y * 0.7f, -turret.Z / 2), RotationDegrees = new Vector3(RestElevation, 0, 0) };
+            _hinge = new Node3D { Position = new Vector3(0, turret.Y * 0.7f, back - turret.Z / 2), RotationDegrees = new Vector3(RestElevation, 0, 0) };
             _turret.AddChild(_hinge);
             AddBox(_hinge, new Vector3(0.2f, 0.2f, _barrelLength), dark, new Vector3(0, 0, -_barrelLength / 2));
         }
         else
         {
-            float bore = cannon ? 0.26f : 0.14f;
+            float bore = cannon ? 0.26f : tracked ? 0.2f : 0.1f;
             AddBox(_turret, new Vector3(bore, bore, _barrelLength), dark, new Vector3(0, turret.Y / 2, -(turret.Z + _barrelLength) / 2));
         }
     }
@@ -249,11 +281,12 @@ public partial class UnitView : Node3D
             _shownMembers = alive;
             for (int i = 0; i < _members.Count; i++) _members[i].Visible = i < alive;
         }
+        var facing = Basis.LookingAt(forward, Vector3.Up);
         for (int i = 0; i < alive && i < _members.Count; i++)
         {
             var slot = WedgeSlot(i);
             _memberPositions[i] = _memberPositions[i].Lerp(position + right * slot.X + forward * slot.Y, follow);
-            _members[i].GlobalPosition = _memberPositions[i] + new Vector3(0, MemberHeight / 2, 0);
+            _members[i].GlobalTransform = new Transform3D(facing, _memberPositions[i] + new Vector3(0, MemberHeight / 2, 0));
             _muzzles.Add(_memberPositions[i] + new Vector3(0, MemberHeight * 0.7f, 0));
         }
     }

@@ -723,11 +723,11 @@ void fragment() {
         return remembered;
     }
 
-    // A depot: a shed in the owner's colors, and a loading bay from it to the road's edge at its pull point.
+    // A depot: a neutral shed with a roof in the owner's color, and a loading bay from it to the road's edge
+    // at its pull point.
     PostView BuildPost(SimState state, in Gatherer gatherer)
     {
-        var material = (StandardMaterial3D)GathererMaterial.Duplicate();
-        material.AlbedoColor = GathererMaterial.AlbedoColor.Lerp(PlayerPalette.Color(gatherer.Owner), 0.55f);
+        var material = (StandardMaterial3D)GathererMaterial.Duplicate(); // its own: it glows as it unloads
 
         var root = new Node3D { Position = ToGodot(gatherer.Position) with { Y = 0 } };
         AddChild(root);
@@ -736,6 +736,12 @@ void fragment() {
             Mesh = new BoxMesh { Size = PostSize },
             MaterialOverride = material,
             Position = new Vector3(0, PostSize.Y / 2, 0),
+        });
+        root.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(PostSize.X * 0.9f, 0.08f, PostSize.Z * 0.9f) },
+            MaterialOverride = new StandardMaterial3D { AlbedoColor = PlayerPalette.Color(gatherer.Owner), Roughness = 0.7f },
+            Position = new Vector3(0, PostSize.Y + 0.04f, 0),
         });
 
         var pull = (ToGodot(state.Belts[gatherer.Line].PositionAt(gatherer.Distance)) with { Y = 0 }) - root.Position;

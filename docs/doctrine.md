@@ -52,7 +52,7 @@ Milestones:
    1. [built] Mending at home, building repair and retreat (Units): until then nothing healed, so every fight was pure attrition.
    2. [built] Garrison buildings (below), and the AI taught to use them and to guard a depot with a turret (item 5: Defenses, Garrisons).
    3. [built] Road types on the main map (Infrastructure: Road types): a dirt track and a paved road, so routes carry different stakes.
-   4. A readability pass (Art): road types and damage states, unit class silhouettes, threat and selection markers, health at a glance; judged by the grayscale and squint test.
+   4. [built] A readability pass (Look): sides at a glance and unit class silhouettes, judged by the grayscale and squint test (2026-10-01). Left for later: a calmer environment (the rocks are the brightest thing on screen), and threat markers.
    5. A skirmish setup menu (Controls), then the playtest.
    - [built] **Garrisons:** neutral buildings on the routes, on the main map (two houses at the crossing: Playable map). How many infantry squads (any on foot) a building holds is its type's `garrison` in buildings.json, so big and small buildings come from data (2 to start). They enter one by right-clicking it and leave with Exit on the card (Q, everyone), a click on a squad's tile in the selection panel (that one), or any order given them; whoever is inside owns it until the last one leaves. Inside they fire out at +2 m range (from the building's wall), take no damage and can't be seen: the building soaks every hit (armor applies: a structure, so artillery at ×3 is the answer), and when it falls they tumble out at half health.
      - An empty one is nobody's: nothing targets it or splashes it, and a side that loses leaves its houses empty. A house never keeps a side in the game (Win and lose).
@@ -324,6 +324,10 @@ Still [decided], for when their systems exist:
 ## Look
 
 - [decided] The environment is worn, desaturated and mid-contrast. Units have neutral bodies with saturated faction accents: silhouette first, color second. The routes, trucks and their cargo are the highest contrast on screen.
+  - [built] **Sides (2026-10-01, from the first squint test: Red and Blue squads were the same mid-gray on the ground):** bodies are neutral and the same for both sides, khaki infantry and olive vehicles, lighter than the ground so units stand out from it in value; a side's color is on what the camera sees from above: helmets, turret-top plates, the builder's cab roof, and a roof plate on buildings and depots. A garrison house's walls take its holder's color.
+  - [built] **Class silhouettes:** rifles held forward, a long launcher along each rocket trooper's shoulder (members face where they go), a big pack on the engineer; a long narrow car with a small gun, a wide tank with a long gun, artillery's long hull with its turret set back and a raised barrel, the builder's blade, cab and crane arm.
+  - [built] **Health bars** show over whatever is damaged, and over whatever is selected, whole or not.
+  - [proposed] Still to do: rocks are the brightest thing on screen (darker, lower-contrast rocks and a faint ground texture would let the routes pop), and nothing yet shows who's shooting whom beyond tracers.
 - [decided] Scale is exaggerated: units are large relative to buildings and roads.
 - [decided] Readability test: grayscale and squint, judged from the gameplay camera in a busy scene.
 - [decided] Detail budget:

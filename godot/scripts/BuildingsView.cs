@@ -4,7 +4,7 @@ using Sim;
 using static SimConvert;
 
 /// <summary>
-/// Draws buildings: a block in the owner's colors (a production building gets a door on its exit side),
+/// Draws buildings: a neutral block with a roof plate in the owner's color (a production building gets a door on its exit side),
 /// a health bar once damaged, and a progress bar while it trains a unit or, as a foundation, while it's
 /// built (amber while stalled for packages). A foundation rises as it's built. The selected building
 /// gets an outline and a flag on its rally point, and a building being placed shows as a ghost, green
@@ -18,6 +18,7 @@ public partial class BuildingsView : Node3D
 {
     const float BlockHeight = 3f, LowBlockHeight = 1.4f; // production buildings; posts and defenses
     const float WallHeight = 2.4f, RoofHeight = 1.3f;     // a garrison building's walls and the roof on them
+    const float RoofPlate = 0.1f;                         // m: the owner-colored plate on other buildings' roofs
     const float MinFoundation = 0.1f;                     // share of full height a new foundation shows
     static readonly Color Working = new(0.85f, 0.85f, 0.9f), Stalled = new(0.95f, 0.6f, 0.15f);
     static readonly Color Fits = new(0.4f, 1, 0.5f, 0.35f), Blocked = new(1, 0.3f, 0.25f, 0.35f);
@@ -114,7 +115,7 @@ void fragment() {
             view.Root.Visible = true;
             float health = building.Health / building.MaxHealth;
             view.Health.Set(health, HealthBar.HealthColor(health));
-            view.Health.Visible = building.Built && health < 1;
+            view.Health.Visible = building.Built && (health < 1 || building.Id == selected); // damaged, or selected
 
             float height = building.Built ? 1 : Mathf.Max(MinFoundation, (float)building.BuildProgress / building.Type.BuildTicks);
             if (height != view.Height) view.Block.Scale = new Vector3(1, view.Height = height, 1);
@@ -207,8 +208,10 @@ void fragment() {
         root.AddChild(block);
         bool house = building.Type.Kind == BuildingKind.Garrison;
         float walls = house ? WallHeight : height;
-        var body = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size, walls, size) }, MaterialOverride = MaterialFor(building.Owner), Position = new Vector3(0, walls / 2, 0) };
+        // Neutral walls with the owner's color on the roof, seen from above; a house's walls take its holder's.
+        var body = new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size, walls, size) }, MaterialOverride = house ? MaterialFor(building.Owner) : BuildingMaterial, Position = new Vector3(0, walls / 2, 0) };
         block.AddChild(body);
+        if (!house) block.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(size * 0.86f, RoofPlate, size * 0.86f) }, MaterialOverride = AccentFor(building.Owner), Position = new Vector3(0, walls + RoofPlate / 2, 0) });
         var pips = new MeshInstance3D[house ? building.Type.Garrison : 0];
         if (house)
         {
@@ -236,7 +239,14 @@ void fragment() {
         return new View(root, block, body, health, progress, outline, pips);
     }
 
-    readonly Dictionary<int, StandardMaterial3D> _pipMaterials = []; // per player
+    readonly Dictionary<int, StandardMaterial3D> _pipMaterials = [], _accents = []; // per player
+
+    // A building's roof plate: its owner's color, saturated.
+    StandardMaterial3D AccentFor(int player)
+    {
+        if (_accents.TryGetValue(player, out var material)) return material;
+        return _accents[player] = new StandardMaterial3D { AlbedoColor = PlayerPalette.Color(player), Roughness = 0.7f };
+    }
 
     StandardMaterial3D PipMaterialFor(int player)
     {
